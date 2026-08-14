@@ -57,7 +57,11 @@ order), and mangle the sound.
   dangerous level. On by default, adjustable ceiling, can be switched off. Lives at the bottom of
   the Mod Matrix tab.
 - **Live output scope** -- a waveform display fed from the true final output (post-chain,
-  post-limiter), in the Master strip.
+  post-limiter), in the header.
+- **Update checker** -- on launch, a background check against this repo's GitHub Releases (fail
+  silent -- no network/GitHub-down/rate-limit ever shows an error, it just quietly finds nothing).
+  If a newer version is out, the "..." menu button in the header recolors and its menu gets an
+  "Update available: vX" item that opens the release page.
 
 Styled to match [SPANDEX](../RepitchDeck) (flat, hairline-bordered, no gradients or shadows).
 Not visually polished beyond that yet -- see Known limitations.
