@@ -1,8 +1,7 @@
 # GGrid
 
-A modular distortion VST3/Standalone plugin built with JUCE, in the spirit of iZotope Trash 2:
-build a signal chain out of up to 8 rack slots, drop in whichever modules you want (in whatever
-order), and mangle the sound.
+A modular distortion VST3/Standalone plugin built with JUCE: build a signal chain out of up to 8
+rack slots, drop in whichever modules you want (in whatever order), and mangle the sound.
 
 ## Features
 
@@ -10,8 +9,7 @@ order), and mangle the sound.
   Dynamics/Convolution), drag its title bar to reposition, drag a cable from a node's output to
   another node's input to connect them. Up to 8 nodes, including duplicates of the same type.
   Each node has 2 output nubs and 2 input dots -- enough to split a signal into two parallel
-  chains and sum them back together (Bitwig Grid / Ableton parallel-chain-style routing), not
-  just a single-file chain. A freshly added node auto-chains after whichever node you added right
+  chains and sum them back together, not just a single-file chain. A freshly added node auto-chains after whichever node you added right
   before it, so simple serial patches still "just work" without wiring every node by hand --
   explicit rewiring is how you branch off into something parallel. Grab an *existing* cable (not
   just a node's output) to rewire it elsewhere, or drop it on blank space to genuinely disconnect
