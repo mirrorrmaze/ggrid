@@ -1,0 +1,53 @@
+#include "IRReshapeWorker.h"
+
+namespace GGrid
+{
+    void IRReshapeWorker::run()
+    {
+        while (! threadShouldExit())
+        {
+            bool didWork = false;
+
+            for (auto& slot : slots)
+            {
+                ConvolutionModule* module = nullptr;
+                Job job;
+
+                {
+                    const juce::SpinLock::ScopedLockType lock (slotLock);
+                    if (slot.pending)
+                    {
+                        module = slot.module;
+                        job = slot.job;
+                        slot.pending = false;
+                    }
+                }
+
+                if (module == nullptr)
+                    continue;
+
+                didWork = true;
+
+                // The shaping itself (disk read, resample, fade envelope) is the expensive part
+                // and stays off the audio thread. The result just sits in the slot until the
+                // owning ConvolutionModule::process() picks it up and hands it to
+                // juce::dsp::Convolution itself -- that call has to happen on the audio thread,
+                // so we don't touch `module` here at all beyond identity matching.
+                juce::AudioBuffer<float> shaped;
+                if (IRProcessor::buildShapedIR (job.irIndex, job.sampleRate, job.fadeInMs, job.fadeOutPercent, job.stretch, shaped))
+                {
+                    const juce::SpinLock::ScopedLockType lock (slotLock);
+                    slot.result = std::move (shaped);
+                    slot.resultSampleRate = job.sampleRate;
+                    slot.resultReady = true;
+                }
+
+                if (threadShouldExit())
+                    return;
+            }
+
+            if (! didWork)
+                wait (30);
+        }
+    }
+}
