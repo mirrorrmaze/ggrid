@@ -8,6 +8,14 @@
 // see IRReshapeWorker, which is what actually calls this off the audio thread.
 namespace GGrid::IRProcessor
 {
+    // Absolute cap on how long Stretch can ever grow a shaped IR to, regardless of the 0.25x-4x
+    // multiplier or the source's own length -- see buildShapedIR's Stretch comment. Exposed here
+    // (not just a local constant inside buildShapedIR) so callers that need to pre-size a buffer
+    // to the worst case an IR can ever reach -- e.g. ConvolutionModule's GUI display copy,
+    // avoiding a reallocation on the audio thread every time a new IR is applied -- share the
+    // exact same number rather than duplicating it and hoping it stays in sync.
+    constexpr double kMaxIRGrowthSeconds = 8.0;
+
     // Returns false (leaving outShapedIR empty) if the catalog entry couldn't be loaded.
     //
     // outPreFadeOutLength is the buffer's length in samples *before* Fade Out's truncation (i.e.

@@ -27,34 +27,32 @@ namespace GGrid::IRProcessor
         // source's own natural length, NOT a flat ceiling -- anchoring the ceiling at
         // max(natural length, cap) means Stretch can only ever grow something, never shrink it
         // below what picking that IR at 1x already gives you.
-        constexpr double maxGrowthSeconds = 8.0;
-        const int growthCeilingSamples = juce::jmax (srcLength, (int) (maxGrowthSeconds * sampleRate));
+        const int growthCeilingSamples = juce::jmax (srcLength, (int) (kMaxIRGrowthSeconds * sampleRate));
         const int stretchedLength = juce::jmin (growthCeilingSamples, juce::jmax (1, (int) std::round (srcLength * stretch)));
         outShapedIR.setSize (srcChannels, stretchedLength, false, false, true);
 
-        // LagrangeInterpolator::process's contract requires the input to hold at least
-        // (speedRatio * numOutputSamplesToProduce) samples -- here that's exactly srcLength, by
-        // construction of `ratio`, with zero margin. In practice the interpolator's own internal
-        // lookahead plus floating-point drift in the accumulated sub-sample position (over
-        // potentially tens of thousands of iterations at high Stretch ratios) pushes it to read a
-        // handful of samples past that exact boundary, into whatever heap memory happens to sit
-        // beyond rawIR's allocation -- garbage, not silence. That garbage showed up as a burst of
-        // noise right at the tail of the stretched waveform (worse at higher Stretch, matching the
-        // reported symptom), and got convolved into the actual IR audio too, not just the display.
-        // Padding the read source with harmless trailing silence gives any such overrun somewhere
-        // safe to land.
-        constexpr int interpolatorReadPadding = 16;
-        juce::AudioBuffer<float> paddedRawIR (srcChannels, srcLength + interpolatorReadPadding);
-        paddedRawIR.clear();
-        for (int ch = 0; ch < srcChannels; ++ch)
-            paddedRawIR.copyFrom (ch, 0, rawIR, ch, 0, srcLength);
-
+        // The plain 4-argument LagrangeInterpolator::process() requires the input to hold at
+        // least (speedRatio * numOutputSamplesToProduce) samples -- here that's exactly
+        // srcLength, by construction of `ratio`, with zero margin. An earlier version of this
+        // function fed it rawIR directly (with a small fixed padding buffer as a safety margin),
+        // which still wasn't always enough: the interpolator's own internal lookahead plus
+        // floating-point drift in its accumulated sub-sample position (over potentially tens of
+        // thousands of iterations at high Stretch ratios) could read past even a padded margin,
+        // into whatever heap memory happened to sit beyond it -- garbage (not necessarily NaN/
+        // Inf, so not something a finite-value check alone catches), showing up as visible noise
+        // near the tail of the stretched waveform and getting convolved into the actual IR audio
+        // too. Using the 6-argument overload instead tells the interpolator explicitly that only
+        // `srcLength` real samples exist and to feed zeroes once it runs past that
+        // (wrapAround = 0) -- this is JUCE's own documented mechanism for exactly this case, so
+        // it can never read out of bounds no matter how the sub-sample position drifts, rather
+        // than us guessing how much margin is enough.
         const double ratio = (double) srcLength / (double) stretchedLength;
         for (int ch = 0; ch < srcChannels; ++ch)
         {
             juce::LagrangeInterpolator interpolator;
             interpolator.reset();
-            interpolator.process (ratio, paddedRawIR.getReadPointer (ch), outShapedIR.getWritePointer (ch), stretchedLength);
+            interpolator.process (ratio, rawIR.getReadPointer (ch), outShapedIR.getWritePointer (ch), stretchedLength,
+                                   srcLength, 0);
         }
 
         // Fade in: linear ramp from 0 over fadeInMs at the head of the IR.

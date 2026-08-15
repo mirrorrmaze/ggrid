@@ -1,5 +1,6 @@
 #include "ConvolutionModule.h"
 #include "../Params/Identifiers.h"
+#include "../IR/IRProcessor.h"
 #include <cmath>
 
 namespace GGrid
@@ -26,6 +27,21 @@ namespace GGrid
         toneHighShelf.prepare (spec);
 
         dryBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
+
+        // Pre-grown to comfortably cover the common case (see IRProcessor::kMaxIRGrowthSeconds,
+        // doubled for margin -- some factory IRs are naturally longer than that cap even before
+        // Stretch touches them) so the per-reshape copy in process() below almost never has to
+        // reallocate on the audio thread. Not a hard guarantee -- a user's own file dropped into
+        // the Custom IR folder could still be longer than this -- but setSize's avoidReallocating
+        // flag just falls back to a real (rare) reallocation in that case, same as before this
+        // pre-sizing existed, rather than anything breaking.
+        {
+            const juce::SpinLock::ScopedLockType lock (displayLock);
+            displayBuffer.setSize ((int) spec.numChannels,
+                                    (int) std::ceil (2.0 * IRProcessor::kMaxIRGrowthSeconds * spec.sampleRate),
+                                    false, false, true);
+            displayBuffer.clear();
+        }
 
         applyToneCoefficients (toneParam->load());
         lastTone = toneParam->load();
@@ -80,7 +96,13 @@ namespace GGrid
             {
                 {
                     const juce::SpinLock::ScopedLockType lock (displayLock);
-                    displayBuffer = readyIR; // copy for GUI display before the move below empties it
+                    // Copy for GUI display before the move below empties readyIR. setSize's
+                    // avoidReallocating flag (true here) means this only reallocates if
+                    // displayBuffer's pre-grown capacity (see prepare()) isn't already enough --
+                    // normally just adjusts the reported length, no audio-thread allocation.
+                    displayBuffer.setSize (readyIR.getNumChannels(), readyIR.getNumSamples(), false, false, true);
+                    for (int ch = 0; ch < readyIR.getNumChannels(); ++ch)
+                        displayBuffer.copyFrom (ch, 0, readyIR, ch, 0, readyIR.getNumSamples());
                     displayPreFadeOutLength = readyPreFadeOutLength;
                     displayFadeRampSamples = readyFadeRampSamples;
                     ++displayGeneration;
