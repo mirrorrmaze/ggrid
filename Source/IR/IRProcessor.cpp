@@ -30,12 +30,29 @@ namespace GGrid::IRProcessor
         const int stretchedLength = juce::jmin (growthCeilingSamples, juce::jmax (1, (int) std::round (srcLength * stretch)));
         outShapedIR.setSize (srcChannels, stretchedLength, false, false, true);
 
+        // LagrangeInterpolator::process's contract requires the input to hold at least
+        // (speedRatio * numOutputSamplesToProduce) samples -- here that's exactly srcLength, by
+        // construction of `ratio`, with zero margin. In practice the interpolator's own internal
+        // lookahead plus floating-point drift in the accumulated sub-sample position (over
+        // potentially tens of thousands of iterations at high Stretch ratios) pushes it to read a
+        // handful of samples past that exact boundary, into whatever heap memory happens to sit
+        // beyond rawIR's allocation -- garbage, not silence. That garbage showed up as a burst of
+        // noise right at the tail of the stretched waveform (worse at higher Stretch, matching the
+        // reported symptom), and got convolved into the actual IR audio too, not just the display.
+        // Padding the read source with harmless trailing silence gives any such overrun somewhere
+        // safe to land.
+        constexpr int interpolatorReadPadding = 16;
+        juce::AudioBuffer<float> paddedRawIR (srcChannels, srcLength + interpolatorReadPadding);
+        paddedRawIR.clear();
+        for (int ch = 0; ch < srcChannels; ++ch)
+            paddedRawIR.copyFrom (ch, 0, rawIR, ch, 0, srcLength);
+
         const double ratio = (double) srcLength / (double) stretchedLength;
         for (int ch = 0; ch < srcChannels; ++ch)
         {
             juce::LagrangeInterpolator interpolator;
             interpolator.reset();
-            interpolator.process (ratio, rawIR.getReadPointer (ch), outShapedIR.getWritePointer (ch), stretchedLength);
+            interpolator.process (ratio, paddedRawIR.getReadPointer (ch), outShapedIR.getWritePointer (ch), stretchedLength);
         }
 
         // Fade in: linear ramp from 0 over fadeInMs at the head of the IR.

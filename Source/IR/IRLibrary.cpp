@@ -280,11 +280,24 @@ namespace GGrid::IRLibrary
         const int resampledLength = (int) std::ceil ((double) numSamples / ratio) + 1;
         outBuffer.setSize (numChannels, resampledLength);
 
+        // LagrangeInterpolator::process requires the input to hold at least (ratio *
+        // resampledLength) samples -- resampledLength is deliberately rounded up by 1 extra
+        // output sample here, which on its own already asks for more input than `raw` strictly
+        // has, before any floating-point drift or the interpolator's own lookahead pushes it
+        // further past that boundary. Left unpadded this reads past raw's allocation into
+        // whatever heap memory follows it (see IRProcessor::buildShapedIR's Stretch resample for
+        // the same issue, where it was actually observed as tail noise).
+        constexpr int interpolatorReadPadding = 16;
+        juce::AudioBuffer<float> paddedRaw (numChannels, numSamples + interpolatorReadPadding);
+        paddedRaw.clear();
+        for (int ch = 0; ch < numChannels; ++ch)
+            paddedRaw.copyFrom (ch, 0, raw, ch, 0, numSamples);
+
         for (int ch = 0; ch < numChannels; ++ch)
         {
             juce::LagrangeInterpolator interpolator;
             const int written = interpolator.process (ratio,
-                                                        raw.getReadPointer (ch),
+                                                        paddedRaw.getReadPointer (ch),
                                                         outBuffer.getWritePointer (ch),
                                                         resampledLength);
             outBuffer.setSize (numChannels, written, true, false, true);

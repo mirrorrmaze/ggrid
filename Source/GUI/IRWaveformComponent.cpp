@@ -85,6 +85,16 @@ namespace GGrid
         const float midY = area.getCentreY();
         const float halfHeight = area.getHeight() * 0.5f;
 
+        // Column where Fade Out's cut point falls, and a visual amplitude taper across the last
+        // quarter of the kept region leading into it -- reads as a volume ramp-down into the cut
+        // (symmetric with Fade In's ramp-up at the head) instead of a flat waveform that just
+        // stops at a vertical line. Display-only: the real audio still does its short declick +
+        // hard truncation right at the cut point (see IRProcessor::buildShapedIR), this only
+        // changes how that transition is drawn.
+        const int cutoffColumn = juce::jlimit (0, width, (int) (((juce::int64) numSamples * width) / fullLength));
+        const int rampColumns = juce::jmin (cutoffColumn, juce::jmax (24, cutoffColumn / 4));
+        const int rampStart = cutoffColumn - rampColumns;
+
         g.setColour (Palette::accent);
 
         for (int x = 0; x < width; ++x)
@@ -104,6 +114,13 @@ namespace GGrid
                 const auto range = displayBuffer.findMinMax (ch, startSample, rangeLength);
                 minVal = juce::jmin (minVal, range.getStart());
                 maxVal = juce::jmax (maxVal, range.getEnd());
+            }
+
+            if (rampColumns > 0 && x >= rampStart)
+            {
+                const float taper = 1.0f - (float) (x - rampStart) / (float) rampColumns;
+                minVal *= taper;
+                maxVal *= taper;
             }
 
             const int xPos = (int) (area.getX() + (float) x);
