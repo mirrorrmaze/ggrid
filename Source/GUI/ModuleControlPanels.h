@@ -17,6 +17,10 @@ namespace GGrid
 
         void resized() override;
 
+        // Drive's knob bounds, in this panel's own coordinate space -- for NodeComponent to
+        // position a modulation-destination nub against (see NodeComponent::getModDestinationPosition).
+        juce::Rectangle<int> getModTargetKnobBounds() const { return driveSlider.getBounds(); }
+
     private:
         juce::Label driveLabel { {}, "Drive" }, shapeLabel { {}, "Shape" }, symmetryLabel { {}, "Symmetry" },
                     foldLabel { {}, "Fold" }, oversampleLabel { {}, "Oversample" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
@@ -41,6 +45,8 @@ namespace GGrid
         FilterControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
 
         void resized() override;
+
+        juce::Rectangle<int> getModTargetKnobBounds() const { return frequencySlider.getBounds(); }
 
     private:
         juce::Label frequencyLabel { {}, "Frequency" }, resonanceLabel { {}, "Resonance" }, feedbackLabel { {}, "Feedback" },
@@ -114,6 +120,8 @@ namespace GGrid
 
         void resized() override;
 
+        juce::Rectangle<int> getModTargetKnobBounds() const { return mixSlider.getBounds(); }
+
     private:
         void stepIr (int direction);
 
@@ -134,5 +142,72 @@ namespace GGrid
             toneAttachment, fadeInAttachment, fadeOutAttachment, stretchAttachment, mixAttachment, outputAttachment;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ConvolutionControlsPanel)
+    };
+
+    // Utility module controls: Gain/Pan/Width knobs plus Mono/Phase Invert L/R toggles --
+    // mirrors Ableton's Utility device.
+    class UtilityControlsPanel : public juce::Component
+    {
+    public:
+        UtilityControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+    private:
+        juce::Label gainLabel { {}, "Gain" }, panLabel { {}, "Pan" }, widthLabel { {}, "Width" };
+        juce::Slider gainSlider, panSlider, widthSlider;
+        juce::ToggleButton monoButton { "Mono" }, phaseInvertLButton { "Phase L" }, phaseInvertRButton { "Phase R" };
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment, panAttachment, widthAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoAttachment, phaseInvertLAttachment, phaseInvertRAttachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (UtilityControlsPanel)
+    };
+
+    // Ring Mod / Frequency Shifter controls: Frequency/Fine/Mix/Output knobs plus the Mode
+    // dropdown that switches between plain ring modulation and true single-sideband frequency
+    // shifting -- see RingModModule for what each mode actually does with Frequency/Fine.
+    class RingModControlsPanel : public juce::Component
+    {
+    public:
+        RingModControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+    private:
+        juce::Label frequencyLabel { {}, "Frequency" }, fineLabel { {}, "Fine" }, mixLabel { {}, "Mix" },
+                    outputLabel { {}, "Output" }, modeLabel { {}, "Mode" };
+
+        juce::Slider frequencySlider, fineSlider, mixSlider, outputSlider;
+        juce::ComboBox modeBox;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            frequencyAttachment, fineAttachment, mixAttachment, outputAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RingModControlsPanel)
+    };
+
+    // LFO controls: Rate/Depth knobs, a Shape dropdown, and the same Sync toggle + Division
+    // dropdown pattern DelayControlsPanel uses (Division only matters while Sync is on, but stays
+    // visible either way for consistency with how Delay already does this).
+    class LfoControlsPanel : public juce::Component
+    {
+    public:
+        LfoControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+    private:
+        juce::Label rateLabel { {}, "Rate" }, depthLabel { {}, "Depth" };
+        juce::Slider rateSlider, depthSlider;
+        juce::ComboBox shapeBox, divisionBox;
+        juce::ToggleButton syncButton { "Sync" };
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rateAttachment, depthAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAttachment, divisionAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoControlsPanel)
     };
 }

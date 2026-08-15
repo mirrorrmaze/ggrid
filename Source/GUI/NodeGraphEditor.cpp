@@ -89,7 +89,21 @@ namespace GGrid
             // using, so dropping it right back where it came from just works.
             processor.removeConnection (grabFrom, grabTo);
             isDraggingCable = true;
+            isDraggingModCable = false;
             cableDragSourceSlot = grabFrom;
+            cableDragCurrentPos = e.position;
+            repaint();
+            return;
+        }
+
+        ModDestinationParam grabParam = ModDestinationParam::filterFrequency;
+        if (hitTestModCable (e.position, grabFrom, grabTo, grabParam))
+        {
+            processor.getModulationMatrix().removeModConnection (grabFrom, grabTo, grabParam);
+            isDraggingCable = true;
+            isDraggingModCable = true;
+            cableDragSourceSlot = grabFrom;
+            cableDragModParam = grabParam;
             cableDragCurrentPos = e.position;
             repaint();
             return;
@@ -168,6 +182,19 @@ namespace GGrid
         {
             rubberBandActive = false;
             updateSelectionFromRubberBand();
+            repaint();
+            return;
+        }
+
+        if (isDraggingCable && isDraggingModCable)
+        {
+            const int targetSlot = findModDestinationNear (e.position, cableDragSourceSlot);
+            if (targetSlot >= 0)
+                processor.getModulationMatrix().addModConnection (cableDragSourceSlot, targetSlot, nodes[(size_t) targetSlot]->getModDestinationParam());
+
+            isDraggingCable = false;
+            isDraggingModCable = false;
+            cableDragSourceSlot = -1;
             repaint();
             return;
         }
@@ -254,6 +281,9 @@ namespace GGrid
         menu.addItem (3, "Delay");
         menu.addItem (4, "Dynamics");
         menu.addItem (5, "Convolution");
+        menu.addItem (6, "Utility");
+        menu.addItem (7, "Ring Mod");
+        menu.addItem (8, "LFO");
 
         const auto screenPos = localPointToGlobal (canvasPosition);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (screenPos, screenPos)),
@@ -301,6 +331,7 @@ namespace GGrid
             *choiceParam = (int) ModuleType::none;
 
         processor.removeAllConnectionsForSlot (slotIndex);
+        processor.getModulationMatrix().removeAllModConnectionsForSlot (slotIndex);
         if (lastAddedSlot == slotIndex)
             lastAddedSlot = -1;
 
@@ -451,6 +482,7 @@ namespace GGrid
     void NodeGraphEditor::handleOutputDragStart (int slotIndex, const juce::MouseEvent& e)
     {
         isDraggingCable = true;
+        isDraggingModCable = nodes[(size_t) slotIndex]->isLfoType();
         cableDragSourceSlot = slotIndex;
         cableDragCurrentPos = e.getEventRelativeTo (this).position;
         repaint();
@@ -465,13 +497,23 @@ namespace GGrid
     void NodeGraphEditor::handleOutputDragEnd (int slotIndex, const juce::MouseEvent& e)
     {
         const auto dropPos = e.getEventRelativeTo (this).position;
-        const int targetSlot = findInputConnectorNear (dropPos, slotIndex);
 
-        if (targetSlot >= 0)
-            processor.addConnection (slotIndex, targetSlot);
+        if (isDraggingModCable)
+        {
+            const int targetSlot = findModDestinationNear (dropPos, slotIndex);
+            if (targetSlot >= 0)
+                processor.getModulationMatrix().addModConnection (slotIndex, targetSlot, nodes[(size_t) targetSlot]->getModDestinationParam());
+        }
+        else
+        {
+            const int targetSlot = findInputConnectorNear (dropPos, slotIndex);
+            if (targetSlot >= 0)
+                processor.addConnection (slotIndex, targetSlot);
+        }
         // Dropped on blank space, or the target's already full/would cycle -- just cancel.
 
         isDraggingCable = false;
+        isDraggingModCable = false;
         cableDragSourceSlot = -1;
         repaint();
     }
@@ -492,6 +534,52 @@ namespace GGrid
             }
         }
         return -1;
+    }
+
+    int NodeGraphEditor::findModDestinationNear (juce::Point<float> canvasPoint, int excludeSlot) const
+    {
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            auto* candidate = nodes[(size_t) i].get();
+            if (i == excludeSlot || ! candidate->isVisible() || ! candidate->hasModDestination())
+                continue;
+
+            const auto destPos = (candidate->getPosition() + candidate->getModDestinationPosition()).toFloat();
+            if (destPos.getDistanceFrom (canvasPoint) < 20.0f)
+                return i;
+        }
+        return -1;
+    }
+
+    bool NodeGraphEditor::hitTestModCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, ModDestinationParam& outParam) const
+    {
+        const auto& modMatrix = processor.getModulationMatrix();
+
+        for (int c = 0; c < modMatrix.numModConnections; ++c)
+        {
+            const auto& conn = modMatrix.modConnections[(size_t) c];
+            auto* fromNode = nodes[(size_t) conn.fromSlot].get();
+            auto* toNode = nodes[(size_t) conn.toSlot].get();
+            if (! fromNode->isVisible() || ! toNode->isVisible())
+                continue;
+
+            const auto start = (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat();
+            const auto end = (toNode->getPosition() + toNode->getModDestinationPosition()).toFloat();
+
+            auto cablePath = buildCablePath (start, end);
+            juce::Path strokedPath;
+            juce::PathStrokeType (14.0f).createStrokedPath (strokedPath, cablePath);
+
+            if (strokedPath.contains (canvasPoint))
+            {
+                outFromSlot = conn.fromSlot;
+                outToSlot = conn.toSlot;
+                outParam = conn.destinationParam;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     int NodeGraphEditor::outputPortIndexForConnection (int connectionIndex) const
@@ -579,13 +667,32 @@ namespace GGrid
             g.strokePath (buildCablePath (start, end), juce::PathStrokeType (2.0f));
         }
 
+        g.setColour (Palette::modAccent);
+        {
+            const auto& modMatrix = processor.getModulationMatrix();
+            for (int c = 0; c < modMatrix.numModConnections; ++c)
+            {
+                const auto& conn = modMatrix.modConnections[(size_t) c];
+                auto* fromNode = nodes[(size_t) conn.fromSlot].get();
+                auto* toNode = nodes[(size_t) conn.toSlot].get();
+                if (! fromNode->isVisible() || ! toNode->isVisible())
+                    continue;
+
+                const auto start = (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat();
+                const auto end = (toNode->getPosition() + toNode->getModDestinationPosition()).toFloat();
+
+                g.strokePath (buildCablePath (start, end), juce::PathStrokeType (2.0f));
+            }
+        }
+
         if (isDraggingCable && cableDragSourceSlot >= 0)
         {
             auto* fromNode = nodes[(size_t) cableDragSourceSlot].get();
-            const int port = juce::jmin (processor.getOutDegree (cableDragSourceSlot), 1);
-            const auto start = (fromNode->getPosition() + fromNode->getOutputConnectorPosition (port)).toFloat();
+            const auto start = isDraggingModCable
+                ? (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat()
+                : (fromNode->getPosition() + fromNode->getOutputConnectorPosition (juce::jmin (processor.getOutDegree (cableDragSourceSlot), 1))).toFloat();
 
-            g.setColour (Palette::bright);
+            g.setColour (isDraggingModCable ? Palette::modAccent : Palette::bright);
             g.strokePath (buildCablePath (start, cableDragCurrentPos), juce::PathStrokeType (1.5f));
         }
 

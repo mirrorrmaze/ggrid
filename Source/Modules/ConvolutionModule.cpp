@@ -66,7 +66,7 @@ namespace GGrid
         return true;
     }
 
-    void ConvolutionModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix&)
+    void ConvolutionModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
         // Pick up a finished reshape if the background worker has one ready. This is just a
         // spin-locked pointer scan across a handful of slots, not the actual shaping work.
@@ -146,7 +146,8 @@ namespace GGrid
             }
         }
 
-        const float mix = mixParam->load() / 100.0f;
+        const float mixOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::convolutionMix));
+        const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
         const float outputGain = juce::Decibels::decibelsToGain (outputParam->load());
         const auto numChannels = block.getNumChannels();
 

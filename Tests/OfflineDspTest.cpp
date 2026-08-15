@@ -5,6 +5,9 @@
 #include "Modules/DelayModule.h"
 #include "Modules/DynamicsModule.h"
 #include "Modules/ConvolutionModule.h"
+#include "Modules/UtilityModule.h"
+#include "Modules/RingModModule.h"
+#include "Modules/LFOModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
@@ -13,6 +16,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <iostream>
 #include <cmath>
+#include <vector>
 
 using namespace GGrid;
 
@@ -108,6 +112,28 @@ namespace
         for (int i = 0; i < buffer.getNumSamples(); ++i)
             sumSq += (double) data[i] * (double) data[i];
         return std::sqrt (sumSq / buffer.getNumSamples());
+    }
+
+    // Single-bin Goertzel magnitude -- how much energy a buffer has at one specific frequency,
+    // without needing a full FFT. Used to confirm Frequency Shift actually moves energy from one
+    // frequency to another, not just "stays finite."
+    double goertzelMagnitude (const juce::AudioBuffer<float>& buffer, int channel, double freqHz, double sampleRate)
+    {
+        const auto* data = buffer.getReadPointer (channel);
+        const int n = buffer.getNumSamples();
+        const double k = std::round ((double) n * freqHz / sampleRate);
+        const double omega = 2.0 * juce::MathConstants<double>::pi * k / (double) n;
+        const double coeff = 2.0 * std::cos (omega);
+
+        double s1 = 0.0, s2 = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            const double s0 = (double) data[i] + coeff * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+
+        return std::sqrt (s1 * s1 + s2 * s2 - coeff * s1 * s2) / (double) n;
     }
 }
 
@@ -813,6 +839,268 @@ int main()
                     matches = false;
 
         expect (matches, "fan-out from one root into two parallel branches, summed back at the sinks, matches hand-computed expectation");
+    }
+
+    // --- Utility: Mono collapses L/R to identical values ---
+    {
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::gain))->store (0.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::pan))->store (0.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::width))->store (100.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::mono))->store (1.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::phaseInvertL))->store (0.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::phaseInvertR))->store (0.0f);
+
+        UtilityModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i)
+        {
+            buffer.setSample (0, i, 0.5f);
+            buffer.setSample (1, i, -0.3f);
+        }
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        bool identical = true;
+        for (int i = 0; i < blockSize; ++i)
+            if (std::abs (buffer.getSample (0, i) - buffer.getSample (1, i)) > 1.0e-6f)
+                identical = false;
+
+        expect (identical, "Utility Mono collapses L/R to identical values");
+    }
+
+    // --- Utility: Phase Invert L flips only the left channel ---
+    {
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::mono))->store (0.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::phaseInvertL))->store (1.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::phaseInvertR))->store (0.0f);
+
+        UtilityModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i)
+        {
+            buffer.setSample (0, i, 0.4f);
+            buffer.setSample (1, i, 0.4f);
+        }
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        expect (std::abs (buffer.getSample (0, 0) - (-0.4f)) < 1.0e-4f && std::abs (buffer.getSample (1, 0) - 0.4f) < 1.0e-4f,
+                "Utility Phase Invert L flips only the left channel's polarity (L " + juce::String (buffer.getSample (0, 0), 4)
+                    + ", R " + juce::String (buffer.getSample (1, 0), 4) + ")");
+    }
+
+    // --- Utility: Gain applies the expected linear factor ---
+    {
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::phaseInvertL))->store (0.0f);
+        apvts.getRawParameterValue (utilityParamId (0, UtilityParam::gain))->store (6.0f);
+
+        UtilityModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int i = 0; i < blockSize; ++i)
+        {
+            buffer.setSample (0, i, 0.1f);
+            buffer.setSample (1, i, 0.1f);
+        }
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const float expectedGain = juce::Decibels::decibelsToGain (6.0f);
+        expect (std::abs (buffer.getSample (0, 0) - 0.1f * expectedGain) < 1.0e-4f,
+                "Utility Gain applies the expected +6dB linear factor");
+    }
+
+    // --- Ring Mod / Freq Shift: both modes stay finite/bounded ---
+    for (int mode = 0; mode < 2; ++mode)
+    {
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::mode))->store ((float) mode);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::frequency))->store (300.0f);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::fine))->store (0.0f);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::output))->store (0.0f);
+
+        RingModModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.9f, 220.0f, sampleRate);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        expect (isFiniteAndBounded (buffer, 1.5f),
+                juce::String (mode == 0 ? "Ring Mod" : "Freq Shift") + " mode stays finite/bounded");
+    }
+
+    // --- Freq Shift: actually moves a tone's energy to a different frequency, not just distorts it ---
+    {
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::mode))->store (1.0f); // Freq Shift
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::frequency))->store (200.0f);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::fine))->store (0.0f);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (ringModParamId (0, RingModParam::output))->store (0.0f);
+
+        RingModModule module (apvts, 0);
+        module.prepare (spec);
+
+        const double srcFreq = 440.0;
+        const double shiftHz = 200.0;
+        const int numChunks = 16; // 16*512 = 8192 samples, plenty of resolution for a Goertzel bin
+        auto fullBuffer = makeTestSignal (blockSize * numChunks, 0.8f, (float) srcFreq, sampleRate);
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            module.process (sub, midi, modMatrix);
+        }
+
+        // Analyze just the back half, past the allpass filters' initial settling transient.
+        const int tailStart = blockSize * numChunks / 2;
+        juce::AudioBuffer<float> tail (1, blockSize * numChunks - tailStart);
+        tail.copyFrom (0, 0, fullBuffer, 0, tailStart, tail.getNumSamples());
+
+        const double magAtShifted = goertzelMagnitude (tail, 0, srcFreq + shiftHz, sampleRate);
+        const double magAtOriginal = goertzelMagnitude (tail, 0, srcFreq, sampleRate);
+
+        expect (magAtShifted > magAtOriginal * 3.0,
+                "Freq Shift moves a 440Hz tone's energy toward 640Hz rather than leaving it at 440Hz (640Hz magnitude "
+                    + juce::String (magAtShifted, 4) + ", 440Hz magnitude " + juce::String (magAtOriginal, 4) + ")");
+    }
+
+    // --- LFO: Sine sweeps through its full bipolar range over one period ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (0.0f); // Sine
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateMode))->store (0.0f); // Free
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (2.0f); // 0.5s period
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        LFOModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        float minVal = 1.0f, maxVal = -1.0f;
+        const int numChunks = 100; // ~1.16s @ blockSize/sampleRate -- comfortably over one 0.5s period
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+            minVal = juce::jmin (minVal, module.getCurrentValue());
+            maxVal = juce::jmax (maxVal, module.getCurrentValue());
+        }
+
+        expect (maxVal > 0.9f && minVal < -0.9f,
+                "LFO (Sine, 2Hz free-running) sweeps through its full bipolar range over ~1 second (min "
+                    + juce::String (minVal, 3) + ", max " + juce::String (maxVal, 3) + ")");
+    }
+
+    // --- LFO: Sample & Hold changes value as phase wraps, and stays within [-1, 1] ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (4.0f); // Sample & Hold
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (5.0f); // wraps several times in the test window
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        LFOModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        std::vector<float> seenValues;
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int chunk = 0; chunk < 40; ++chunk)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+            seenValues.push_back (module.getCurrentValue());
+        }
+
+        bool changed = false, bounded = true;
+        for (float v : seenValues)
+        {
+            if (std::abs (v - seenValues[0]) > 1.0e-4f) changed = true;
+            if (std::abs (v) > 1.001f) bounded = false;
+        }
+
+        expect (changed, "LFO Sample & Hold value changes at least once as phase wraps");
+        expect (bounded, "LFO Sample & Hold stays within [-1, 1]");
+    }
+
+    // --- Modulation cable: an LFO routed to Filter Frequency actually moves the cutoff ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (2.0f); // Square -- deterministic +1/-1, no phase-timing ambiguity
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateMode))->store (0.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (1.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::type))->store (0.0f); // Low Pass
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::frequency))->store (1000.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::resonance))->store (0.707f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::feedback))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
+
+        ModulationMatrix cableMatrix (apvts);
+        const bool added = cableMatrix.addModConnection (0, 1, ModDestinationParam::filterFrequency);
+        expect (added, "a modulation cable from an LFO slot to Filter Frequency is accepted");
+
+        LFOModule lfo (apvts, 0, sharedServices);
+        lfo.prepare (spec);
+        FilterModule filter (apvts, 1);
+        filter.prepare (spec);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            lfo.process (block, midi, cableMatrix);
+        }
+        cableMatrix.setLfoValue (0, lfo.getCurrentValue());
+        expect (std::abs (lfo.getCurrentValue() - 1.0f) < 1.0e-4f, "square LFO reads +1 during the first half of its cycle");
+
+        auto highLfoBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (highLfoBuffer);
+            juce::MidiBuffer midi;
+            filter.process (block, midi, cableMatrix);
+        }
+
+        // Advance half a cycle (0.5s @ 1Hz) so the square wave flips to its -1 half.
+        {
+            const int numChunks = (int) std::round (0.5 * sampleRate / blockSize);
+            for (int c = 0; c < numChunks; ++c)
+            {
+                juce::dsp::AudioBlock<float> block (dummyBuffer);
+                juce::MidiBuffer midi;
+                lfo.process (block, midi, cableMatrix);
+            }
+        }
+        cableMatrix.setLfoValue (0, lfo.getCurrentValue());
+        expect (lfo.getCurrentValue() < -0.9f, "square LFO reads close to -1 after half a cycle");
+
+        filter.reset();
+        auto lowLfoBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (lowLfoBuffer);
+            juce::MidiBuffer midi;
+            filter.process (block, midi, cableMatrix);
+        }
+
+        const double rmsAtPositiveLfo = rms (highLfoBuffer, 0);
+        const double rmsAtNegativeLfo = rms (lowLfoBuffer, 0);
+
+        expect (rmsAtPositiveLfo > rmsAtNegativeLfo * 1.5,
+                "an LFO modulation cable into Filter Frequency passes more 8kHz energy through when the LFO is at +1 than at -1 (positive-LFO RMS "
+                    + juce::String (rmsAtPositiveLfo, 4) + ", negative-LFO RMS " + juce::String (rmsAtNegativeLfo, 4) + ")");
     }
 
     std::cout << std::endl;

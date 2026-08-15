@@ -22,11 +22,14 @@ namespace GGrid
         delay = 3,
         dynamics = 4,
         convolution = 5,
+        utility = 6,
+        ringMod = 7,
+        lfo = 8,
     };
 
     inline juce::StringArray getModuleTypeChoices()
     {
-        return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution" };
+        return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -144,6 +147,63 @@ namespace GGrid
         static const juce::String stretch  = "stretch";
         static const juce::String mix      = "mix";
         static const juce::String output   = "output";
+    }
+
+    inline juce::String utilityParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_utility_" + paramName;
+    }
+
+    // Mirrors Ableton's Utility device: pure gain-staging/imaging, no coloration.
+    namespace UtilityParam
+    {
+        static const juce::String gain        = "gain";
+        static const juce::String pan         = "pan";
+        static const juce::String width       = "width";
+        static const juce::String mono        = "mono";
+        static const juce::String phaseInvertL = "phaseInvertL";
+        static const juce::String phaseInvertR = "phaseInvertR";
+    }
+
+    inline juce::String ringModParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_ringMod_" + paramName;
+    }
+
+    namespace RingModParam
+    {
+        static const juce::String mode      = "mode";
+        static const juce::String frequency = "frequency";
+        static const juce::String fine      = "fine";
+        static const juce::String mix       = "mix";
+        static const juce::String output    = "output";
+    }
+
+    // Ring Mod: plain multiply by a sine carrier. Freq Shift: true single-sideband shift (via a
+    // Hilbert transform), not a pitch shift -- moves every partial by the same Hz amount rather
+    // than the same ratio, so harmonic content becomes inharmonic (the classic "shifter" sound).
+    inline juce::StringArray getRingModModeChoices()
+    {
+        return { "Ring Mod", "Freq Shift" };
+    }
+
+    inline juce::String lfoParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_lfo_" + paramName;
+    }
+
+    namespace LfoParam
+    {
+        static const juce::String shape    = "shape";
+        static const juce::String rateMode = "rateMode";
+        static const juce::String rateHz   = "rateHz";
+        static const juce::String division = "division";
+        static const juce::String depth    = "depth";
+    }
+
+    inline juce::StringArray getLfoShapeChoices()
+    {
+        return { "Sine", "Triangle", "Square", "Saw", "Sample & Hold" };
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

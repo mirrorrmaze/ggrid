@@ -235,6 +235,109 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
 
+    static void addUtilityParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { utilityParamId (slotIndex, UtilityParam::gain), 1 },
+            "Slot " + String (slotIndex + 1) + " Utility Gain",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { utilityParamId (slotIndex, UtilityParam::pan), 1 },
+            "Slot " + String (slotIndex + 1) + " Utility Pan",
+            NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { utilityParamId (slotIndex, UtilityParam::width), 1 },
+            "Slot " + String (slotIndex + 1) + " Utility Width",
+            NormalisableRange<float> (0.0f, 200.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { utilityParamId (slotIndex, UtilityParam::mono), 1 },
+            "Slot " + String (slotIndex + 1) + " Utility Mono",
+            false));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { utilityParamId (slotIndex, UtilityParam::phaseInvertL), 1 },
+            "Slot " + String (slotIndex + 1) + " Utility Phase Invert L",
+            false));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { utilityParamId (slotIndex, UtilityParam::phaseInvertR), 1 },
+            "Slot " + String (slotIndex + 1) + " Utility Phase Invert R",
+            false));
+    }
+
+    static void addRingModParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { ringModParamId (slotIndex, RingModParam::mode), 1 },
+            "Slot " + String (slotIndex + 1) + " Ring Mod Mode",
+            getRingModModeChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { ringModParamId (slotIndex, RingModParam::frequency), 1 },
+            "Slot " + String (slotIndex + 1) + " Ring Mod Frequency",
+            NormalisableRange<float> (-2000.0f, 2000.0f, 0.1f), 200.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { ringModParamId (slotIndex, RingModParam::fine), 1 },
+            "Slot " + String (slotIndex + 1) + " Ring Mod Fine",
+            NormalisableRange<float> (-20.0f, 20.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { ringModParamId (slotIndex, RingModParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Ring Mod Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { ringModParamId (slotIndex, RingModParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Ring Mod Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
+    static void addLfoParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { lfoParamId (slotIndex, LfoParam::shape), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Shape",
+            getLfoShapeChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { lfoParamId (slotIndex, LfoParam::rateMode), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Sync",
+            false));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoParamId (slotIndex, LfoParam::rateHz), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Rate",
+            skewedRange (0.02f, 20.0f, 1.0f), 1.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { lfoParamId (slotIndex, LfoParam::division), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Division",
+            getDelayDivisionChoices(), 2)); // default "1/4"
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoParamId (slotIndex, LfoParam::depth), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Depth",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -258,6 +361,9 @@ namespace GGrid
             addDelayParams (layout, slot);
             addDynamicsParams (layout, slot);
             addConvolutionParams (layout, slot);
+            addUtilityParams (layout, slot);
+            addRingModParams (layout, slot);
+            addLfoParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

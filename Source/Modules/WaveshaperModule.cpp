@@ -4,7 +4,8 @@
 namespace GGrid
 {
     WaveshaperModule::WaveshaperModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
-        : driveParam      (apvtsIn.getRawParameterValue (waveshaperParamId (slotIndexIn, WaveshaperParam::drive))),
+        : slotIndex (slotIndexIn),
+          driveParam      (apvtsIn.getRawParameterValue (waveshaperParamId (slotIndexIn, WaveshaperParam::drive))),
           shapeParam      (apvtsIn.getRawParameterValue (waveshaperParamId (slotIndexIn, WaveshaperParam::shape))),
           symmetryParam   (apvtsIn.getRawParameterValue (waveshaperParamId (slotIndexIn, WaveshaperParam::symmetry))),
           foldParam       (apvtsIn.getRawParameterValue (waveshaperParamId (slotIndexIn, WaveshaperParam::foldAmount))),
@@ -93,11 +94,14 @@ namespace GGrid
         }
     }
 
-    void WaveshaperModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix&)
+    void WaveshaperModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
         const int shapeIndex        = (int) shapeParam->load();
         const int oversampleChoice  = (int) oversampleParam->load(); // 0 = Off, 1 = 2x, 2 = 4x
-        const float driveGain       = juce::Decibels::decibelsToGain (driveParam->load());
+
+        const float driveOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::waveshaperDrive));
+        const float driveDb = juce::jlimit (0.0f, 40.0f, driveParam->load() + driveOffset);
+        const float driveGain       = juce::Decibels::decibelsToGain (driveDb);
         const float symmetry        = symmetryParam->load();
         const float foldAmount      = foldParam->load();
         const float mix             = mixParam->load() / 100.0f;

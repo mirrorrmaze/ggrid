@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Params/ParameterLayout.h"
+#include "Modules/LFOModule.h"
 
 namespace GGrid
 {
@@ -53,6 +54,7 @@ namespace GGrid
         for (auto& nodeBuffer : nodeBuffers)
             nodeBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
         rawInputCopy.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
+        lfoScratchBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
 
         outputScope.clear();
         outputScope.setSamplesPerBlock (juce::jmax (1, samplesPerBlock));
@@ -91,8 +93,31 @@ namespace GGrid
         bool anyActive = false;
         for (int i = 0; i < kMaxSlots; ++i)
         {
-            active[(size_t) i] = slots[(size_t) i]->getActiveType() != ModuleType::none;
+            const auto type = slots[(size_t) i]->getActiveType();
+            // LFO slots are excluded from the audio graph entirely -- they're modulation
+            // sources, not audio processors (see LFOModule's class comment). Including them
+            // here would make every unconnected LFO node silently inject an extra copy of the
+            // dry signal into the mix, since a disconnected node is otherwise its own root+sink.
+            active[(size_t) i] = (type != ModuleType::none) && (type != ModuleType::lfo);
             anyActive |= active[(size_t) i];
+        }
+
+        // Tick every active LFO slot once per block, before the graph below runs, so every
+        // modulation destination reads a fresh value this block regardless of where an LFO would
+        // otherwise fall in audio topological order (which has nothing to do with modulation
+        // routing). RackSlot::process() is still what actually advances LFOModule's phase and
+        // handles type-swap/prepare timing, so it's called normally here -- just against a
+        // scratch buffer whose content LFOModule ignores entirely, rather than a real graph node.
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            if (slots[(size_t) i]->getActiveType() != ModuleType::lfo) continue;
+
+            lfoScratchBuffer.setSize (numChannels, numSamples, false, false, true);
+            juce::dsp::AudioBlock<float> lfoBlock (lfoScratchBuffer);
+            slots[(size_t) i]->process (lfoBlock, midiMessages, modulationMatrix);
+
+            if (auto* lfo = dynamic_cast<LFOModule*> (slots[(size_t) i]->getCurrentModule()))
+                modulationMatrix.setLfoValue (i, lfo->getCurrentValue());
         }
 
         if (anyActive)
@@ -182,6 +207,14 @@ namespace GGrid
             connectionTokens.add (juce::String (connections[(size_t) i].from) + "-" + juce::String (connections[(size_t) i].to));
         xml.setAttribute ("connections", connectionTokens.joinIntoString (","));
 
+        juce::StringArray modConnectionTokens;
+        for (int i = 0; i < modulationMatrix.numModConnections; ++i)
+        {
+            const auto& conn = modulationMatrix.modConnections[(size_t) i];
+            modConnectionTokens.add (juce::String (conn.fromSlot) + "-" + juce::String (conn.toSlot) + "-" + juce::String ((int) conn.destinationParam));
+        }
+        xml.setAttribute ("modConnections", modConnectionTokens.joinIntoString (","));
+
         juce::StringArray positionTokens;
         for (int i = 0; i < kMaxSlots; ++i)
         {
@@ -209,6 +242,17 @@ namespace GGrid
             auto parts = juce::StringArray::fromTokens (token, "-", "");
             if (parts.size() == 2 && numConnections < kMaxConnections)
                 connections[(size_t) numConnections++] = { parts[0].getIntValue(), parts[1].getIntValue() };
+        }
+
+        auto modConnectionTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("modConnections"), ",", "");
+        modulationMatrix.numModConnections = 0;
+        for (auto& token : modConnectionTokens)
+        {
+            auto parts = juce::StringArray::fromTokens (token, "-", "");
+            if (parts.size() == 3 && modulationMatrix.numModConnections < kMaxModConnections)
+                modulationMatrix.modConnections[(size_t) modulationMatrix.numModConnections++] = {
+                    parts[0].getIntValue(), parts[1].getIntValue(), static_cast<ModDestinationParam> (parts[2].getIntValue())
+                };
         }
 
         auto positionTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("nodePositions"), ",", "");

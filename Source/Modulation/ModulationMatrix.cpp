@@ -18,6 +18,8 @@ namespace GGrid
                 case ModDestinationParam::filterFeedback:  return "Filter Feedback";
                 case ModDestinationParam::delayTime:       return "Delay Time";
                 case ModDestinationParam::delayFeedback:   return "Delay Feedback";
+                case ModDestinationParam::waveshaperDrive: return "Waveshaper Drive";
+                case ModDestinationParam::convolutionMix:  return "Convolution Mix";
                 default:                                   return {};
             }
         }
@@ -93,6 +95,8 @@ namespace GGrid
             case ModDestinationParam::filterFeedback:  return 0.9f;
             case ModDestinationParam::delayTime:       return 500.0f;  // ms
             case ModDestinationParam::delayFeedback:   return 0.9f;
+            case ModDestinationParam::waveshaperDrive: return 20.0f;   // dB
+            case ModDestinationParam::convolutionMix:  return 50.0f;   // %
             default:                                   return 0.0f;
         }
     }
@@ -116,6 +120,67 @@ namespace GGrid
             total += depth * getSourceValue (source) * range;
         }
 
+        for (int c = 0; c < numModConnections; ++c)
+        {
+            const auto& conn = modConnections[(size_t) c];
+            if (conn.toSlot * kNumDestinationParamsPerSlot + (int) conn.destinationParam != destinationIndex)
+                continue;
+
+            // The LFO's own Depth knob is already baked into the value it reports (see
+            // LFOModule::process) -- no separate per-cable depth term needed here.
+            total += lfoValues[(size_t) conn.fromSlot] * range;
+        }
+
         return total;
+    }
+
+    bool ModulationMatrix::canAddModConnection (int fromSlot, int toSlot, ModDestinationParam param) const
+    {
+        if (fromSlot < 0 || toSlot < 0 || fromSlot == toSlot) return false;
+        if (numModConnections >= kMaxModConnections) return false;
+
+        for (int c = 0; c < numModConnections; ++c)
+        {
+            const auto& conn = modConnections[(size_t) c];
+            if (conn.fromSlot == fromSlot && conn.toSlot == toSlot && conn.destinationParam == param)
+                return false; // duplicate
+            if (conn.toSlot == toSlot && conn.destinationParam == param)
+                return false; // destination already has a source
+        }
+
+        return true;
+    }
+
+    bool ModulationMatrix::addModConnection (int fromSlot, int toSlot, ModDestinationParam param)
+    {
+        if (! canAddModConnection (fromSlot, toSlot, param))
+            return false;
+
+        modConnections[(size_t) numModConnections++] = { fromSlot, toSlot, param };
+        return true;
+    }
+
+    void ModulationMatrix::removeModConnection (int fromSlot, int toSlot, ModDestinationParam param)
+    {
+        for (int i = 0; i < numModConnections; ++i)
+        {
+            const auto& conn = modConnections[(size_t) i];
+            if (conn.fromSlot == fromSlot && conn.toSlot == toSlot && conn.destinationParam == param)
+            {
+                for (int j = i; j + 1 < numModConnections; ++j)
+                    modConnections[(size_t) j] = modConnections[(size_t) j + 1];
+                --numModConnections;
+                return;
+            }
+        }
+    }
+
+    void ModulationMatrix::removeAllModConnectionsForSlot (int slot)
+    {
+        int w = 0;
+        for (int r = 0; r < numModConnections; ++r)
+            if (modConnections[(size_t) r].fromSlot != slot && modConnections[(size_t) r].toSlot != slot)
+                modConnections[(size_t) w++] = modConnections[(size_t) r];
+        numModConnections = w;
     }
 }

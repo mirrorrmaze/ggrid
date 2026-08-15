@@ -40,6 +40,9 @@ target_sources(GGrid
         Source/Modules/DelayModule.cpp
         Source/Modules/DynamicsModule.cpp
         Source/Modules/ConvolutionModule.cpp
+        Source/Modules/UtilityModule.cpp
+        Source/Modules/RingModModule.cpp
+        Source/Modules/LFOModule.cpp
         Source/Modulation/ModulationMatrix.cpp
         Source/IR/IRLibrary.cpp
         Source/IR/IRProcessor.cpp
@@ -87,6 +90,9 @@ add_executable(OfflineDspTest
     Source/Modules/DelayModule.cpp
     Source/Modules/DynamicsModule.cpp
     Source/Modules/ConvolutionModule.cpp
+    Source/Modules/UtilityModule.cpp
+    Source/Modules/RingModModule.cpp
+    Source/Modules/LFOModule.cpp
     Source/Modulation/ModulationMatrix.cpp
     Source/IR/IRLibrary.cpp
     Source/IR/IRProcessor.cpp

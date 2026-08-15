@@ -20,6 +20,17 @@ namespace GGrid
     // the selection to just that node; a drag preserves the group). Delete/Backspace removes
     // every selected node.
     //
+    // Modulation cables: LFO nodes have no audio ports (see NodeComponent::isLfoType) -- instead
+    // a single violet modulation-output nub, dragged onto a violet modulation-destination dot on
+    // whichever knob a Filter/Waveshaper/Convolution node exposes (Frequency/Drive/Mix). These
+    // are a genuinely separate graph from the orange audio cables (GGridAudioProcessor::
+    // connections) -- see ModulationMatrix::modConnections -- with their own capacity rule (one
+    // source cable per destination knob) and their own cycle-freeness by construction (a
+    // modulation destination is never itself draggable as a source). isDraggingModCable is set
+    // the moment a drag starts (either grabbing an LFO's output nub, or regrabbing an existing
+    // mod cable) and just changes which hit-testing/creation path mouseUp takes -- the gesture
+    // itself reuses the exact same onOutputDragStart/Drag/DragEnd callbacks as audio cables.
+    //
     // The underlying engine (GGridAudioProcessor::connections) is a real directed graph, not a
     // single linear chain -- each node allows up to 2 outgoing and 2 incoming edges (matching the
     // 2 output nubs / 2 input dots each NodeComponent draws), enough to split a signal into two
@@ -109,6 +120,10 @@ namespace GGrid
         bool hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot) const;
         int findInputConnectorNear (juce::Point<float> canvasPoint, int excludeSlot) const;
 
+        // Modulation-cable counterparts of the audio-cable methods just above.
+        bool hitTestModCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, ModDestinationParam& outParam) const;
+        int findModDestinationNear (juce::Point<float> canvasPoint, int excludeSlot) const;
+
         juce::Point<float> getViewportRelativePosition (const juce::MouseEvent&) const;
         void zoomAroundViewportPoint (float newZoom, juce::Point<float> viewportPoint);
 
@@ -125,7 +140,13 @@ namespace GGrid
         // sources look identical from mouseUp onward: "if a valid target is found, add the edge;
         // otherwise there's nothing left to do" -- no separate "detach" bookkeeping needed.
         bool isDraggingCable = false;
+        bool isDraggingModCable = false;
         int cableDragSourceSlot = -1;
+        // Only meaningful mid-drag when isDraggingModCable and the drag started by regrabbing an
+        // existing mod cable (not a fresh drag from an LFO's output nub) -- lets mouseUp know
+        // which destination param the grabbed cable belonged to, in case it needs to reattach to
+        // the same node it came from (dropping back where you picked up from should just work).
+        ModDestinationParam cableDragModParam = ModDestinationParam::filterFrequency;
         juce::Point<float> cableDragCurrentPos;
 
         // The most recently added node this session, so a freshly added node auto-chains after

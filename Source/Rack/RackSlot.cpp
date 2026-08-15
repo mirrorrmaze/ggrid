@@ -4,6 +4,9 @@
 #include "../Modules/DelayModule.h"
 #include "../Modules/DynamicsModule.h"
 #include "../Modules/ConvolutionModule.h"
+#include "../Modules/UtilityModule.h"
+#include "../Modules/RingModModule.h"
+#include "../Modules/LFOModule.h"
 
 namespace GGrid
 {
@@ -32,6 +35,15 @@ namespace GGrid
 
             case ModuleType::convolution:
                 return std::make_unique<ConvolutionModule> (apvts, slotIndex, services);
+
+            case ModuleType::utility:
+                return std::make_unique<UtilityModule> (apvts, slotIndex);
+
+            case ModuleType::ringMod:
+                return std::make_unique<RingModModule> (apvts, slotIndex);
+
+            case ModuleType::lfo:
+                return std::make_unique<LFOModule> (apvts, slotIndex, services);
 
             case ModuleType::none:
             default:

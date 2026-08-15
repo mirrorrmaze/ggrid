@@ -17,6 +17,9 @@ namespace GGrid
         const juce::Colour dim    { 0xffa5a5a8 };
         const juce::Colour dimmer { 0xff4b4b4e };
         const juce::Colour accent { 0xffbf5727 };
+        // Modulation cables/nubs (LFO -> a destination knob) use this instead of accent, purely
+        // so the two cable types read as visually distinct at a glance on the canvas.
+        const juce::Colour modAccent { 0xff8a63d2 };
     }
 
     class GGridLookAndFeel : public juce::LookAndFeel_V4

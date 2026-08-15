@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "../Rack/RackSlot.h"
+#include "../Modulation/ModulationMatrix.h"
 #include "ModuleControlPanels.h"
 
 namespace GGrid
@@ -37,9 +38,24 @@ namespace GGrid
         // Each node has 2 input dots and 2 output nubs (portIndex 0/1) -- capacity for 2 parallel
         // connections per side, not functionally distinct ports; which physical dot a given cable
         // lands on is purely which ordinal connection it is (see NodeGraphEditor's port-counting
-        // when drawing/hit-testing), not something the engine cares about.
+        // when drawing/hit-testing), not something the engine cares about. LFO nodes don't
+        // participate in the audio graph at all (see LFOModule's class comment) and hide these
+        // entirely, showing a single modulation-output nub instead -- see isLfoType()/
+        // getModOutputPosition().
         juce::Point<int> getInputConnectorPosition (int portIndex) const;
         juce::Point<int> getOutputConnectorPosition (int portIndex) const;
+
+        // True for LFO nodes -- no audio ports, one modulation-output nub instead.
+        bool isLfoType() const;
+        juce::Point<int> getModOutputPosition() const;
+
+        // True for the (currently 3) module types that expose one cable-modulatable knob:
+        // Filter Frequency, Waveshaper Drive, Convolution Mix. At most one per node in this
+        // initial scope, positioned against whichever knob it targets (see ModuleControlPanels'
+        // getModTargetKnobBounds()).
+        bool hasModDestination() const;
+        ModDestinationParam getModDestinationParam() const;
+        juce::Point<int> getModDestinationPosition() const;
 
         // Title-bar gesture callbacks -- NodeGraphEditor owns the resulting selection/position
         // logic entirely (single click select, shift-click toggle, drag to move -- possibly the
@@ -75,15 +91,19 @@ namespace GGrid
             NodeComponent& owner;
         };
 
+        // isMod distinguishes color only (violet vs. accent) -- the drag gesture wired to it is
+        // identical either way; NodeGraphEditor tells audio and modulation cables apart by
+        // checking whether the source node is an LFO, not by anything this component reports.
         struct OutputNub : public juce::Component
         {
-            explicit OutputNub (NodeComponent& ownerIn) : owner (ownerIn) {}
+            OutputNub (NodeComponent& ownerIn, bool isModIn) : owner (ownerIn), isMod (isModIn) {}
             void paint (juce::Graphics&) override;
             void mouseDown (const juce::MouseEvent& e) override { if (owner.onOutputDragStart) owner.onOutputDragStart (owner.slotIndex, e); }
             void mouseDrag (const juce::MouseEvent& e) override { if (owner.onOutputDrag) owner.onOutputDrag (owner.slotIndex, e); }
             void mouseUp (const juce::MouseEvent& e) override { if (owner.onOutputDragEnd) owner.onOutputDragEnd (owner.slotIndex, e); }
 
             NodeComponent& owner;
+            bool isMod;
         };
 
         int slotIndex;
@@ -93,7 +113,13 @@ namespace GGrid
         juce::ComboBox typeBox;
         juce::ToggleButton bypassButton { "Bypass" };
         juce::TextButton deleteButton { "X" };
-        OutputNub outputNubTop { *this }, outputNubBottom { *this };
+        OutputNub outputNubTop { *this, false }, outputNubBottom { *this, false };
+        OutputNub modOutputNub { *this, true };
+
+        // Top-left of wherever the active control panel is placed within this component -- lets
+        // getModDestinationPosition() translate a panel-local knob position (see
+        // ModuleControlPanels' getModTargetKnobBounds()) into this component's own coordinates.
+        juce::Point<int> contentAreaOrigin;
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
@@ -103,6 +129,9 @@ namespace GGrid
         std::unique_ptr<DelayControlsPanel> delayPanel;
         std::unique_ptr<DynamicsControlsPanel> dynamicsPanel;
         std::unique_ptr<ConvolutionControlsPanel> convolutionPanel;
+        std::unique_ptr<UtilityControlsPanel> utilityPanel;
+        std::unique_ptr<RingModControlsPanel> ringModPanel;
+        std::unique_ptr<LfoControlsPanel> lfoPanel;
 
         bool isSelectedFlag = false;
 

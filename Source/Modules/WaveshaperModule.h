@@ -21,6 +21,8 @@ namespace GGrid
         float shapeSample (float x, int shapeIndex, float symmetry, float foldAmount) const;
         void shapeBlockInPlace (juce::dsp::AudioBlock<float>& block, int shapeIndex, float driveGain, float symmetry, float foldAmount);
 
+        int slotIndex;
+
         std::atomic<float>* driveParam;
         std::atomic<float>* shapeParam;
         std::atomic<float>* symmetryParam;

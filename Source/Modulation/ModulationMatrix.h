@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "../Params/Identifiers.h"
 #include <array>
 
 namespace GGrid
@@ -32,17 +33,19 @@ namespace GGrid
     constexpr int kCc2Number = 2;
     constexpr int kCc3Number = 3;
 
-    // The modulatable parameters each Filter/Delay slot exposes today. Appended-only, same rule
-    // as ModuleType -- see Identifiers.h.
+    // The modulatable parameters each slot exposes today. Appended-only, same rule as
+    // ModuleType -- see Identifiers.h.
     enum class ModDestinationParam
     {
         filterFrequency = 0,
         filterFeedback = 1,
         delayTime = 2,
         delayFeedback = 3,
+        waveshaperDrive = 4,
+        convolutionMix = 5,
     };
 
-    constexpr int kNumDestinationParamsPerSlot = 4;
+    constexpr int kNumDestinationParamsPerSlot = 6;
 
     // Global destination index encoding: slotIndex * kNumDestinationParamsPerSlot + param.
     // FilterModule/DelayModule use this to identify which offset is theirs.
@@ -60,6 +63,24 @@ namespace GGrid
     juce::String modRouteDestinationParamId (int routeIndex);
     juce::String modRouteDepthParamId (int routeIndex);
 
+    // A cable-based LFO -> destination-parameter route (see the node canvas's modulation cables,
+    // distinct from the 6 fixed MIDI routes above). fromSlot must be an LFO-type slot; toSlot's
+    // depth-scaled contribution is read fresh each block via getCurrentValue() on that slot's
+    // live LFOModule -- see PluginProcessor::processBlock, which ticks every active LFO slot and
+    // feeds its value in via setLfoValue() before the rest of the graph runs.
+    struct ModConnection
+    {
+        int fromSlot = -1;
+        int toSlot = -1;
+        ModDestinationParam destinationParam = ModDestinationParam::filterFrequency;
+    };
+
+    // Generous fan-out cap (an LFO driving several destinations at once is a normal, useful
+    // patch) -- capacity is actually enforced per-destination instead (see canAddModConnection):
+    // each (toSlot, destinationParam) accepts at most one incoming cable, matching "a knob has
+    // one modulation source" in most simple modular designs.
+    constexpr int kMaxModConnections = kMaxSlots * 4;
+
     class ModulationMatrix
     {
     public:
@@ -69,9 +90,24 @@ namespace GGrid
         // values. Call once per block, before the rack chain processes.
         void processMidi (const juce::MidiBuffer& midi);
 
+        // Called once per block, before the rack graph runs, for every currently-active LFO
+        // slot -- see PluginProcessor::processBlock. Slots that aren't currently an LFO (or
+        // whose LFO cables have all been removed) simply never get a nonzero value read back.
+        void setLfoValue (int slotIndex, float value) { lfoValues[(size_t) slotIndex] = value; }
+
         // Returns the summed offset (in the destination's own natural units, e.g. Hz for
-        // frequency) from every route currently targeting this destination. 0 if none do.
+        // frequency) from every MIDI route AND every LFO cable currently targeting this
+        // destination. 0 if none do.
         float getOffsetForDestination (int destinationIndex) const;
+
+        // -- LFO modulation cables --
+        bool canAddModConnection (int fromSlot, int toSlot, ModDestinationParam param) const;
+        bool addModConnection (int fromSlot, int toSlot, ModDestinationParam param);
+        void removeModConnection (int fromSlot, int toSlot, ModDestinationParam param);
+        void removeAllModConnectionsForSlot (int slot);
+
+        std::array<ModConnection, kMaxModConnections> modConnections {};
+        int numModConnections = 0;
 
     private:
         float getSourceValue (ModSource source) const;
@@ -86,5 +122,7 @@ namespace GGrid
         float modWheel01 = 0.0f;
         float cc2_01 = 0.0f;
         float cc3_01 = 0.0f;
+
+        std::array<float, kMaxSlots> lfoValues {};
     };
 }

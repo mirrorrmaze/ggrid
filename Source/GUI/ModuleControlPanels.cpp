@@ -389,4 +389,187 @@ namespace GGrid
         layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
         layoutKnob (bottomKnobRow, outputLabel, outputSlider);
     }
+
+    UtilityControlsPanel::UtilityControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (gainSlider, gainLabel, "Gain");
+        setupRotary (panSlider, panLabel, "Pan");
+        setupRotary (widthSlider, widthLabel, "Width");
+
+        addAndMakeVisible (monoButton);
+        addAndMakeVisible (phaseInvertLButton);
+        addAndMakeVisible (phaseInvertRButton);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+
+        gainAttachment           = std::make_unique<SliderAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::gain), gainSlider);
+        panAttachment            = std::make_unique<SliderAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::pan), panSlider);
+        widthAttachment          = std::make_unique<SliderAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::width), widthSlider);
+        monoAttachment           = std::make_unique<ButtonAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::mono), monoButton);
+        phaseInvertLAttachment   = std::make_unique<ButtonAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::phaseInvertL), phaseInvertLButton);
+        phaseInvertRAttachment   = std::make_unique<ButtonAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::phaseInvertR), phaseInvertRButton);
+    }
+
+    void UtilityControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (96);
+        const int knobWidth = knobRow.getWidth() / 3;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), gainLabel, gainSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), panLabel, panSlider);
+        layoutKnob (knobRow, widthLabel, widthSlider);
+
+        area.removeFromTop (6);
+        auto bottomRow = area.removeFromTop (44);
+        const int buttonWidth = bottomRow.getWidth() / 3;
+        monoButton.setBounds (bottomRow.removeFromLeft (buttonWidth).reduced (2, 10));
+        phaseInvertLButton.setBounds (bottomRow.removeFromLeft (buttonWidth).reduced (2, 10));
+        phaseInvertRButton.setBounds (bottomRow.reduced (2, 10));
+    }
+
+    RingModControlsPanel::RingModControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (frequencySlider, frequencyLabel, "Frequency");
+        setupRotary (fineSlider, fineLabel, "Fine");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        modeLabel.setText ("Mode", juce::dontSendNotification);
+        modeLabel.setJustificationType (juce::Justification::centred);
+
+        int itemId = 1;
+        for (auto& choice : getRingModModeChoices())
+            modeBox.addItem (choice, itemId++);
+
+        addAndMakeVisible (modeBox);
+        addAndMakeVisible (modeLabel);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        frequencyAttachment = std::make_unique<SliderAttachment> (apvts, ringModParamId (slotIndex, RingModParam::frequency), frequencySlider);
+        fineAttachment      = std::make_unique<SliderAttachment> (apvts, ringModParamId (slotIndex, RingModParam::fine), fineSlider);
+        mixAttachment       = std::make_unique<SliderAttachment> (apvts, ringModParamId (slotIndex, RingModParam::mix), mixSlider);
+        outputAttachment    = std::make_unique<SliderAttachment> (apvts, ringModParamId (slotIndex, RingModParam::output), outputSlider);
+        modeAttachment      = std::make_unique<ComboBoxAttachment> (apvts, ringModParamId (slotIndex, RingModParam::mode), modeBox);
+    }
+
+    void RingModControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (96);
+        const int knobWidth = knobRow.getWidth() / 4;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), frequencyLabel, frequencySlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), fineLabel, fineSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
+        layoutKnob (knobRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto bottomRow = area.removeFromTop (44);
+        auto left = bottomRow.removeFromLeft (bottomRow.getWidth() / 2).reduced (4, 0);
+
+        modeLabel.setBounds (left.removeFromTop (16));
+        modeBox.setBounds (left.removeFromTop (24));
+    }
+
+    LfoControlsPanel::LfoControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (rateSlider, rateLabel, "Rate");
+        setupRotary (depthSlider, depthLabel, "Depth");
+
+        int itemId = 1;
+        for (auto& choice : getLfoShapeChoices())
+            shapeBox.addItem (choice, itemId++);
+        addAndMakeVisible (shapeBox);
+
+        addAndMakeVisible (syncButton);
+
+        for (auto& choice : getDelayDivisionChoices())
+            divisionBox.addItem (choice, divisionBox.getNumItems() + 1);
+        addAndMakeVisible (divisionBox);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        rateAttachment     = std::make_unique<SliderAttachment> (apvts, lfoParamId (slotIndex, LfoParam::rateHz), rateSlider);
+        depthAttachment    = std::make_unique<SliderAttachment> (apvts, lfoParamId (slotIndex, LfoParam::depth), depthSlider);
+        shapeAttachment    = std::make_unique<ComboBoxAttachment> (apvts, lfoParamId (slotIndex, LfoParam::shape), shapeBox);
+        divisionAttachment = std::make_unique<ComboBoxAttachment> (apvts, lfoParamId (slotIndex, LfoParam::division), divisionBox);
+        syncAttachment     = std::make_unique<ButtonAttachment> (apvts, lfoParamId (slotIndex, LfoParam::rateMode), syncButton);
+    }
+
+    void LfoControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (96);
+        const int knobWidth = knobRow.getWidth() / 2;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), rateLabel, rateSlider);
+        layoutKnob (knobRow, depthLabel, depthSlider);
+
+        area.removeFromTop (6);
+        auto bottomRow = area.removeFromTop (44);
+        auto top = bottomRow.removeFromTop (20);
+        shapeBox.setBounds (top);
+
+        bottomRow.removeFromTop (2);
+        syncButton.setBounds (bottomRow.removeFromLeft (60));
+        bottomRow.removeFromLeft (4);
+        divisionBox.setBounds (bottomRow);
+    }
 }

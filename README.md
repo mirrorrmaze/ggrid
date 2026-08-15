@@ -6,18 +6,27 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
 ## Features
 
 - **Node-based patch bay** -- click blank canvas space to add a node (Waveshaper/Filter/Delay/
-  Dynamics/Convolution), drag its title bar to reposition, drag a cable from a node's output to
-  another node's input to connect them. Up to 8 nodes, including duplicates of the same type.
-  Each node has 2 output nubs and 2 input dots -- enough to split a signal into two parallel
-  chains and sum them back together, not just a single-file chain. A freshly added node auto-chains after whichever node you added right
-  before it, so simple serial patches still "just work" without wiring every node by hand --
-  explicit rewiring is how you branch off into something parallel. Grab an *existing* cable (not
-  just a node's output) to rewire it elsewhere, or drop it on blank space to genuinely disconnect
-  it. Click-drag blank canvas to pan; scroll to zoom toward the cursor (20%-200%), no modifier
-  needed -- no visible scrollbars, so it reads as an open sandbox rather than a bounded scrollable
-  area. Click a node's title bar to select it, shift-click to add/remove it from the selection, or
-  shift-drag blank canvas to rubber-band select several at once -- drag any selected node to move
-  the whole selection together, and Delete/Backspace removes every selected node.
+  Dynamics/Convolution/Utility/Ring Mod/LFO), drag its title bar to reposition, drag a cable from
+  a node's output to another node's input to connect them. Up to 8 nodes, including duplicates of
+  the same type. Each audio node has 2 output nubs and 2 input dots -- enough to split a signal
+  into two parallel chains and sum them back together, not just a single-file chain. A freshly
+  added node auto-chains after whichever node you added right before it, so simple serial patches
+  still "just work" without wiring every node by hand -- explicit rewiring is how you branch off
+  into something parallel. Grab an *existing* cable (not just a node's output) to rewire it
+  elsewhere, or drop it on blank space to genuinely disconnect it. Click-drag blank canvas to pan;
+  scroll to zoom toward the cursor (20%-200%), no modifier needed -- no visible scrollbars, so it
+  reads as an open sandbox rather than a bounded scrollable area. Click a node's title bar to
+  select it, shift-click to add/remove it from the selection, or shift-drag blank canvas to
+  rubber-band select several at once -- drag any selected node to move the whole selection
+  together, and Delete/Backspace removes every selected node.
+- **Modulation cables** -- LFO nodes have no audio ports at all (they're modulation sources, not
+  audio processors) -- just a single violet output nub, dragged onto a matching violet
+  modulation-destination dot that Filter (Frequency), Waveshaper (Drive), and Convolution (Mix)
+  nodes each expose on their relevant knob. A genuinely separate cable graph from the orange audio
+  connections, rendered in violet so the two are never ambiguous at a glance; grab an existing mod
+  cable to rewire/disconnect it exactly like an audio one. Modulation is additive on top of the
+  knob position, never overwrites it -- same rule as the MIDI Mod Matrix below, which these cables
+  share their underlying mechanism with.
 - **Waveshaper/Wavefolder** -- Hard Clip, Soft Clip (tanh/cubic), Foldback Wavefolder, Sine Fold,
   Rectify/Asymmetric, with Drive, Symmetry, Fold Amount, 2x/4x oversampling, Mix, Output.
 - **Filter** -- one module, 7 algorithms via a Type dropdown: Low Pass / High Pass / Band Pass /
@@ -43,12 +52,23 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
   button opens it) to have them show up in the picker too. IR-affecting changes are debounced and
   the actual reshape (disk read, resample, fade envelope) runs on a background thread, so
   dragging Stretch or switching IRs never spikes the audio thread.
+- **Utility** -- Gain, Pan (balance, for already-stereo material), Width (mid/side stereo width,
+  0-200%), Mono, and independent Phase Invert per channel. Mirrors Ableton's Utility device: pure
+  gain-staging/imaging, no coloration of its own.
+- **Ring Mod / Freq Shift** -- one module, two Modes. Ring Mod multiplies the signal by a sine
+  carrier (Frequency/Fine). Freq Shift is a true single-sideband frequency shift, not a pitch
+  shift -- it moves every partial by the same Hz amount rather than the same ratio, so harmonic
+  content becomes inharmonic (the classic Bode/Moog "shifter" sound), via a zero-latency
+  cascaded-allpass Hilbert transformer rather than an FFT/convolution approach.
+- **LFO** -- Sine/Triangle/Square/Saw/Sample & Hold shapes, Free (Hz) or host-tempo-Synced rate
+  (same note-division table as Delay's sync), and a Depth knob that scales its output across every
+  cable it drives. Not an audio node -- see Modulation cables above.
 - **MIDI Mod Matrix** -- its own tab (next to Rack), separate from the canvas: 6 routes, each
   Source (Note Pitch/Velocity/Mod Wheel/2 CC lanes) -> Destination (any slot's Filter Frequency/
-  Feedback or Delay Time/Feedback) -> bipolar Depth. Modulation is additive on top of the knob
-  position, never overwrites it. The Safety Limiter controls live at the bottom of this tab too
-  (see below) -- it's an on-and-forget setting for most users, so it's tucked away here rather
-  than eating space in the canvas header.
+  Feedback, Delay Time/Feedback, Waveshaper Drive, or Convolution Mix) -> bipolar Depth.
+  Modulation is additive on top of the knob position, never overwrites it. The Safety Limiter
+  controls live at the bottom of this tab too (see below) -- it's an on-and-forget setting for
+  most users, so it's tucked away here rather than eating space in the canvas header.
 - **Safety Limiter** -- a brickwall limiter that always runs last, after the full rack graph,
   regardless of routing. The Waveshaper itself has no ceiling (push it as hard as you want); this
   exists purely to keep an aggressively-driven chain from reaching your speakers/headphones at a
@@ -150,6 +170,17 @@ Installer/                             Inno Setup installer script
   acyclic.
 - **Modulation is additive**, applied at the point of use inside each destination module, never
   by overwriting the APVTS parameter -- the knob position is always the base value.
+- **Modulation cables are a second, separate graph** (`ModulationMatrix::modConnections`) from the
+  audio `connections` above -- an LFO slot's depth-scaled output, a destination slot, and which
+  `ModDestinationParam` it targets. Capacity is enforced per-destination (one source per knob)
+  rather than per-source, since a modulation source usefully fans out to several destinations at
+  once. `ModulationMatrix::getOffsetForDestination()` is the single place both this cable graph
+  and the 6 fixed MIDI routes get summed together, so Filter/Waveshaper/Delay/Convolution never
+  need to know or care which kind of source is nudging their parameter. LFO slots are excluded
+  from the audio `connections` graph entirely and ticked in their own pass each block, before the
+  audio graph runs, so a destination always reads this block's LFO value regardless of where the
+  LFO node happens to fall in audio topological order (which has nothing to do with modulation
+  routing) -- see `LFOModule` and `GGridAudioProcessor::processBlock`.
 - **The safety limiter is not a rack slot** -- it's pinned as the literal last stage in
   `PluginProcessor::processBlock`, specifically so it can't be reordered away from "last."
 - **Node canvas is a view onto `connections`, not a separate routing model.** Node existence

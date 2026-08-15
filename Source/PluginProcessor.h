@@ -174,6 +174,10 @@ namespace GGrid
         // IR waveform display polling) -- see RackSlot::getCurrentModule.
         RackSlot& getSlot (int index) { return *slots[(size_t) index]; }
 
+        // For the node canvas's modulation-cable gestures (add/remove LFO -> destination
+        // routes) -- see NodeGraphEditor.
+        ModulationMatrix& getModulationMatrix() { return modulationMatrix; }
+
     private:
         // Declared before `slots` (constructed first) since RackSlot construction needs
         // sharedServices to already exist -- see SharedServices.h. convolutionMessageQueue,
@@ -192,6 +196,12 @@ namespace GGrid
         // so building/summing the graph never allocates on the audio thread.
         std::array<juce::AudioBuffer<float>, kMaxSlots> nodeBuffers;
         juce::AudioBuffer<float> rawInputCopy;
+
+        // Scratch buffer LFO slots process into each block -- LFOModule ignores its content
+        // entirely (see LFOModule's class comment), this just gives RackSlot::process() a
+        // validly-shaped block to call it with. LFO slots are excluded from the audio graph
+        // proper (nodeBuffers/connections above) since they aren't audio processors.
+        juce::AudioBuffer<float> lfoScratchBuffer;
 
         // Master safety limiter -- always the last stage, not a rack slot (see
         // Identifiers::masterLimiterEnabledParamId for why it can't be reorderable).
