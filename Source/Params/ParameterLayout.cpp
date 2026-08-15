@@ -371,29 +371,29 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
 
-    static void addGraphicEqParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    static void addEq8Params (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
     {
         using namespace juce;
 
-        auto bandLabels = getGraphicEqBandLabels();
-        for (int b = 0; b < kNumGraphicEqBands; ++b)
+        auto bandLabels = getEq8BandLabels();
+        for (int b = 0; b < kNumEq8Bands; ++b)
         {
             layout.add (std::make_unique<AudioParameterFloat> (
-                ParameterID { graphicEqParamId (slotIndex, graphicEqBandParam (b)), 1 },
-                "Slot " + String (slotIndex + 1) + " Graphic EQ " + bandLabels[b] + "Hz",
+                ParameterID { eq8ParamId (slotIndex, eq8BandParam (b)), 1 },
+                "Slot " + String (slotIndex + 1) + " EQ 8 " + bandLabels[b] + "Hz",
                 NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
                 AudioParameterFloatAttributes().withLabel ("dB")));
         }
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { graphicEqParamId (slotIndex, GraphicEqParam::mix), 1 },
-            "Slot " + String (slotIndex + 1) + " Graphic EQ Mix",
+            ParameterID { eq8ParamId (slotIndex, Eq8Param::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 8 Mix",
             NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
             AudioParameterFloatAttributes().withLabel ("%")));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { graphicEqParamId (slotIndex, GraphicEqParam::output), 1 },
-            "Slot " + String (slotIndex + 1) + " Graphic EQ Output",
+            ParameterID { eq8ParamId (slotIndex, Eq8Param::output), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 8 Output",
             NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
@@ -443,6 +443,41 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
 
+    static void addEq3Params (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { eq3ParamId (slotIndex, Eq3Param::low), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 3 Low",
+            NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { eq3ParamId (slotIndex, Eq3Param::mid), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 3 Mid",
+            NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { eq3ParamId (slotIndex, Eq3Param::high), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 3 High",
+            NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { eq3ParamId (slotIndex, Eq3Param::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 3 Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { eq3ParamId (slotIndex, Eq3Param::output), 1 },
+            "Slot " + String (slotIndex + 1) + " EQ 3 Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -470,8 +505,9 @@ namespace GGrid
             addRingModParams (layout, slot);
             addLfoParams (layout, slot);
             addLossyParams (layout, slot);
-            addGraphicEqParams (layout, slot);
+            addEq8Params (layout, slot);
             addChorusParams (layout, slot);
+            addEq3Params (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

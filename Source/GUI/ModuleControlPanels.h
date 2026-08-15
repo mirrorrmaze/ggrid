@@ -292,12 +292,12 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LossyControlsPanel)
     };
 
-    // Graphic EQ controls: 8 fixed-frequency band gain knobs (100Hz-12.8kHz, one octave apart,
-    // see kGraphicEqBandFrequencies) plus Mix/Output -- see GraphicEqModule.
-    class GraphicEqControlsPanel : public juce::Component
+    // EQ 8 controls: 8 fixed-frequency band gain knobs (100Hz-12.8kHz, one octave apart,
+    // see kEq8BandFrequencies) plus Mix/Output -- see Eq8Module.
+    class Eq8ControlsPanel : public juce::Component
     {
     public:
-        GraphicEqControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
 
         void resized() override;
 
@@ -305,9 +305,9 @@ namespace GGrid
         const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
-        std::array<juce::Label, kNumGraphicEqBands> bandLabels;
-        std::array<juce::Slider, kNumGraphicEqBands> bandSliders;
-        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumGraphicEqBands> bandAttachments;
+        std::array<juce::Label, kNumEq8Bands> bandLabels;
+        std::array<juce::Slider, kNumEq8Bands> bandSliders;
+        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumEq8Bands> bandAttachments;
 
         juce::Label mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
         juce::Slider mixSlider, outputSlider;
@@ -315,7 +315,7 @@ namespace GGrid
 
         std::vector<ModTarget> modTargets;
 
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GraphicEqControlsPanel)
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Eq8ControlsPanel)
     };
 
     // Chorus/Flanger controls: Rate/Depth/Delay knobs, Feedback/Mix/Output, and the Mode
@@ -346,5 +346,31 @@ namespace GGrid
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChorusControlsPanel)
+    };
+
+    // EQ 3 controls: Low/Mid/High gain knobs (shelf/bell/shelf, fixed frequencies) plus
+    // Mix/Output -- EQ 8's lighter sibling, see Eq3Module.
+    class Eq3ControlsPanel : public juce::Component
+    {
+    public:
+        Eq3ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label lowLabel { {}, "Low" }, midLabel { {}, "Mid" }, highLabel { {}, "High" },
+                    mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+
+        juce::Slider lowSlider, midSlider, highSlider, mixSlider, outputSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            lowAttachment, midAttachment, highAttachment, mixAttachment, outputAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Eq3ControlsPanel)
     };
 }

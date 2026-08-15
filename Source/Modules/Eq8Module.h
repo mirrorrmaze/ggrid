@@ -8,20 +8,20 @@
 
 namespace GGrid
 {
-    // A classic graphic EQ: kNumGraphicEqBands fixed-frequency peaking bands, one octave apart
-    // (see kGraphicEqBandFrequencies), each with just a gain knob -- no per-band frequency/Q
+    // A classic graphic EQ: kNumEq8Bands fixed-frequency peaking bands, one octave apart
+    // (see kEq8BandFrequencies), each with just a gain knob -- no per-band frequency/Q
     // controls, unlike a parametric EQ. Cascaded IIR peaking filters, one chain per channel.
-    class GraphicEqModule : public RackModule
+    class Eq8Module : public RackModule
     {
     public:
-        GraphicEqModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn);
+        Eq8Module (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn);
 
         void prepare (const juce::dsp::ProcessSpec& spec) override;
         void reset() override;
         void process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer& midi, const ModulationMatrix& modMatrix) override;
 
     private:
-        static constexpr int kMaxEqChannels = 2;
+        static constexpr int kMaxEq8Channels = 2;
         // Musical bell width for octave-spaced bands -- narrow enough that adjacent bands don't
         // smear into each other much, wide enough to sound like a graphic EQ rather than a
         // surgical notch.
@@ -30,12 +30,12 @@ namespace GGrid
         int slotIndex;
         double sampleRate = 44100.0;
 
-        std::array<std::atomic<float>*, kNumGraphicEqBands> bandParams {};
+        std::array<std::atomic<float>*, kNumEq8Bands> bandParams {};
         std::atomic<float>* mixParam;
         std::atomic<float>* outputParam;
 
         // [channel][band] -- each channel gets its own independent filter chain.
-        std::array<std::array<juce::dsp::IIR::Filter<float>, kNumGraphicEqBands>, kMaxEqChannels> bandFilters;
+        std::array<std::array<juce::dsp::IIR::Filter<float>, kNumEq8Bands>, kMaxEq8Channels> bandFilters;
 
         juce::AudioBuffer<float> dryBuffer;
     };

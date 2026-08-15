@@ -784,7 +784,7 @@ namespace GGrid
         layoutKnob (knobRow, outputLabel, outputSlider);
     }
 
-    GraphicEqControlsPanel::GraphicEqControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    Eq8ControlsPanel::Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
     {
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
@@ -796,29 +796,29 @@ namespace GGrid
             addAndMakeVisible (label);
         };
 
-        auto bandLabelText = getGraphicEqBandLabels();
+        auto bandLabelText = getEq8BandLabels();
         using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
 
-        for (int b = 0; b < kNumGraphicEqBands; ++b)
+        for (int b = 0; b < kNumEq8Bands; ++b)
         {
             setupRotary (bandSliders[(size_t) b], bandLabels[(size_t) b], bandLabelText[b]);
             bandAttachments[(size_t) b] = std::make_unique<SliderAttachment> (
-                apvts, graphicEqParamId (slotIndex, graphicEqBandParam (b)), bandSliders[(size_t) b]);
-            modTargets.push_back ({ graphicEqParamId (slotIndex, graphicEqBandParam (b)),
+                apvts, eq8ParamId (slotIndex, eq8BandParam (b)), bandSliders[(size_t) b]);
+            modTargets.push_back ({ eq8ParamId (slotIndex, eq8BandParam (b)),
                                      bandLabelText[b] + "Hz", &bandSliders[(size_t) b] });
         }
 
         setupRotary (mixSlider, mixLabel, "Mix");
         setupRotary (outputSlider, outputLabel, "Output");
 
-        mixAttachment    = std::make_unique<SliderAttachment> (apvts, graphicEqParamId (slotIndex, GraphicEqParam::mix), mixSlider);
-        outputAttachment = std::make_unique<SliderAttachment> (apvts, graphicEqParamId (slotIndex, GraphicEqParam::output), outputSlider);
+        mixAttachment    = std::make_unique<SliderAttachment> (apvts, eq8ParamId (slotIndex, Eq8Param::mix), mixSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (apvts, eq8ParamId (slotIndex, Eq8Param::output), outputSlider);
 
-        modTargets.push_back ({ graphicEqParamId (slotIndex, GraphicEqParam::mix), "Mix", &mixSlider });
-        modTargets.push_back ({ graphicEqParamId (slotIndex, GraphicEqParam::output), "Output", &outputSlider });
+        modTargets.push_back ({ eq8ParamId (slotIndex, Eq8Param::mix), "Mix", &mixSlider });
+        modTargets.push_back ({ eq8ParamId (slotIndex, Eq8Param::output), "Output", &outputSlider });
     }
 
-    void GraphicEqControlsPanel::resized()
+    void Eq8ControlsPanel::resized()
     {
         auto area = getLocalBounds().reduced (4);
 
@@ -930,5 +930,61 @@ namespace GGrid
 
         modeLabel.setBounds (left.removeFromTop (16));
         modeBox.setBounds (left.removeFromTop (24));
+    }
+
+    Eq3ControlsPanel::Eq3ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (lowSlider, lowLabel, "Low");
+        setupRotary (midSlider, midLabel, "Mid");
+        setupRotary (highSlider, highLabel, "High");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        lowAttachment    = std::make_unique<SliderAttachment> (apvts, eq3ParamId (slotIndex, Eq3Param::low), lowSlider);
+        midAttachment    = std::make_unique<SliderAttachment> (apvts, eq3ParamId (slotIndex, Eq3Param::mid), midSlider);
+        highAttachment   = std::make_unique<SliderAttachment> (apvts, eq3ParamId (slotIndex, Eq3Param::high), highSlider);
+        mixAttachment    = std::make_unique<SliderAttachment> (apvts, eq3ParamId (slotIndex, Eq3Param::mix), mixSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (apvts, eq3ParamId (slotIndex, Eq3Param::output), outputSlider);
+
+        modTargets = {
+            { eq3ParamId (slotIndex, Eq3Param::low),    "Low",    &lowSlider },
+            { eq3ParamId (slotIndex, Eq3Param::mid),    "Mid",    &midSlider },
+            { eq3ParamId (slotIndex, Eq3Param::high),   "High",   &highSlider },
+            { eq3ParamId (slotIndex, Eq3Param::mix),    "Mix",    &mixSlider },
+            { eq3ParamId (slotIndex, Eq3Param::output), "Output", &outputSlider },
+        };
+    }
+
+    void Eq3ControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 5;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), lowLabel, lowSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), midLabel, midSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), highLabel, highSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
+        layoutKnob (knobRow, outputLabel, outputSlider);
     }
 }

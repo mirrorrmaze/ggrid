@@ -8,8 +8,9 @@
 #include "../Modules/RingModModule.h"
 #include "../Modules/LFOModule.h"
 #include "../Modules/LossyModule.h"
-#include "../Modules/GraphicEqModule.h"
+#include "../Modules/Eq8Module.h"
 #include "../Modules/ChorusModule.h"
+#include "../Modules/Eq3Module.h"
 
 namespace GGrid
 {
@@ -51,11 +52,14 @@ namespace GGrid
             case ModuleType::lossy:
                 return std::make_unique<LossyModule> (apvts, slotIndex);
 
-            case ModuleType::graphicEq:
-                return std::make_unique<GraphicEqModule> (apvts, slotIndex);
+            case ModuleType::eq8:
+                return std::make_unique<Eq8Module> (apvts, slotIndex);
 
             case ModuleType::chorus:
                 return std::make_unique<ChorusModule> (apvts, slotIndex);
+
+            case ModuleType::eq3:
+                return std::make_unique<Eq3Module> (apvts, slotIndex);
 
             case ModuleType::none:
             default:

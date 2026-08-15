@@ -9,7 +9,8 @@
 #include "Modules/RingModModule.h"
 #include "Modules/LFOModule.h"
 #include "Modules/LossyModule.h"
-#include "Modules/GraphicEqModule.h"
+#include "Modules/Eq8Module.h"
+#include "Modules/Eq3Module.h"
 #include "Modules/ChorusModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
@@ -1173,14 +1174,14 @@ int main()
                 "Lossy with Jitter=1 produces different output across independent runs on the same input (random per-bin phase)");
     }
 
-    // --- Graphic EQ: stays finite/bounded with all bands at extreme alternating gains ---
+    // --- EQ 8: stays finite/bounded with all bands at extreme alternating gains ---
     {
-        for (int b = 0; b < kNumGraphicEqBands; ++b)
-            apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (b)))->store (b % 2 == 0 ? 12.0f : -12.0f);
-        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::mix))->store (100.0f);
-        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::output))->store (0.0f);
+        for (int b = 0; b < kNumEq8Bands; ++b)
+            apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (b)))->store (b % 2 == 0 ? 12.0f : -12.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::output))->store (0.0f);
 
-        GraphicEqModule module (apvts, 0);
+        Eq8Module module (apvts, 0);
         module.prepare (spec);
 
         auto buffer = makeTestSignal (blockSize, 0.9f, 3200.0f, sampleRate);
@@ -1188,17 +1189,17 @@ int main()
         juce::MidiBuffer midi;
         module.process (block, midi, modMatrix);
 
-        expect (isFiniteAndBounded (buffer, 4.0f), "Graphic EQ stays finite/bounded with all bands alternating +/-12dB");
+        expect (isFiniteAndBounded (buffer, 4.0f), "EQ 8 stays finite/bounded with all bands alternating +/-12dB");
     }
 
-    // --- Graphic EQ: flat (all bands 0dB) leaves a tone's level essentially unchanged ---
+    // --- EQ 8: flat (all bands 0dB) leaves a tone's level essentially unchanged ---
     {
-        for (int b = 0; b < kNumGraphicEqBands; ++b)
-            apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (b)))->store (0.0f);
-        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::mix))->store (100.0f);
-        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::output))->store (0.0f);
+        for (int b = 0; b < kNumEq8Bands; ++b)
+            apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (b)))->store (0.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::output))->store (0.0f);
 
-        GraphicEqModule module (apvts, 0);
+        Eq8Module module (apvts, 0);
         module.prepare (spec);
 
         auto buffer = makeTestSignal (blockSize, 0.5f, 1000.0f, sampleRate);
@@ -1210,30 +1211,109 @@ int main()
 
         const double outputRms = rms (buffer, 0);
         expect (std::abs (outputRms - inputRms) < inputRms * 0.05,
-                "Graphic EQ with all bands flat (0dB) leaves a 1kHz tone's level essentially unchanged (input RMS "
+                "EQ 8 with all bands flat (0dB) leaves a 1kHz tone's level essentially unchanged (input RMS "
                     + juce::String (inputRms, 4) + ", output RMS " + juce::String (outputRms, 4) + ")");
     }
 
-    // --- Graphic EQ: boosting the band matching the input frequency raises its level ---
+    // --- EQ 8: boosting the band matching the input frequency raises its level ---
     {
-        for (int b = 0; b < kNumGraphicEqBands; ++b)
-            apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (b)))->store (0.0f);
-        apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (5)))->store (12.0f); // 3.2kHz band
-        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::mix))->store (100.0f);
-        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::output))->store (0.0f);
+        for (int b = 0; b < kNumEq8Bands; ++b)
+            apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (b)))->store (0.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (5)))->store (12.0f); // 3.2kHz band
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::output))->store (0.0f);
 
-        GraphicEqModule module (apvts, 0);
+        Eq8Module module (apvts, 0);
         module.prepare (spec);
 
-        auto buffer = makeTestSignal (blockSize, 0.5f, kGraphicEqBandFrequencies[5], sampleRate);
+        auto buffer = makeTestSignal (blockSize, 0.5f, kEq8BandFrequencies[5], sampleRate);
         juce::dsp::AudioBlock<float> block (buffer);
         juce::MidiBuffer midi;
         module.process (block, midi, modMatrix);
 
         const double flatRms = 0.5 * std::sqrt (0.5);
         expect (rms (buffer, 0) > flatRms * 1.5,
-                "Graphic EQ boosting the 3.2kHz band by +12dB raises a matching 3.2kHz tone's RMS well above its flat level (RMS "
+                "EQ 8 boosting the 3.2kHz band by +12dB raises a matching 3.2kHz tone's RMS well above its flat level (RMS "
                     + juce::String (rms (buffer, 0), 4) + ", flat would be " + juce::String (flatRms, 4) + ")");
+    }
+
+    // --- EQ 3: stays finite/bounded at extreme Low/Mid/High gains ---
+    {
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::low))->store (12.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::mid))->store (-12.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::high))->store (12.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::output))->store (0.0f);
+
+        Eq3Module module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.9f, 1000.0f, sampleRate);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        expect (isFiniteAndBounded (buffer, 4.0f), "EQ 3 stays finite/bounded at extreme Low/Mid/High gains");
+    }
+
+    // --- EQ 3: flat (Low/Mid/High all 0dB) leaves a tone's level essentially unchanged ---
+    {
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::low))->store (0.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::mid))->store (0.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::high))->store (0.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::output))->store (0.0f);
+
+        Eq3Module module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.5f, 1000.0f, sampleRate);
+        const double inputRms = rms (buffer, 0);
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const double outputRms = rms (buffer, 0);
+        expect (std::abs (outputRms - inputRms) < inputRms * 0.05,
+                "EQ 3 with Low/Mid/High flat (0dB) leaves a 1kHz tone's level essentially unchanged (input RMS "
+                    + juce::String (inputRms, 4) + ", output RMS " + juce::String (outputRms, 4) + ")");
+    }
+
+    // --- EQ 3: boosting Low raises a low-frequency tone's level, boosting High raises a
+    //     high-frequency tone's level (confirms the shelves are actually wired to the right
+    //     bands, not swapped) ---
+    {
+        auto measureRms = [&] (const juce::String& band, float freqHz) -> double
+        {
+            apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::low))->store (0.0f);
+            apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::mid))->store (0.0f);
+            apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::high))->store (0.0f);
+            apvts.getRawParameterValue (eq3ParamId (0, band))->store (12.0f);
+            apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::mix))->store (100.0f);
+            apvts.getRawParameterValue (eq3ParamId (0, Eq3Param::output))->store (0.0f);
+
+            Eq3Module module (apvts, 0);
+            module.prepare (spec);
+
+            auto buffer = makeTestSignal (blockSize, 0.5f, freqHz, sampleRate);
+            juce::dsp::AudioBlock<float> block (buffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+
+            return rms (buffer, 0);
+        };
+
+        const double flatRms = 0.5 * std::sqrt (0.5);
+        const double lowBoostRms = measureRms (Eq3Param::low, 60.0f);
+        const double highBoostRms = measureRms (Eq3Param::high, 10000.0f);
+
+        expect (lowBoostRms > flatRms * 1.3,
+                "EQ 3 boosting Low by +12dB raises a 60Hz tone's RMS above its flat level (RMS "
+                    + juce::String (lowBoostRms, 4) + ", flat would be " + juce::String (flatRms, 4) + ")");
+        expect (highBoostRms > flatRms * 1.3,
+                "EQ 3 boosting High by +12dB raises a 10kHz tone's RMS above its flat level (RMS "
+                    + juce::String (highBoostRms, 4) + ", flat would be " + juce::String (flatRms, 4) + ")");
     }
 
     // --- Chorus/Flanger: stays finite/bounded at extreme Flanger settings across a continuous signal ---

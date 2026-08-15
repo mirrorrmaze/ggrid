@@ -326,8 +326,9 @@ namespace GGrid
         menu.addItem (7, "Ring Mod");
         menu.addItem (8, "LFO");
         menu.addItem (9, "Lossy");
-        menu.addItem (10, "Graphic EQ");
+        menu.addItem (10, "EQ 8");
         menu.addItem (11, "Chorus/Flanger");
+        menu.addItem (12, "EQ 3");
 
         const auto screenPos = localPointToGlobal (canvasPosition);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (screenPos, screenPos)),

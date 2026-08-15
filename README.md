@@ -6,7 +6,7 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
 ## Features
 
 - **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
-  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO/Lossy/Graphic EQ/Chorus-Flanger), drag its title
+  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/EQ 3), drag its title
   bar to reposition, drag a cable from a node's output to another node's input to connect them. Up
   to 8 nodes, including duplicates of the same type. Each audio node has 2 output nubs and 2 input
   dots -- enough to split a signal into two parallel chains and sum them back together, not just a
@@ -83,7 +83,7 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
   times/second -- low Rate holds old spectral content for a smeared, underwater texture, high Rate
   refreshes almost every hop for a garbled, glitchy one. Mix blends in the spectral domain (not a
   sample-level dry path -- see the module's own comment for why), plus Output.
-- **Graphic EQ** -- a classic 8-band graphic EQ, one octave apart (100Hz-12.8kHz), each a fixed-
+- **EQ 8** -- a classic 8-band graphic EQ, one octave apart (100Hz-12.8kHz), each a fixed-
   frequency peaking band with just a gain knob (no per-band frequency/Q, unlike a parametric EQ),
   plus Mix/Output.
 - **Chorus/Flanger** -- one module, two related characters via a Mode dropdown: Chorus (lush,
@@ -93,6 +93,8 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
   knob needed); Depth scales as a fraction of Delay itself so the same knob works proportionally
   whether Delay is dialed short (flange) or long (chorus). Feedback (Flanger mode only), Mix,
   Output.
+- **EQ 3** -- a simple 3-band tone EQ, EQ 8's lighter sibling: Low Shelf (~150Hz), Mid Bell
+  (~1kHz), High Shelf (~4kHz), each just a gain knob, plus Mix/Output.
 - **MIDI Mod Matrix** -- its own tab (next to Rack), separate from the canvas: 6 routes, each
   Source (Note Pitch/Velocity/Mod Wheel/2 CC lanes) -> Destination (any slot's Filter Frequency/
   Feedback, Delay Time/Feedback, Waveshaper Drive, or Convolution Mix) -> bipolar Depth.

@@ -27,14 +27,15 @@ namespace GGrid
         ringMod = 7,
         lfo = 8,
         lossy = 9,
-        graphicEq = 10,
+        eq8 = 10,
         chorus = 11,
+        eq3 = 12,
     };
 
     inline juce::StringArray getModuleTypeChoices()
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
-                 "Lossy", "Graphic EQ", "Chorus/Flanger" };
+                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -227,15 +228,15 @@ namespace GGrid
         static const juce::String output  = "output";
     }
 
-    inline juce::String graphicEqParamId (int slotIndex, const juce::String& paramName)
+    inline juce::String eq8ParamId (int slotIndex, const juce::String& paramName)
     {
-        return "slot" + juce::String (slotIndex) + "_graphicEq_" + paramName;
+        return "slot" + juce::String (slotIndex) + "_eq8_" + paramName;
     }
 
     // 8 fixed-frequency peaking bands, one octave apart -- a classic graphic-EQ frequency ladder
     // (100Hz-12.8kHz), not a parametric EQ (no per-band frequency/Q controls). See
-    // kGraphicEqBandFrequencies for the actual Hz values these knobs correspond to.
-    namespace GraphicEqParam
+    // kEq8BandFrequencies for the actual Hz values these knobs correspond to.
+    namespace Eq8Param
     {
         static const juce::String band1  = "band1";  // 100 Hz
         static const juce::String band2  = "band2";  // 200 Hz
@@ -249,21 +250,21 @@ namespace GGrid
         static const juce::String output = "output";
     }
 
-    constexpr int kNumGraphicEqBands = 8;
-    constexpr std::array<float, kNumGraphicEqBands> kGraphicEqBandFrequencies {
+    constexpr int kNumEq8Bands = 8;
+    constexpr std::array<float, kNumEq8Bands> kEq8BandFrequencies {
         100.0f, 200.0f, 400.0f, 800.0f, 1600.0f, 3200.0f, 6400.0f, 12800.0f
     };
-    inline juce::StringArray getGraphicEqBandLabels()
+    inline juce::StringArray getEq8BandLabels()
     {
         return { "100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "12.8k" };
     }
-    inline const juce::String& graphicEqBandParam (int bandIndex)
+    inline const juce::String& eq8BandParam (int bandIndex)
     {
-        static const juce::String bandParams[kNumGraphicEqBands] = {
-            GraphicEqParam::band1, GraphicEqParam::band2, GraphicEqParam::band3, GraphicEqParam::band4,
-            GraphicEqParam::band5, GraphicEqParam::band6, GraphicEqParam::band7, GraphicEqParam::band8
+        static const juce::String bandParams[kNumEq8Bands] = {
+            Eq8Param::band1, Eq8Param::band2, Eq8Param::band3, Eq8Param::band4,
+            Eq8Param::band5, Eq8Param::band6, Eq8Param::band7, Eq8Param::band8
         };
-        return bandParams[(size_t) juce::jlimit (0, kNumGraphicEqBands - 1, bandIndex)];
+        return bandParams[(size_t) juce::jlimit (0, kNumEq8Bands - 1, bandIndex)];
     }
 
     inline juce::String chorusParamId (int slotIndex, const juce::String& paramName)
@@ -289,6 +290,22 @@ namespace GGrid
     inline juce::StringArray getChorusModeChoices()
     {
         return { "Chorus", "Flanger" };
+    }
+
+    inline juce::String eq3ParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_eq3_" + paramName;
+    }
+
+    // A simple 3-band tone EQ (Low Shelf / Mid Bell / High Shelf), each just a gain knob --
+    // EQ 8's lighter sibling. See Eq3Module for the exact filter frequencies/Q.
+    namespace Eq3Param
+    {
+        static const juce::String low    = "low";
+        static const juce::String mid    = "mid";
+        static const juce::String high   = "high";
+        static const juce::String mix    = "mix";
+        static const juce::String output = "output";
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

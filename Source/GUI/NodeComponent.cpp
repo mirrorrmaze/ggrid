@@ -50,8 +50,9 @@ namespace GGrid
         ringModPanel     = std::make_unique<RingModControlsPanel> (apvts, slotIndex);
         lfoPanel         = std::make_unique<LfoControlsPanel> (apvts, slotIndex);
         lossyPanel       = std::make_unique<LossyControlsPanel> (apvts, slotIndex);
-        graphicEqPanel   = std::make_unique<GraphicEqControlsPanel> (apvts, slotIndex);
+        eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex);
         chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
+        eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);
@@ -61,8 +62,9 @@ namespace GGrid
         addAndMakeVisible (*ringModPanel);
         addAndMakeVisible (*lfoPanel);
         addAndMakeVisible (*lossyPanel);
-        addAndMakeVisible (*graphicEqPanel);
+        addAndMakeVisible (*eq8Panel);
         addAndMakeVisible (*chorusPanel);
+        addAndMakeVisible (*eq3Panel);
 
         typeBox.onChange = [this] { updateVisiblePanel(); };
         updateVisiblePanel();
@@ -80,8 +82,9 @@ namespace GGrid
         ringModPanel->setVisible (type == ModuleType::ringMod);
         lfoPanel->setVisible (type == ModuleType::lfo);
         lossyPanel->setVisible (type == ModuleType::lossy);
-        graphicEqPanel->setVisible (type == ModuleType::graphicEq);
+        eq8Panel->setVisible (type == ModuleType::eq8);
         chorusPanel->setVisible (type == ModuleType::chorus);
+        eq3Panel->setVisible (type == ModuleType::eq3);
     }
 
     int NodeComponent::getPreferredHeight() const
@@ -102,8 +105,9 @@ namespace GGrid
             case ModuleType::ringMod:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::lfo:         contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::lossy:       contentHeight = 106; break; // knobRow(106), no bottom row
-            case ModuleType::graphicEq:   contentHeight = 330; break; // 3 knob rows(106 each) + 2 gaps(6 each)
+            case ModuleType::eq8:         contentHeight = 330; break; // 3 knob rows(106 each) + 2 gaps(6 each)
             case ModuleType::chorus:      contentHeight = 268; break; // knobRow(106) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::eq3:         contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::none:
             default:                      contentHeight = 0;   break;
         }
@@ -143,8 +147,9 @@ namespace GGrid
             case ModuleType::utility:     return utilityPanel->getModTargetCount();
             case ModuleType::ringMod:     return ringModPanel->getModTargetCount();
             case ModuleType::lossy:       return lossyPanel->getModTargetCount();
-            case ModuleType::graphicEq:   return graphicEqPanel->getModTargetCount();
+            case ModuleType::eq8:         return eq8Panel->getModTargetCount();
             case ModuleType::chorus:      return chorusPanel->getModTargetCount();
+            case ModuleType::eq3:         return eq3Panel->getModTargetCount();
             default:                      return 0;
         }
     }
@@ -161,8 +166,9 @@ namespace GGrid
             case ModuleType::utility:     return utilityPanel->getModTarget (index).paramId;
             case ModuleType::ringMod:     return ringModPanel->getModTarget (index).paramId;
             case ModuleType::lossy:       return lossyPanel->getModTarget (index).paramId;
-            case ModuleType::graphicEq:   return graphicEqPanel->getModTarget (index).paramId;
+            case ModuleType::eq8:         return eq8Panel->getModTarget (index).paramId;
             case ModuleType::chorus:      return chorusPanel->getModTarget (index).paramId;
+            case ModuleType::eq3:         return eq3Panel->getModTarget (index).paramId;
             default:                      return {};
         }
     }
@@ -180,8 +186,9 @@ namespace GGrid
             case ModuleType::utility:     slider = utilityPanel->getModTarget (index).slider; break;
             case ModuleType::ringMod:     slider = ringModPanel->getModTarget (index).slider; break;
             case ModuleType::lossy:       slider = lossyPanel->getModTarget (index).slider; break;
-            case ModuleType::graphicEq:   slider = graphicEqPanel->getModTarget (index).slider; break;
+            case ModuleType::eq8:         slider = eq8Panel->getModTarget (index).slider; break;
             case ModuleType::chorus:      slider = chorusPanel->getModTarget (index).slider; break;
+            case ModuleType::eq3:         slider = eq3Panel->getModTarget (index).slider; break;
             default:                      break;
         }
 
@@ -265,8 +272,9 @@ namespace GGrid
         ringModPanel->setBounds (contentArea);
         lfoPanel->setBounds (contentArea);
         lossyPanel->setBounds (contentArea);
-        graphicEqPanel->setBounds (contentArea);
+        eq8Panel->setBounds (contentArea);
         chorusPanel->setBounds (contentArea);
+        eq3Panel->setBounds (contentArea);
 
         const bool lfo = isLfoType();
         outputNubTop.setVisible (! lfo);
