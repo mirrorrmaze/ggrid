@@ -84,14 +84,14 @@ namespace GGrid
         int contentHeight;
         switch (type)
         {
-            case ModuleType::waveshaper:  contentHeight = 212; break; // curveArea(60) + gap(6) + knobRow(96) + gap(6) + bottomRow(44)
-            case ModuleType::filter:      contentHeight = 146; break; // knobRow(96) + gap(6) + bottomRow(44)
-            case ModuleType::delay:       contentHeight = 228; break; // knobRow(96) + gap(6) + filterRow(96) + gap(6) + bottomRow(24)
-            case ModuleType::dynamics:    contentHeight = 198; break; // topRow(96) + gap(6) + bottomRow(96)
-            case ModuleType::convolution: contentHeight = 304; break; // irRow(24)+gap+waveform(70)+gap+2 knob rows(96 each)
-            case ModuleType::utility:     contentHeight = 146; break; // knobRow(96) + gap(6) + bottomRow(44)
-            case ModuleType::ringMod:     contentHeight = 146; break; // knobRow(96) + gap(6) + bottomRow(44)
-            case ModuleType::lfo:         contentHeight = 146; break; // knobRow(96) + gap(6) + bottomRow(44)
+            case ModuleType::waveshaper:  contentHeight = 222; break; // curveArea(60) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::filter:      contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::delay:       contentHeight = 248; break; // knobRow(106) + gap(6) + filterRow(106) + gap(6) + bottomRow(24)
+            case ModuleType::dynamics:    contentHeight = 218; break; // topRow(106) + gap(6) + bottomRow(106)
+            case ModuleType::convolution: contentHeight = 324; break; // irRow(24)+gap+waveform(70)+gap+2 knob rows(106 each)
+            case ModuleType::utility:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::ringMod:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::lfo:         contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::none:
             default:                      contentHeight = 0;   break;
         }
@@ -167,10 +167,15 @@ namespace GGrid
         if (slider == nullptr)
             return {};
 
-        // Centered on the knob's top edge, not a corner -- a corner sits on the shared boundary
-        // with an adjacent knob and reads as belonging to the wrong one (see task 66).
+        // Centered horizontally on the knob (not a corner -- a corner sits on the shared
+        // boundary with an adjacent knob and reads as belonging to the wrong one, see task 66),
+        // and vertically in the middle of the 16px gap each panel now leaves between a knob's
+        // label and the knob itself (see the "mod-destination nub" comment in
+        // ModuleControlPanels.cpp's layoutKnob), so the dot touches neither -- sitting right at
+        // the knob's edge made it look fused to the rotary ring instead of a separate target.
         const auto bounds = slider->getBounds();
-        return contentAreaOrigin + juce::Point<int> (bounds.getCentreX(), bounds.getY());
+        constexpr int dotClearanceAboveKnob = 8;
+        return contentAreaOrigin + juce::Point<int> (bounds.getCentreX(), bounds.getY() - dotClearanceAboveKnob);
     }
 
     void NodeComponent::setSelected (bool shouldBeSelected)

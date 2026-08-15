@@ -157,13 +157,13 @@ namespace GGrid
         curveArea = area.removeFromTop (60);
         area.removeFromTop (6);
 
-        auto knobRow = area.removeFromTop (96);
+        auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 5;
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
@@ -237,13 +237,13 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        auto knobRow = area.removeFromTop (96);
+        auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 5;
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
@@ -318,13 +318,13 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        auto knobRow = area.removeFromTop (96);
+        auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 5;
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
@@ -335,7 +335,7 @@ namespace GGrid
         layoutKnob (knobRow, outputLabel, outputSlider);
 
         area.removeFromTop (6);
-        auto filterRow = area.removeFromTop (96);
+        auto filterRow = area.removeFromTop (106);
         const int filterKnobWidth = filterRow.getWidth() / 2;
         layoutKnob (filterRow.removeFromLeft (filterKnobWidth), lowCutLabel, lowCutSlider);
         layoutKnob (filterRow, hiCutLabel, hiCutSlider);
@@ -394,11 +394,11 @@ namespace GGrid
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
-        auto topRow = area.removeFromTop (96);
+        auto topRow = area.removeFromTop (106);
         const int topKnobWidth = topRow.getWidth() / 3;
         layoutKnob (topRow.removeFromLeft (topKnobWidth), thresholdLabel, thresholdSlider);
         layoutKnob (topRow.removeFromLeft (topKnobWidth), ratioLabel, ratioSlider);
@@ -406,7 +406,7 @@ namespace GGrid
 
         area.removeFromTop (6);
 
-        auto bottomRow = area.removeFromTop (96);
+        auto bottomRow = area.removeFromTop (106);
         const int bottomKnobWidth = bottomRow.getWidth() / 3;
         layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), releaseLabel, releaseSlider);
         layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), makeupLabel, makeupSlider);
@@ -510,11 +510,11 @@ namespace GGrid
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
-        auto topKnobRow = area.removeFromTop (96);
+        auto topKnobRow = area.removeFromTop (106);
         const int topKnobWidth = topKnobRow.getWidth() / 3;
         layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), toneLabel, toneSlider);
         layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), fadeInLabel, fadeInSlider);
@@ -522,7 +522,7 @@ namespace GGrid
 
         area.removeFromTop (6);
 
-        auto bottomKnobRow = area.removeFromTop (96);
+        auto bottomKnobRow = area.removeFromTop (106);
         const int bottomKnobWidth = bottomKnobRow.getWidth() / 3;
         layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), stretchLabel, stretchSlider);
         layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
@@ -570,13 +570,13 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        auto knobRow = area.removeFromTop (96);
+        auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 3;
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
@@ -640,13 +640,13 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        auto knobRow = area.removeFromTop (96);
+        auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 4;
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
@@ -704,13 +704,13 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        auto knobRow = area.removeFromTop (96);
+        auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 2;
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
-            col.removeFromTop (6); // room for a mod-destination nub between the label and the knob
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
             slider.setBounds (col);
         };
 
