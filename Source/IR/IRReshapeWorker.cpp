@@ -35,12 +35,14 @@ namespace GGrid
                 // so we don't touch `module` here at all beyond identity matching.
                 juce::AudioBuffer<float> shaped;
                 int preFadeOutLength = 0;
-                if (IRProcessor::buildShapedIR (job.irIndex, job.sampleRate, job.fadeInMs, job.fadeOutPercent, job.stretch, shaped, preFadeOutLength))
+                int fadeRampSamples = 0;
+                if (IRProcessor::buildShapedIR (job.irIndex, job.sampleRate, job.fadeInMs, job.fadeOutPercent, job.stretch, shaped, preFadeOutLength, fadeRampSamples))
                 {
                     const juce::SpinLock::ScopedLockType lock (slotLock);
                     slot.result = std::move (shaped);
                     slot.resultSampleRate = job.sampleRate;
                     slot.resultPreFadeOutLength = preFadeOutLength;
+                    slot.resultFadeRampSamples = fadeRampSamples;
                     slot.resultReady = true;
                 }
 

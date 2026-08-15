@@ -38,6 +38,13 @@ namespace GGrid
         // (leaving blank space) rather than looking like the whole thing got time-stretched.
         int preFadeOutLength = 0;
 
+        // Length (in samples) of the real declick ramp IRProcessor::buildShapedIR applied at the
+        // cut point -- 0 if Fade Out isn't currently truncating anything. paint() converts this
+        // to a pixel width via the same fullLength/width scale as everything else, so the drawn
+        // taper actually matches the real (small, fixed ~10ms) audio ramp instead of an invented
+        // fraction of whatever visible width happens to be left.
+        int fadeRampSamples = 0;
+
         // Set when displayBuffer is still empty AND IRLibrary::resolveIRRoot() can't find the
         // factory library at all -- distinguishes "genuinely still loading" from "never going to
         // load until the IR library is where the plugin expects it," which otherwise both look

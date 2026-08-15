@@ -54,7 +54,7 @@ namespace GGrid
     }
 
     bool ConvolutionModule::copyDisplayBufferIfChanged (juce::AudioBuffer<float>& outBuffer, juce::int64& lastSeenGeneration,
-                                                          int& outPreFadeOutLength)
+                                                          int& outPreFadeOutLength, int& outFadeRampSamples)
     {
         const juce::SpinLock::ScopedLockType lock (displayLock);
         if (displayGeneration == lastSeenGeneration)
@@ -62,6 +62,7 @@ namespace GGrid
 
         outBuffer = displayBuffer;
         outPreFadeOutLength = displayPreFadeOutLength;
+        outFadeRampSamples = displayFadeRampSamples;
         lastSeenGeneration = displayGeneration;
         return true;
     }
@@ -74,12 +75,14 @@ namespace GGrid
             juce::AudioBuffer<float> readyIR;
             double readySr = sampleRate;
             int readyPreFadeOutLength = 0;
-            if (services.irReshapeWorker.tryTakeResult (*this, readyIR, readySr, readyPreFadeOutLength))
+            int readyFadeRampSamples = 0;
+            if (services.irReshapeWorker.tryTakeResult (*this, readyIR, readySr, readyPreFadeOutLength, readyFadeRampSamples))
             {
                 {
                     const juce::SpinLock::ScopedLockType lock (displayLock);
                     displayBuffer = readyIR; // copy for GUI display before the move below empties it
                     displayPreFadeOutLength = readyPreFadeOutLength;
+                    displayFadeRampSamples = readyFadeRampSamples;
                     ++displayGeneration;
                 }
 

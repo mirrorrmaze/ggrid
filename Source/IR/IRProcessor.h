@@ -16,6 +16,14 @@ namespace GGrid::IRProcessor
     // fade-out step below). Callers that display this waveform need both numbers: without the
     // pre-truncation length, a display that always stretches whatever buffer it has to fill its
     // full width makes shortening via Fade Out look like time-stretching instead of a cut.
+    //
+    // outFadeRampSamples is the length (in samples, at `sampleRate`) of the short declick ramp
+    // actually applied at the new cut point -- 0 if Fade Out didn't cause any truncation this
+    // call. A caller drawing that ramp on the waveform display needs the real length rather than
+    // inventing its own (e.g. a fraction of however much visible width happens to be left):
+    // that both draws a taper when there isn't one (Fade Out = 0%, nothing was truncated) and
+    // exaggerates it into eating a growing fraction of the shrinking visible region as Fade Out
+    // increases, when the real ramp is a small fixed ~10ms regardless.
     bool buildShapedIR (int irIndex, double sampleRate, float fadeInMs, float fadeOutPercent, float stretch,
-                         juce::AudioBuffer<float>& outShapedIR, int& outPreFadeOutLength);
+                         juce::AudioBuffer<float>& outShapedIR, int& outPreFadeOutLength, int& outFadeRampSamples);
 }

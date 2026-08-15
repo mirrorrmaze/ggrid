@@ -1,12 +1,14 @@
 #include "IRProcessor.h"
 #include "IRLibrary.h"
+#include <cmath>
 
 namespace GGrid::IRProcessor
 {
     bool buildShapedIR (int irIndex, double sampleRate, float fadeInMs, float fadeOutPercent, float stretch,
-                         juce::AudioBuffer<float>& outShapedIR, int& outPreFadeOutLength)
+                         juce::AudioBuffer<float>& outShapedIR, int& outPreFadeOutLength, int& outFadeRampSamples)
     {
         outPreFadeOutLength = 0;
+        outFadeRampSamples = 0;
         juce::AudioBuffer<float> rawIR;
         if (! IRLibrary::loadEntry (irIndex, sampleRate, rawIR))
             return false;
@@ -89,6 +91,25 @@ namespace GGrid::IRProcessor
             }
 
             outShapedIR.setSize (srcChannels, keptLength, true, false, true); // true = keep existing content
+            outFadeRampSamples = clickFadeSamples;
+        }
+
+        // Guard against the interpolator's accumulated sub-sample position drifting far enough
+        // (over tens of thousands of iterations at extreme Stretch ratios) to read past even the
+        // padded source buffer, into real out-of-bounds heap memory -- unlike the padding zone
+        // itself (explicitly zeroed), that memory can be anything, including NaN/Inf bit
+        // patterns. A NaN/Inf sample baked into the IR itself isn't something the convolution
+        // engine can self-heal from: it stays loaded and re-corrupts every block until a
+        // *different* IR gets loaded, which reads as the effect going completely silent and only
+        // recovering when you switch IRs (not on its own). Scrubbing here means whatever reaches
+        // juce::dsp::Convolution::loadImpulseResponse is always finite, regardless of any
+        // resampling edge case.
+        for (int ch = 0; ch < outShapedIR.getNumChannels(); ++ch)
+        {
+            auto* data = outShapedIR.getWritePointer (ch);
+            for (int i = 0; i < outShapedIR.getNumSamples(); ++i)
+                if (! std::isfinite (data[i]))
+                    data[i] = 0.0f;
         }
 
         return true;

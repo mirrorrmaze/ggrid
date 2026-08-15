@@ -20,7 +20,7 @@ namespace GGrid
     {
         if (auto* convolutionModule = dynamic_cast<ConvolutionModule*> (rackSlot.getCurrentModule()))
         {
-            if (convolutionModule->copyDisplayBufferIfChanged (displayBuffer, lastSeenGeneration, preFadeOutLength))
+            if (convolutionModule->copyDisplayBufferIfChanged (displayBuffer, lastSeenGeneration, preFadeOutLength, fadeRampSamples))
             {
                 irLibraryMissing = false;
                 repaint();
@@ -85,14 +85,19 @@ namespace GGrid
         const float midY = area.getCentreY();
         const float halfHeight = area.getHeight() * 0.5f;
 
-        // Column where Fade Out's cut point falls, and a visual amplitude taper across the last
-        // quarter of the kept region leading into it -- reads as a volume ramp-down into the cut
-        // (symmetric with Fade In's ramp-up at the head) instead of a flat waveform that just
-        // stops at a vertical line. Display-only: the real audio still does its short declick +
-        // hard truncation right at the cut point (see IRProcessor::buildShapedIR), this only
-        // changes how that transition is drawn.
+        // Column where Fade Out's cut point falls, and (only if Fade Out is actually truncating
+        // anything this call -- fadeRampSamples is 0 otherwise) the matching pixel width of the
+        // real declick ramp IRProcessor::buildShapedIR applied there, converted via the same
+        // samples-per-pixel scale as everything else drawn here. Previously this invented its
+        // own width (a quarter of however much visible column range happened to be left), which
+        // both drew a taper when Fade Out was 0% (nothing was actually truncated) and made that
+        // taper eat a growing fraction of the shrinking visible region as Fade Out increased --
+        // exaggerating a small, fixed ~10ms ramp into something that read as the whole waveform
+        // shrinking toward silence, not just getting shorter.
         const int cutoffColumn = juce::jlimit (0, width, (int) (((juce::int64) numSamples * width) / fullLength));
-        const int rampColumns = juce::jmin (cutoffColumn, juce::jmax (24, cutoffColumn / 4));
+        const int rampColumns = fadeRampSamples > 0
+            ? juce::jlimit (1, cutoffColumn, (int) (((juce::int64) fadeRampSamples * width) / fullLength))
+            : 0;
         const int rampStart = cutoffColumn - rampColumns;
 
         g.setColour (Palette::accent);

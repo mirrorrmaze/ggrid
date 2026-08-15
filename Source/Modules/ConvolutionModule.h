@@ -29,10 +29,11 @@ namespace GGrid
         // For the GUI's IR waveform display. Copies into outBuffer and returns true only if the
         // loaded IR has changed since lastSeenGeneration (which the caller owns and passes back
         // in each time), so a polling Timer doesn't do needless work/repaints. outPreFadeOutLength
-        // is outBuffer's length before Fade Out's truncation -- see IRProcessor::buildShapedIR's
-        // comment for why the display needs this to show a cut instead of a stretch.
+        // is outBuffer's length before Fade Out's truncation, and outFadeRampSamples is the
+        // length of the declick ramp actually applied at the cut point (0 if none) -- see
+        // IRProcessor::buildShapedIR's comment for why the display needs both.
         bool copyDisplayBufferIfChanged (juce::AudioBuffer<float>& outBuffer, juce::int64& lastSeenGeneration,
-                                          int& outPreFadeOutLength);
+                                          int& outPreFadeOutLength, int& outFadeRampSamples);
 
     private:
         void applyToneCoefficients (float tone);
@@ -69,6 +70,7 @@ namespace GGrid
         juce::SpinLock displayLock;
         juce::AudioBuffer<float> displayBuffer;
         int displayPreFadeOutLength = 0;
+        int displayFadeRampSamples = 0;
         juce::int64 displayGeneration = 0;
     };
 }
