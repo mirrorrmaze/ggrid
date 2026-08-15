@@ -32,6 +32,13 @@ namespace GGrid
         juce::AudioBuffer<float> displayBuffer;
         juce::int64 lastSeenGeneration = -1;
 
+        // Set when displayBuffer is still empty AND IRLibrary::resolveIRRoot() can't find the
+        // factory library at all -- distinguishes "genuinely still loading" from "never going to
+        // load until the IR library is where the plugin expects it," which otherwise both look
+        // identical (an empty displayBuffer) and would sit on the same "(loading...)" message
+        // forever with no indication anything's actually wrong.
+        bool irLibraryMissing = false;
+
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IRWaveformComponent)
     };
 }

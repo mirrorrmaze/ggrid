@@ -1,6 +1,7 @@
 #include "IRWaveformComponent.h"
 #include "GGridLookAndFeel.h"
 #include "../Modules/ConvolutionModule.h"
+#include "../IR/IRLibrary.h"
 
 namespace GGrid
 {
@@ -20,13 +21,28 @@ namespace GGrid
         if (auto* convolutionModule = dynamic_cast<ConvolutionModule*> (rackSlot.getCurrentModule()))
         {
             if (convolutionModule->copyDisplayBufferIfChanged (displayBuffer, lastSeenGeneration))
+            {
+                irLibraryMissing = false;
                 repaint();
+            }
+            else if (displayBuffer.getNumSamples() == 0)
+            {
+                // Still empty -- only bother checking the filesystem while that's true (once a
+                // real IR has loaded, this can't be the problem anymore, so skip the stat calls).
+                const bool missingNow = ! IRLibrary::resolveIRRoot().isDirectory();
+                if (missingNow != irLibraryMissing)
+                {
+                    irLibraryMissing = missingNow;
+                    repaint();
+                }
+            }
         }
-        else if (displayBuffer.getNumSamples() != 0)
+        else if (displayBuffer.getNumSamples() != 0 || irLibraryMissing)
         {
             // Slot switched away from Convolution -- stop showing stale content.
             displayBuffer.setSize (0, 0);
             lastSeenGeneration = -1;
+            irLibraryMissing = false;
             repaint();
         }
     }
@@ -41,9 +57,21 @@ namespace GGrid
 
         if (displayBuffer.getNumSamples() == 0)
         {
-            g.setColour (Palette::dim);
-            g.setFont (juce::Font (juce::FontOptions (12.0f)));
-            g.drawText ("(loading...)", bounds, juce::Justification::centred);
+            if (irLibraryMissing)
+            {
+                const auto expectedPath = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                               .getChildFile ("GGrid").getChildFile ("IRs").getFullPathName();
+                g.setColour (Palette::accent);
+                g.setFont (juce::Font (juce::FontOptions (11.0f)));
+                g.drawFittedText ("IR library not found -- expected at " + expectedPath,
+                                   bounds.reduced (4.0f).toNearestInt(), juce::Justification::centred, 3);
+            }
+            else
+            {
+                g.setColour (Palette::dim);
+                g.setFont (juce::Font (juce::FontOptions (12.0f)));
+                g.drawText ("(loading...)", bounds, juce::Justification::centred);
+            }
             return;
         }
 
