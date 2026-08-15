@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <array>
 
 // Parameter ID scheme: "slot{n}_type" / "slot{n}_bypass" pick and bypass whichever module
 // occupies rack slot n; "slot{n}_{moduleType}_{paramName}" are that module type's own params,
@@ -25,11 +26,15 @@ namespace GGrid
         utility = 6,
         ringMod = 7,
         lfo = 8,
+        lossy = 9,
+        graphicEq = 10,
+        chorus = 11,
     };
 
     inline juce::StringArray getModuleTypeChoices()
     {
-        return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO" };
+        return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
+                 "Lossy", "Graphic EQ", "Chorus/Flanger" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -204,6 +209,86 @@ namespace GGrid
     inline juce::StringArray getLfoShapeChoices()
     {
         return { "Sine", "Triangle", "Square", "Saw", "Sample & Hold" };
+    }
+
+    inline juce::String lossyParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_lossy_" + paramName;
+    }
+
+    // A spectral "codec-style" lo-fi degradation effect (ported from SPANDEX's LossyProcessor) --
+    // see LossyModule's class comment for the full algorithm.
+    namespace LossyParam
+    {
+        static const juce::String bits    = "bits";
+        static const juce::String rate    = "rate";
+        static const juce::String jitter  = "jitter";
+        static const juce::String mix     = "mix";
+        static const juce::String output  = "output";
+    }
+
+    inline juce::String graphicEqParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_graphicEq_" + paramName;
+    }
+
+    // 8 fixed-frequency peaking bands, one octave apart -- a classic graphic-EQ frequency ladder
+    // (100Hz-12.8kHz), not a parametric EQ (no per-band frequency/Q controls). See
+    // kGraphicEqBandFrequencies for the actual Hz values these knobs correspond to.
+    namespace GraphicEqParam
+    {
+        static const juce::String band1  = "band1";  // 100 Hz
+        static const juce::String band2  = "band2";  // 200 Hz
+        static const juce::String band3  = "band3";  // 400 Hz
+        static const juce::String band4  = "band4";  // 800 Hz
+        static const juce::String band5  = "band5";  // 1.6 kHz
+        static const juce::String band6  = "band6";  // 3.2 kHz
+        static const juce::String band7  = "band7";  // 6.4 kHz
+        static const juce::String band8  = "band8";  // 12.8 kHz
+        static const juce::String mix    = "mix";
+        static const juce::String output = "output";
+    }
+
+    constexpr int kNumGraphicEqBands = 8;
+    constexpr std::array<float, kNumGraphicEqBands> kGraphicEqBandFrequencies {
+        100.0f, 200.0f, 400.0f, 800.0f, 1600.0f, 3200.0f, 6400.0f, 12800.0f
+    };
+    inline juce::StringArray getGraphicEqBandLabels()
+    {
+        return { "100", "200", "400", "800", "1.6k", "3.2k", "6.4k", "12.8k" };
+    }
+    inline const juce::String& graphicEqBandParam (int bandIndex)
+    {
+        static const juce::String bandParams[kNumGraphicEqBands] = {
+            GraphicEqParam::band1, GraphicEqParam::band2, GraphicEqParam::band3, GraphicEqParam::band4,
+            GraphicEqParam::band5, GraphicEqParam::band6, GraphicEqParam::band7, GraphicEqParam::band8
+        };
+        return bandParams[(size_t) juce::jlimit (0, kNumGraphicEqBands - 1, bandIndex)];
+    }
+
+    inline juce::String chorusParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_chorus_" + paramName;
+    }
+
+    // One modulated delay line per channel; Mode picks Chorus (no feedback path -- lush,
+    // doubling character) or Flanger (feedback path active -- resonant, "jet plane" comb sweep).
+    // Depth swings the delay time as a fraction of Delay itself (see ChorusModule::process), so
+    // the same knob works proportionally whether Delay is dialed short (flange) or long (chorus).
+    namespace ChorusParam
+    {
+        static const juce::String mode     = "mode";
+        static const juce::String rate     = "rate";
+        static const juce::String depth    = "depth";
+        static const juce::String delay    = "delay";
+        static const juce::String feedback = "feedback";
+        static const juce::String mix      = "mix";
+        static const juce::String output   = "output";
+    }
+
+    inline juce::StringArray getChorusModeChoices()
+    {
+        return { "Chorus", "Flanger" };
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

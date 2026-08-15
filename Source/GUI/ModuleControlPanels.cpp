@@ -727,4 +727,208 @@ namespace GGrid
         bottomRow.removeFromLeft (4);
         divisionBox.setBounds (bottomRow);
     }
+
+    LossyControlsPanel::LossyControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (bitsSlider, bitsLabel, "Bits");
+        setupRotary (rateSlider, rateLabel, "Rate");
+        setupRotary (jitterSlider, jitterLabel, "Jitter");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        bitsAttachment   = std::make_unique<SliderAttachment> (apvts, lossyParamId (slotIndex, LossyParam::bits), bitsSlider);
+        rateAttachment   = std::make_unique<SliderAttachment> (apvts, lossyParamId (slotIndex, LossyParam::rate), rateSlider);
+        jitterAttachment = std::make_unique<SliderAttachment> (apvts, lossyParamId (slotIndex, LossyParam::jitter), jitterSlider);
+        mixAttachment    = std::make_unique<SliderAttachment> (apvts, lossyParamId (slotIndex, LossyParam::mix), mixSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (apvts, lossyParamId (slotIndex, LossyParam::output), outputSlider);
+
+        modTargets = {
+            { lossyParamId (slotIndex, LossyParam::bits),   "Bits",   &bitsSlider },
+            { lossyParamId (slotIndex, LossyParam::rate),   "Rate",   &rateSlider },
+            { lossyParamId (slotIndex, LossyParam::jitter), "Jitter", &jitterSlider },
+            { lossyParamId (slotIndex, LossyParam::mix),    "Mix",    &mixSlider },
+            { lossyParamId (slotIndex, LossyParam::output), "Output", &outputSlider },
+        };
+    }
+
+    void LossyControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 5;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), bitsLabel, bitsSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), rateLabel, rateSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), jitterLabel, jitterSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
+        layoutKnob (knobRow, outputLabel, outputSlider);
+    }
+
+    GraphicEqControlsPanel::GraphicEqControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        auto bandLabelText = getGraphicEqBandLabels();
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        for (int b = 0; b < kNumGraphicEqBands; ++b)
+        {
+            setupRotary (bandSliders[(size_t) b], bandLabels[(size_t) b], bandLabelText[b]);
+            bandAttachments[(size_t) b] = std::make_unique<SliderAttachment> (
+                apvts, graphicEqParamId (slotIndex, graphicEqBandParam (b)), bandSliders[(size_t) b]);
+            modTargets.push_back ({ graphicEqParamId (slotIndex, graphicEqBandParam (b)),
+                                     bandLabelText[b] + "Hz", &bandSliders[(size_t) b] });
+        }
+
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        mixAttachment    = std::make_unique<SliderAttachment> (apvts, graphicEqParamId (slotIndex, GraphicEqParam::mix), mixSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (apvts, graphicEqParamId (slotIndex, GraphicEqParam::output), outputSlider);
+
+        modTargets.push_back ({ graphicEqParamId (slotIndex, GraphicEqParam::mix), "Mix", &mixSlider });
+        modTargets.push_back ({ graphicEqParamId (slotIndex, GraphicEqParam::output), "Output", &outputSlider });
+    }
+
+    void GraphicEqControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        auto topRow = area.removeFromTop (106);
+        const int topKnobWidth = topRow.getWidth() / 4;
+        for (int b = 0; b < 4; ++b)
+            layoutKnob (topRow.removeFromLeft (topKnobWidth), bandLabels[(size_t) b], bandSliders[(size_t) b]);
+
+        area.removeFromTop (6);
+
+        auto bottomRow = area.removeFromTop (106);
+        const int bottomKnobWidth = bottomRow.getWidth() / 4;
+        for (int b = 4; b < 8; ++b)
+            layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), bandLabels[(size_t) b], bandSliders[(size_t) b]);
+
+        area.removeFromTop (6);
+
+        auto mixRow = area.removeFromTop (106);
+        const int mixKnobWidth = mixRow.getWidth() / 2;
+        layoutKnob (mixRow.removeFromLeft (mixKnobWidth), mixLabel, mixSlider);
+        layoutKnob (mixRow, outputLabel, outputSlider);
+    }
+
+    ChorusControlsPanel::ChorusControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (rateSlider, rateLabel, "Rate");
+        setupRotary (depthSlider, depthLabel, "Depth");
+        setupRotary (delaySlider, delayLabel, "Delay");
+        setupRotary (feedbackSlider, feedbackLabel, "Feedback");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        modeLabel.setText ("Mode", juce::dontSendNotification);
+        modeLabel.setJustificationType (juce::Justification::centred);
+
+        int itemId = 1;
+        for (auto& choice : getChorusModeChoices())
+            modeBox.addItem (choice, itemId++);
+
+        addAndMakeVisible (modeBox);
+        addAndMakeVisible (modeLabel);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        rateAttachment     = std::make_unique<SliderAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::rate), rateSlider);
+        depthAttachment    = std::make_unique<SliderAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::depth), depthSlider);
+        delayAttachment    = std::make_unique<SliderAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::delay), delaySlider);
+        feedbackAttachment = std::make_unique<SliderAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::feedback), feedbackSlider);
+        mixAttachment      = std::make_unique<SliderAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::mix), mixSlider);
+        outputAttachment   = std::make_unique<SliderAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::output), outputSlider);
+        modeAttachment     = std::make_unique<ComboBoxAttachment> (apvts, chorusParamId (slotIndex, ChorusParam::mode), modeBox);
+
+        modTargets = {
+            { chorusParamId (slotIndex, ChorusParam::rate),     "Rate",     &rateSlider },
+            { chorusParamId (slotIndex, ChorusParam::depth),    "Depth",    &depthSlider },
+            { chorusParamId (slotIndex, ChorusParam::delay),    "Delay",    &delaySlider },
+            { chorusParamId (slotIndex, ChorusParam::feedback), "Feedback", &feedbackSlider },
+            { chorusParamId (slotIndex, ChorusParam::mix),      "Mix",      &mixSlider },
+            { chorusParamId (slotIndex, ChorusParam::output),   "Output",   &outputSlider },
+        };
+    }
+
+    void ChorusControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        auto topRow = area.removeFromTop (106);
+        const int topKnobWidth = topRow.getWidth() / 3;
+        layoutKnob (topRow.removeFromLeft (topKnobWidth), rateLabel, rateSlider);
+        layoutKnob (topRow.removeFromLeft (topKnobWidth), depthLabel, depthSlider);
+        layoutKnob (topRow, delayLabel, delaySlider);
+
+        area.removeFromTop (6);
+
+        auto bottomRow = area.removeFromTop (106);
+        const int bottomKnobWidth = bottomRow.getWidth() / 3;
+        layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), feedbackLabel, feedbackSlider);
+        layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
+        layoutKnob (bottomRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto modeRow = area.removeFromTop (44);
+        auto left = modeRow.removeFromLeft (modeRow.getWidth() / 2).reduced (4, 0);
+
+        modeLabel.setBounds (left.removeFromTop (16));
+        modeBox.setBounds (left.removeFromTop (24));
+    }
 }

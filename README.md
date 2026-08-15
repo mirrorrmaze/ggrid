@@ -6,14 +6,18 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
 ## Features
 
 - **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
-  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO), drag its title bar to reposition, drag a cable
-  from a node's output to another node's input to connect them. Up to 8 nodes, including
-  duplicates of the same type. Each audio node has 2 output nubs and 2 input dots -- enough to
-  split a signal into two parallel chains and sum them back together, not just a single-file
-  chain. A freshly added node auto-chains after whichever node you added right before it, so
-  simple serial patches still "just work" without wiring every node by hand -- explicit rewiring
-  is how you branch off into something parallel. Grab an *existing* cable (not just a node's
-  output) to rewire it elsewhere, or drop it on blank space to genuinely disconnect it.
+  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO/Lossy/Graphic EQ/Chorus-Flanger), drag its title
+  bar to reposition, drag a cable from a node's output to another node's input to connect them. Up
+  to 8 nodes, including duplicates of the same type. Each audio node has 2 output nubs and 2 input
+  dots -- enough to split a signal into two parallel chains and sum them back together, not just a
+  single-file chain. A freshly added node auto-chains after whichever node you added right before
+  it, so simple serial patches still "just work" without wiring every node by hand -- explicit
+  rewiring is how you branch off into something parallel. Grab an *existing* cable (not just a
+  node's output) to rewire it elsewhere, or drop it on blank space to genuinely disconnect it --
+  a node that's had every connection removed goes silent (out of the signal path entirely), not a
+  free-running unpatched copy of the dry signal still bleeding into the mix. A brand-new node
+  that's never been wired at all is the one exception: it still works standalone as a
+  chain-of-one, the same convenience that's always let a freshly dropped single module "just work."
   Left-click-drag blank canvas to pan (a quick grab-and-go); holding briefly before you drag
   selects instead, opening a rubber band to catch several nodes at once (shift-drag does the same
   instantly, skipping the hold) -- drag any selected node to move the whole selection together,
@@ -72,6 +76,23 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
 - **LFO** -- Sine/Triangle/Square/Saw/Sample & Hold shapes, Free (Hz) or host-tempo-Synced rate
   (same note-division table as Delay's sync), and a Depth knob that scales its output across every
   cable it drives. Not an audio node -- see Modulation cables above.
+- **Lossy** -- a spectral, "codec-style" lo-fi degradation effect ported from
+  [SPANDEX](../RepitchDeck)'s Lossy processor (itself modeled after Goodhertz's Lossy), not a
+  time-domain bitcrusher: a streaming STFT quantizes the magnitude spectrum to Bits discrete
+  levels and randomizes per-bin phase by Jitter, refreshing that quantized/jittered frame at Rate
+  times/second -- low Rate holds old spectral content for a smeared, underwater texture, high Rate
+  refreshes almost every hop for a garbled, glitchy one. Mix blends in the spectral domain (not a
+  sample-level dry path -- see the module's own comment for why), plus Output.
+- **Graphic EQ** -- a classic 8-band graphic EQ, one octave apart (100Hz-12.8kHz), each a fixed-
+  frequency peaking band with just a gain knob (no per-band frequency/Q, unlike a parametric EQ),
+  plus Mix/Output.
+- **Chorus/Flanger** -- one module, two related characters via a Mode dropdown: Chorus (lush,
+  doubling, no feedback) or Flanger (resonant, "jet plane" comb sweep, feedback path active) --
+  a real difference in the signal path, not just a label. Rate/Depth/Delay drive a modulated delay
+  line per channel (each channel's LFO starts at a different phase for stereo width, no extra
+  knob needed); Depth scales as a fraction of Delay itself so the same knob works proportionally
+  whether Delay is dialed short (flange) or long (chorus). Feedback (Flanger mode only), Mix,
+  Output.
 - **MIDI Mod Matrix** -- its own tab (next to Rack), separate from the canvas: 6 routes, each
   Source (Note Pitch/Velocity/Mod Wheel/2 CC lanes) -> Destination (any slot's Filter Frequency/
   Feedback, Delay Time/Feedback, Waveshaper Drive, or Convolution Mix) -> bipolar Depth.
@@ -177,6 +198,14 @@ Installer/                             Inno Setup installer script
   duplicate an existing edge, or create a cycle (`GGridAudioProcessor::canAddConnection`) --
   block-based processing has no notion of a same-block feedback loop, so the graph must stay
   acyclic.
+- **A slot with zero connections is only a root+sink pass-through if it's never been connected.**
+  `active[i]` in `processBlock` also checks `GGridAudioProcessor::everConnected[i]` -- a node that
+  WAS wired and is now fully disconnected is excluded from the graph entirely (silent) rather than
+  defaulting back to root+sink, which would otherwise make it a free-running unpatched parallel
+  path invisibly summing its processed output into the mix, indistinguishable at a glance from
+  actually being removed from the signal path. `everConnected` is set in `addConnection` and
+  cleared via `resetEverConnected()` on any type change (`NodeGraphEditor::
+  pruneStaleConnectionsForSlot`), persisted alongside `connections`/`nodePositions`.
 - **Modulation is additive**, applied at the point of use inside each destination module, never
   by overwriting the APVTS parameter -- the knob position is always the base value.
 - **Two parallel modulation mechanisms coexist by design.** The original enum-keyed

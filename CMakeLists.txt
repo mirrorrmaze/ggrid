@@ -43,6 +43,9 @@ target_sources(GGrid
         Source/Modules/UtilityModule.cpp
         Source/Modules/RingModModule.cpp
         Source/Modules/LFOModule.cpp
+        Source/Modules/LossyModule.cpp
+        Source/Modules/GraphicEqModule.cpp
+        Source/Modules/ChorusModule.cpp
         Source/Modulation/ModulationMatrix.cpp
         Source/IR/IRLibrary.cpp
         Source/IR/IRProcessor.cpp
@@ -93,6 +96,9 @@ add_executable(OfflineDspTest
     Source/Modules/UtilityModule.cpp
     Source/Modules/RingModModule.cpp
     Source/Modules/LFOModule.cpp
+    Source/Modules/LossyModule.cpp
+    Source/Modules/GraphicEqModule.cpp
+    Source/Modules/ChorusModule.cpp
     Source/Modulation/ModulationMatrix.cpp
     Source/IR/IRLibrary.cpp
     Source/IR/IRProcessor.cpp

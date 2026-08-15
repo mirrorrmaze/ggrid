@@ -131,8 +131,17 @@ namespace GGrid
         {
             if (! canAddConnection (from, to)) return false;
             connections[(size_t) numConnections++] = { from, to };
+            everConnected[(size_t) from] = true;
+            everConnected[(size_t) to] = true;
             return true;
         }
+
+        // Clears "has this slot ever had an audio connection" (see everConnected below) --
+        // called whenever a slot's type changes (including to/from None), so a structurally new
+        // module doesn't inherit its predecessor's connection history. Without this, a freshly
+        // retyped node that happens to land on a slot index that was previously wired-then-
+        // disconnected would incorrectly start out silent instead of working standalone.
+        void resetEverConnected (int slot) { everConnected[(size_t) slot] = false; }
 
         void removeConnection (int from, int to)
         {
@@ -189,6 +198,17 @@ namespace GGrid
         SharedServices sharedServices { convolutionMessageQueue, irReshapeWorker, currentBpm };
 
         std::array<std::unique_ptr<RackSlot>, kMaxSlots> slots;
+
+        // Whether this slot has ever had an audio connection since it last became its current
+        // type. Distinguishes the two ways a slot can have zero audio connections right now: a
+        // brand-new node that's never been wired (still gets the standalone chain-of-one
+        // treatment in processBlock, so a freshly dropped node "just works") vs. a node that WAS
+        // part of a patch and has since been fully disconnected (goes silent instead -- see
+        // processBlock's isOrphaned check). Set in addConnection, cleared via
+        // resetEverConnected() whenever the slot's type changes. Persisted alongside
+        // connections/nodePositions so a reloaded project doesn't forget which nodes were
+        // deliberately disconnected.
+        std::array<bool, kMaxSlots> everConnected {};
 
         // Per-node scratch buffers for graph processing (one per slot) plus a copy of the raw
         // input for seeding root nodes -- preallocated in prepareToPlay and just resized (never

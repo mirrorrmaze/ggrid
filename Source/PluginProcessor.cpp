@@ -98,7 +98,19 @@ namespace GGrid
             // sources, not audio processors (see LFOModule's class comment). Including them
             // here would make every unconnected LFO node silently inject an extra copy of the
             // dry signal into the mix, since a disconnected node is otherwise its own root+sink.
-            active[(size_t) i] = (type != ModuleType::none) && (type != ModuleType::lfo);
+            const bool hasType = (type != ModuleType::none) && (type != ModuleType::lfo);
+
+            // A node with zero audio connections normally still runs as a standalone
+            // chain-of-one (its own root, fed the raw input; its own sink, feeding the master
+            // mix) -- the mechanism that lets a freshly dropped node "just work" without wiring
+            // anything. But a node that WAS part of a patch and has since been fully
+            // disconnected means the opposite: it was deliberately taken out of the signal path
+            // and should go silent, not quietly keep processing as an orphaned parallel path
+            // with no cable showing it's still live. everConnected (set in addConnection,
+            // cleared on any type change) is what tells these two zero-connection cases apart.
+            const bool isOrphaned = everConnected[(size_t) i] && getInDegree (i) == 0 && getOutDegree (i) == 0;
+
+            active[(size_t) i] = hasType && ! isOrphaned;
             anyActive |= active[(size_t) i];
         }
 
@@ -226,6 +238,11 @@ namespace GGrid
         }
         xml.setAttribute ("nodePositions", positionTokens.joinIntoString (","));
 
+        juce::StringArray everConnectedTokens;
+        for (int i = 0; i < kMaxSlots; ++i)
+            everConnectedTokens.add (everConnected[(size_t) i] ? "1" : "0");
+        xml.setAttribute ("everConnected", everConnectedTokens.joinIntoString (","));
+
         copyXmlToBinary (xml, destData);
     }
 
@@ -262,6 +279,13 @@ namespace GGrid
         if (positionTokens.size() == kMaxSlots * 2)
             for (int i = 0; i < kMaxSlots; ++i)
                 nodePositions[(size_t) i] = { positionTokens[i * 2].getFloatValue(), positionTokens[i * 2 + 1].getFloatValue() };
+
+        // Missing (older save, before this attribute existed) defaults every slot to false --
+        // the same "never connected" standalone treatment those saves already relied on for any
+        // zero-degree node, so old projects keep behaving exactly as they did before.
+        auto everConnectedTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("everConnected"), ",", "");
+        for (int i = 0; i < kMaxSlots; ++i)
+            everConnected[(size_t) i] = (i < everConnectedTokens.size()) && everConnectedTokens[i] == "1";
     }
 }
 

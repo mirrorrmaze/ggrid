@@ -8,6 +8,9 @@
 #include "Modules/UtilityModule.h"
 #include "Modules/RingModModule.h"
 #include "Modules/LFOModule.h"
+#include "Modules/LossyModule.h"
+#include "Modules/GraphicEqModule.h"
+#include "Modules/ChorusModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
@@ -1101,6 +1104,238 @@ int main()
         expect (rmsAtPositiveLfo > rmsAtNegativeLfo * 1.5,
                 "an LFO modulation cable into Filter Frequency passes more 8kHz energy through when the LFO is at +1 than at -1 (positive-LFO RMS "
                     + juce::String (rmsAtPositiveLfo, 4) + ", negative-LFO RMS " + juce::String (rmsAtNegativeLfo, 4) + ")");
+    }
+
+    // --- Lossy: stays finite/bounded at maximum degradation ---
+    {
+        apvts.getRawParameterValue (lossyParamId (0, LossyParam::bits))->store (1.0f);
+        apvts.getRawParameterValue (lossyParamId (0, LossyParam::rate))->store (200.0f);
+        apvts.getRawParameterValue (lossyParamId (0, LossyParam::jitter))->store (1.0f);
+        apvts.getRawParameterValue (lossyParamId (0, LossyParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (lossyParamId (0, LossyParam::output))->store (0.0f);
+
+        LossyModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.9f, 1000.0f, sampleRate);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        for (int i = 0; i < 20; ++i)
+            module.process (block, midi, modMatrix);
+
+        expect (isFiniteAndBounded (buffer, 2.0f), "Lossy stays finite/bounded at extreme Bits/Rate/Jitter/Mix");
+    }
+
+    // --- Lossy: Jitter=0 is deterministic run-to-run; Jitter=1 is not (random per-bin phase) ---
+    {
+        const int numChunks = 40;
+        const int totalSamples = blockSize * numChunks;
+
+        auto runOnce = [&] (float jitterValue) -> juce::AudioBuffer<float>
+        {
+            apvts.getRawParameterValue (lossyParamId (0, LossyParam::bits))->store (4.0f);
+            apvts.getRawParameterValue (lossyParamId (0, LossyParam::rate))->store (200.0f);
+            apvts.getRawParameterValue (lossyParamId (0, LossyParam::jitter))->store (jitterValue);
+            apvts.getRawParameterValue (lossyParamId (0, LossyParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (lossyParamId (0, LossyParam::output))->store (0.0f);
+
+            LossyModule module (apvts, 0);
+            module.prepare (spec);
+
+            auto fullBuffer = makeTestSignal (totalSamples, 0.5f, 1000.0f, sampleRate);
+            juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+            for (int chunk = 0; chunk < numChunks; ++chunk)
+            {
+                auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+                juce::MidiBuffer midi;
+                module.process (sub, midi, modMatrix);
+            }
+            return fullBuffer;
+        };
+
+        auto buffersMatch = [] (const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+        {
+            for (int ch = 0; ch < a.getNumChannels(); ++ch)
+            {
+                const auto* dataA = a.getReadPointer (ch);
+                const auto* dataB = b.getReadPointer (ch);
+                for (int i = 0; i < a.getNumSamples(); ++i)
+                    if (std::abs (dataA[i] - dataB[i]) > 1.0e-6f)
+                        return false;
+            }
+            return true;
+        };
+
+        expect (buffersMatch (runOnce (0.0f), runOnce (0.0f)),
+                "Lossy with Jitter=0 is fully deterministic across independent runs on the same input");
+
+        expect (! buffersMatch (runOnce (1.0f), runOnce (1.0f)),
+                "Lossy with Jitter=1 produces different output across independent runs on the same input (random per-bin phase)");
+    }
+
+    // --- Graphic EQ: stays finite/bounded with all bands at extreme alternating gains ---
+    {
+        for (int b = 0; b < kNumGraphicEqBands; ++b)
+            apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (b)))->store (b % 2 == 0 ? 12.0f : -12.0f);
+        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::output))->store (0.0f);
+
+        GraphicEqModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.9f, 3200.0f, sampleRate);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        expect (isFiniteAndBounded (buffer, 4.0f), "Graphic EQ stays finite/bounded with all bands alternating +/-12dB");
+    }
+
+    // --- Graphic EQ: flat (all bands 0dB) leaves a tone's level essentially unchanged ---
+    {
+        for (int b = 0; b < kNumGraphicEqBands; ++b)
+            apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (b)))->store (0.0f);
+        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::output))->store (0.0f);
+
+        GraphicEqModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.5f, 1000.0f, sampleRate);
+        const double inputRms = rms (buffer, 0);
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const double outputRms = rms (buffer, 0);
+        expect (std::abs (outputRms - inputRms) < inputRms * 0.05,
+                "Graphic EQ with all bands flat (0dB) leaves a 1kHz tone's level essentially unchanged (input RMS "
+                    + juce::String (inputRms, 4) + ", output RMS " + juce::String (outputRms, 4) + ")");
+    }
+
+    // --- Graphic EQ: boosting the band matching the input frequency raises its level ---
+    {
+        for (int b = 0; b < kNumGraphicEqBands; ++b)
+            apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (b)))->store (0.0f);
+        apvts.getRawParameterValue (graphicEqParamId (0, graphicEqBandParam (5)))->store (12.0f); // 3.2kHz band
+        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (graphicEqParamId (0, GraphicEqParam::output))->store (0.0f);
+
+        GraphicEqModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.5f, kGraphicEqBandFrequencies[5], sampleRate);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const double flatRms = 0.5 * std::sqrt (0.5);
+        expect (rms (buffer, 0) > flatRms * 1.5,
+                "Graphic EQ boosting the 3.2kHz band by +12dB raises a matching 3.2kHz tone's RMS well above its flat level (RMS "
+                    + juce::String (rms (buffer, 0), 4) + ", flat would be " + juce::String (flatRms, 4) + ")");
+    }
+
+    // --- Chorus/Flanger: stays finite/bounded at extreme Flanger settings across a continuous signal ---
+    {
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::mode))->store (1.0f); // Flanger
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::rate))->store (10.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::depth))->store (100.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::delay))->store (1.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::feedback))->store (0.95f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::output))->store (0.0f);
+
+        ChorusModule module (apvts, 0);
+        module.prepare (spec);
+
+        // A continuous signal, not the same short buffer reprocessed repeatedly -- reprocessing
+        // a static buffer would feed a feedback-heavy effect's own already-wet output back in as
+        // "new" input each pass, compounding in a way no real streaming use ever would.
+        const int numChunks = 40;
+        auto fullBuffer = makeTestSignal (blockSize * numChunks, 0.9f, 220.0f, sampleRate);
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            module.process (sub, midi, modMatrix);
+        }
+
+        expect (isFiniteAndBounded (fullBuffer, 4.0f),
+                "Chorus/Flanger stays finite/bounded at extreme Rate/Depth/Feedback in Flanger mode across a continuous signal");
+    }
+
+    // --- Chorus/Flanger: Mix=0 leaves the signal sample-exactly unchanged (no latency) ---
+    {
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::mode))->store (0.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::rate))->store (0.8f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::depth))->store (50.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::delay))->store (15.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::feedback))->store (0.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::mix))->store (0.0f);
+        apvts.getRawParameterValue (chorusParamId (0, ChorusParam::output))->store (0.0f);
+
+        ChorusModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.5f, 220.0f, sampleRate);
+        auto reference = buffer;
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        bool matchesExactly = true;
+        for (int ch = 0; ch < buffer.getNumChannels() && matchesExactly; ++ch)
+        {
+            const auto* out = buffer.getReadPointer (ch);
+            const auto* in = reference.getReadPointer (ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (std::abs (out[i] - in[i]) > 1.0e-5f) { matchesExactly = false; break; }
+        }
+
+        expect (matchesExactly, "Chorus/Flanger with Mix=0 leaves the signal sample-exactly unchanged (no latency introduced)");
+    }
+
+    // --- Chorus/Flanger: Mode gates the feedback path (Chorus forces it off, Flanger doesn't) ---
+    {
+        auto runWithMode = [&] (float modeValue) -> juce::AudioBuffer<float>
+        {
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::mode))->store (modeValue);
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::rate))->store (0.5f);
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::depth))->store (0.0f); // isolate feedback's effect, no LFO sweep
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::delay))->store (5.0f);
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::feedback))->store (0.9f);
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (chorusParamId (0, ChorusParam::output))->store (0.0f);
+
+            ChorusModule module (apvts, 0);
+            module.prepare (spec);
+
+            auto buffer = makeTestSignal (blockSize, 0.5f, 220.0f, sampleRate);
+            juce::dsp::AudioBlock<float> block (buffer);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < 5; ++i)
+                module.process (block, midi, modMatrix);
+
+            return buffer;
+        };
+
+        auto chorusOutput = runWithMode (0.0f);
+        auto flangerOutput = runWithMode (1.0f);
+
+        bool identical = true;
+        for (int ch = 0; ch < chorusOutput.getNumChannels() && identical; ++ch)
+        {
+            const auto* a = chorusOutput.getReadPointer (ch);
+            const auto* b = flangerOutput.getReadPointer (ch);
+            for (int i = 0; i < chorusOutput.getNumSamples(); ++i)
+                if (std::abs (a[i] - b[i]) > 1.0e-5f) { identical = false; break; }
+        }
+
+        expect (! identical, "Chorus and Flanger modes produce different output at the same Feedback setting "
+                              "(Flanger's feedback path is actually active, Chorus's is gated off)");
     }
 
     std::cout << std::endl;

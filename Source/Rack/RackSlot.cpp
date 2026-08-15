@@ -7,6 +7,9 @@
 #include "../Modules/UtilityModule.h"
 #include "../Modules/RingModModule.h"
 #include "../Modules/LFOModule.h"
+#include "../Modules/LossyModule.h"
+#include "../Modules/GraphicEqModule.h"
+#include "../Modules/ChorusModule.h"
 
 namespace GGrid
 {
@@ -44,6 +47,15 @@ namespace GGrid
 
             case ModuleType::lfo:
                 return std::make_unique<LFOModule> (apvts, slotIndex, services);
+
+            case ModuleType::lossy:
+                return std::make_unique<LossyModule> (apvts, slotIndex);
+
+            case ModuleType::graphicEq:
+                return std::make_unique<GraphicEqModule> (apvts, slotIndex);
+
+            case ModuleType::chorus:
+                return std::make_unique<ChorusModule> (apvts, slotIndex);
 
             case ModuleType::none:
             default:

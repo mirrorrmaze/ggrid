@@ -325,6 +325,9 @@ namespace GGrid
         menu.addItem (6, "Utility");
         menu.addItem (7, "Ring Mod");
         menu.addItem (8, "LFO");
+        menu.addItem (9, "Lossy");
+        menu.addItem (10, "Graphic EQ");
+        menu.addItem (11, "Chorus/Flanger");
 
         const auto screenPos = localPointToGlobal (canvasPosition);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (screenPos, screenPos)),
@@ -348,6 +351,13 @@ namespace GGrid
                 *choiceParam = (int) type;
 
             processor.nodePositions[(size_t) i] = position.toFloat();
+
+            // Detect this None -> `type` change (and reset slot i's connection history, see
+            // GGridAudioProcessor::everConnected) right now, before the auto-chain wiring below
+            // -- otherwise pruneStaleConnectionsForSlot's generic type-change handling would
+            // instead fire during the *next* refreshLayout() tick and wipe out the
+            // everConnected flag the auto-chain connection is about to set.
+            refreshLayout();
 
             // Auto-chain after whatever was added right before this, if it's still around and
             // has a spare output -- keeps simple serial patches "just working" without the user
@@ -404,6 +414,12 @@ namespace GGrid
         // valid for the new type -- rewiring is a small ask, a silently-wrong modulation target
         // is not.
         processor.getModulationMatrix().removeAllModConnectionsForSlot (slotIndex);
+
+        // A retyped slot is a structurally new module -- it shouldn't inherit its predecessor's
+        // "was once connected, so a fully disconnected state now means silent" history (see
+        // GGridAudioProcessor::everConnected), or the freshly chosen module would incorrectly
+        // start out silent instead of working standalone.
+        processor.resetEverConnected (slotIndex);
     }
 
     bool NodeGraphEditor::hasSelection() const

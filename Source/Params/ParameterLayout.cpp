@@ -338,6 +338,111 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("%")));
     }
 
+    static void addLossyParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lossyParamId (slotIndex, LossyParam::bits), 1 },
+            "Slot " + String (slotIndex + 1) + " Lossy Bits",
+            NormalisableRange<float> (1.0f, 16.0f, 0.01f), 8.0f));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lossyParamId (slotIndex, LossyParam::rate), 1 },
+            "Slot " + String (slotIndex + 1) + " Lossy Rate",
+            skewedRange (1.0f, 200.0f, 40.0f), 40.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lossyParamId (slotIndex, LossyParam::jitter), 1 },
+            "Slot " + String (slotIndex + 1) + " Lossy Jitter",
+            NormalisableRange<float> (0.0f, 1.0f, 0.001f), 0.3f));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lossyParamId (slotIndex, LossyParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Lossy Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lossyParamId (slotIndex, LossyParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Lossy Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
+    static void addGraphicEqParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        auto bandLabels = getGraphicEqBandLabels();
+        for (int b = 0; b < kNumGraphicEqBands; ++b)
+        {
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { graphicEqParamId (slotIndex, graphicEqBandParam (b)), 1 },
+                "Slot " + String (slotIndex + 1) + " Graphic EQ " + bandLabels[b] + "Hz",
+                NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("dB")));
+        }
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { graphicEqParamId (slotIndex, GraphicEqParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Graphic EQ Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { graphicEqParamId (slotIndex, GraphicEqParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Graphic EQ Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
+    static void addChorusParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::mode), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Mode",
+            getChorusModeChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::rate), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Rate",
+            skewedRange (0.02f, 10.0f, 0.5f), 0.8f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::depth), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Depth",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::delay), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Delay",
+            skewedRange (0.5f, 30.0f, 8.0f), 15.0f,
+            AudioParameterFloatAttributes().withLabel ("ms")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::feedback), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Feedback",
+            NormalisableRange<float> (-0.95f, 0.95f, 0.001f), 0.3f));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { chorusParamId (slotIndex, ChorusParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Chorus Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -364,6 +469,9 @@ namespace GGrid
             addUtilityParams (layout, slot);
             addRingModParams (layout, slot);
             addLfoParams (layout, slot);
+            addLossyParams (layout, slot);
+            addGraphicEqParams (layout, slot);
+            addChorusParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

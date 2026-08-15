@@ -265,4 +265,86 @@ namespace GGrid
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoControlsPanel)
     };
+
+    // Lossy controls: Bits/Rate/Jitter/Mix/Output -- see LossyModule for the full spectral
+    // "codec-style" algorithm each of these drives.
+    class LossyControlsPanel : public juce::Component
+    {
+    public:
+        LossyControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label bitsLabel { {}, "Bits" }, rateLabel { {}, "Rate" }, jitterLabel { {}, "Jitter" },
+                    mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+
+        juce::Slider bitsSlider, rateSlider, jitterSlider, mixSlider, outputSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            bitsAttachment, rateAttachment, jitterAttachment, mixAttachment, outputAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LossyControlsPanel)
+    };
+
+    // Graphic EQ controls: 8 fixed-frequency band gain knobs (100Hz-12.8kHz, one octave apart,
+    // see kGraphicEqBandFrequencies) plus Mix/Output -- see GraphicEqModule.
+    class GraphicEqControlsPanel : public juce::Component
+    {
+    public:
+        GraphicEqControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        std::array<juce::Label, kNumGraphicEqBands> bandLabels;
+        std::array<juce::Slider, kNumGraphicEqBands> bandSliders;
+        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumGraphicEqBands> bandAttachments;
+
+        juce::Label mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+        juce::Slider mixSlider, outputSlider;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment, outputAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GraphicEqControlsPanel)
+    };
+
+    // Chorus/Flanger controls: Rate/Depth/Delay knobs, Feedback/Mix/Output, and the Mode
+    // dropdown that switches between the two related characters -- see ChorusModule for what
+    // Mode actually changes in the signal path (not just a cosmetic label).
+    class ChorusControlsPanel : public juce::Component
+    {
+    public:
+        ChorusControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label rateLabel { {}, "Rate" }, depthLabel { {}, "Depth" }, delayLabel { {}, "Delay" },
+                    feedbackLabel { {}, "Feedback" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" },
+                    modeLabel { {}, "Mode" };
+
+        juce::Slider rateSlider, depthSlider, delaySlider, feedbackSlider, mixSlider, outputSlider;
+        juce::ComboBox modeBox;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            rateAttachment, depthAttachment, delayAttachment, feedbackAttachment, mixAttachment, outputAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChorusControlsPanel)
+    };
 }

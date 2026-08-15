@@ -132,6 +132,9 @@ namespace GGrid
         std::unique_ptr<UtilityControlsPanel> utilityPanel;
         std::unique_ptr<RingModControlsPanel> ringModPanel;
         std::unique_ptr<LfoControlsPanel> lfoPanel;
+        std::unique_ptr<LossyControlsPanel> lossyPanel;
+        std::unique_ptr<GraphicEqControlsPanel> graphicEqPanel;
+        std::unique_ptr<ChorusControlsPanel> chorusPanel;
 
         bool isSelectedFlag = false;
 
