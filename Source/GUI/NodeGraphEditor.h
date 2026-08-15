@@ -55,6 +55,10 @@ namespace GGrid
         ~NodeGraphEditor() override;
 
         void paint (juce::Graphics&) override;
+        // Cables render here, not in paint() -- see the comment on the .cpp definition. JUCE
+        // calls this after every child NodeComponent has painted, so anything drawn here sits on
+        // top of node bodies instead of getting covered by them.
+        void paintOverChildren (juce::Graphics&) override;
         void resized() override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;

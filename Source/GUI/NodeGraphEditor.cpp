@@ -702,7 +702,16 @@ namespace GGrid
             g.drawVerticalLine (x, 0.0f, (float) getHeight());
         for (int y = 0; y < getHeight(); y += gridStep)
             g.drawHorizontalLine (y, 0.0f, (float) getWidth());
+    }
 
+    void NodeGraphEditor::paintOverChildren (juce::Graphics& g)
+    {
+        // Cables (and the rubber-band overlay) are drawn here rather than in paint() so they
+        // render on top of every NodeComponent instead of underneath -- JUCE always paints a
+        // component's own paint() before its children, so anything drawn there would get
+        // covered by node bodies wherever a cable's path happens to cross one (which mod cables
+        // routinely do now, since their destination dots sit on knobs inside a node rather than
+        // only ever at a node's edge like audio ports do).
         g.setColour (Palette::accent);
         for (int c = 0; c < processor.numConnections; ++c)
         {
