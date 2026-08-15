@@ -53,13 +53,15 @@ namespace GGrid
         *toneHighShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (sampleRate, 3000.0, 0.707f, highGain);
     }
 
-    bool ConvolutionModule::copyDisplayBufferIfChanged (juce::AudioBuffer<float>& outBuffer, juce::int64& lastSeenGeneration)
+    bool ConvolutionModule::copyDisplayBufferIfChanged (juce::AudioBuffer<float>& outBuffer, juce::int64& lastSeenGeneration,
+                                                          int& outPreFadeOutLength)
     {
         const juce::SpinLock::ScopedLockType lock (displayLock);
         if (displayGeneration == lastSeenGeneration)
             return false;
 
         outBuffer = displayBuffer;
+        outPreFadeOutLength = displayPreFadeOutLength;
         lastSeenGeneration = displayGeneration;
         return true;
     }
@@ -71,11 +73,13 @@ namespace GGrid
         {
             juce::AudioBuffer<float> readyIR;
             double readySr = sampleRate;
-            if (services.irReshapeWorker.tryTakeResult (*this, readyIR, readySr))
+            int readyPreFadeOutLength = 0;
+            if (services.irReshapeWorker.tryTakeResult (*this, readyIR, readySr, readyPreFadeOutLength))
             {
                 {
                     const juce::SpinLock::ScopedLockType lock (displayLock);
                     displayBuffer = readyIR; // copy for GUI display before the move below empties it
+                    displayPreFadeOutLength = readyPreFadeOutLength;
                     ++displayGeneration;
                 }
 

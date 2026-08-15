@@ -4,8 +4,9 @@
 namespace GGrid::IRProcessor
 {
     bool buildShapedIR (int irIndex, double sampleRate, float fadeInMs, float fadeOutPercent, float stretch,
-                         juce::AudioBuffer<float>& outShapedIR)
+                         juce::AudioBuffer<float>& outShapedIR, int& outPreFadeOutLength)
     {
+        outPreFadeOutLength = 0;
         juce::AudioBuffer<float> rawIR;
         if (! IRLibrary::loadEntry (irIndex, sampleRate, rawIR))
             return false;
@@ -45,6 +46,8 @@ namespace GGrid::IRProcessor
             for (int i = 0; i < fadeInSamples; ++i)
                 data[i] *= (float) i / (float) juce::jmax (1, fadeInSamples);
         }
+
+        outPreFadeOutLength = stretchedLength;
 
         // Fade out: a decay/length control, like Kilohearts Convolver's -- actually shortens the
         // IR's audible tail rather than tapering a fraction of the existing one in place. 0%

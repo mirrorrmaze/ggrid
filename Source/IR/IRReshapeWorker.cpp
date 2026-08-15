@@ -34,11 +34,13 @@ namespace GGrid
                 // juce::dsp::Convolution itself -- that call has to happen on the audio thread,
                 // so we don't touch `module` here at all beyond identity matching.
                 juce::AudioBuffer<float> shaped;
-                if (IRProcessor::buildShapedIR (job.irIndex, job.sampleRate, job.fadeInMs, job.fadeOutPercent, job.stretch, shaped))
+                int preFadeOutLength = 0;
+                if (IRProcessor::buildShapedIR (job.irIndex, job.sampleRate, job.fadeInMs, job.fadeOutPercent, job.stretch, shaped, preFadeOutLength))
                 {
                     const juce::SpinLock::ScopedLockType lock (slotLock);
                     slot.result = std::move (shaped);
                     slot.resultSampleRate = job.sampleRate;
+                    slot.resultPreFadeOutLength = preFadeOutLength;
                     slot.resultReady = true;
                 }
 

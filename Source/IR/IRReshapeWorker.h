@@ -72,7 +72,10 @@ namespace GGrid
 
         // Audio thread only. If the background thread has finished shaping an IR for
         // `targetModule`, moves it into outBuffer/outSampleRate and returns true (consuming it).
-        bool tryTakeResult (ConvolutionModule& targetModule, juce::AudioBuffer<float>& outBuffer, double& outSampleRate)
+        // outPreFadeOutLength is outBuffer's length before Fade Out's truncation -- see
+        // IRProcessor::buildShapedIR's comment for why callers displaying the waveform need it.
+        bool tryTakeResult (ConvolutionModule& targetModule, juce::AudioBuffer<float>& outBuffer, double& outSampleRate,
+                             int& outPreFadeOutLength)
         {
             const juce::SpinLock::ScopedLockType lock (slotLock);
             for (auto& slot : slots)
@@ -81,6 +84,7 @@ namespace GGrid
                 {
                     outBuffer = std::move (slot.result);
                     outSampleRate = slot.resultSampleRate;
+                    outPreFadeOutLength = slot.resultPreFadeOutLength;
                     slot.resultReady = false;
                     return true;
                 }
@@ -97,6 +101,7 @@ namespace GGrid
 
             juce::AudioBuffer<float> result;
             double resultSampleRate = 44100.0;
+            int resultPreFadeOutLength = 0;
             bool resultReady = false;
         };
         std::array<Slot, (size_t) kMaxSlots> slots;

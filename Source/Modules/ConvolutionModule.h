@@ -28,8 +28,11 @@ namespace GGrid
 
         // For the GUI's IR waveform display. Copies into outBuffer and returns true only if the
         // loaded IR has changed since lastSeenGeneration (which the caller owns and passes back
-        // in each time), so a polling Timer doesn't do needless work/repaints.
-        bool copyDisplayBufferIfChanged (juce::AudioBuffer<float>& outBuffer, juce::int64& lastSeenGeneration);
+        // in each time), so a polling Timer doesn't do needless work/repaints. outPreFadeOutLength
+        // is outBuffer's length before Fade Out's truncation -- see IRProcessor::buildShapedIR's
+        // comment for why the display needs this to show a cut instead of a stretch.
+        bool copyDisplayBufferIfChanged (juce::AudioBuffer<float>& outBuffer, juce::int64& lastSeenGeneration,
+                                          int& outPreFadeOutLength);
 
     private:
         void applyToneCoefficients (float tone);
@@ -65,6 +68,7 @@ namespace GGrid
         // per-block).
         juce::SpinLock displayLock;
         juce::AudioBuffer<float> displayBuffer;
+        int displayPreFadeOutLength = 0;
         juce::int64 displayGeneration = 0;
     };
 }

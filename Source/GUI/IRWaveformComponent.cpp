@@ -20,7 +20,7 @@ namespace GGrid
     {
         if (auto* convolutionModule = dynamic_cast<ConvolutionModule*> (rackSlot.getCurrentModule()))
         {
-            if (convolutionModule->copyDisplayBufferIfChanged (displayBuffer, lastSeenGeneration))
+            if (convolutionModule->copyDisplayBufferIfChanged (displayBuffer, lastSeenGeneration, preFadeOutLength))
             {
                 irLibraryMissing = false;
                 repaint();
@@ -77,6 +77,10 @@ namespace GGrid
 
         auto area = bounds.reduced (2.0f);
         const int numSamples = displayBuffer.getNumSamples();
+        // Reference length the full width represents -- at least numSamples, so a stale/zero
+        // preFadeOutLength (shouldn't happen, but don't divide by something smaller than what we
+        // actually have) never clips real content.
+        const int fullLength = juce::jmax (numSamples, preFadeOutLength);
         const int width = juce::jmax (1, (int) area.getWidth());
         const float midY = area.getCentreY();
         const float halfHeight = area.getHeight() * 0.5f;
@@ -85,8 +89,11 @@ namespace GGrid
 
         for (int x = 0; x < width; ++x)
         {
-            const int startSample = (int) (((juce::int64) x * numSamples) / width);
-            const int endSample = juce::jmax (startSample + 1, (int) (((juce::int64) (x + 1) * numSamples) / width));
+            const int startSample = (int) (((juce::int64) x * fullLength) / width);
+            if (startSample >= numSamples)
+                continue; // past Fade Out's cut point -- leave blank rather than stretching to fill
+
+            const int endSample = juce::jmax (startSample + 1, (int) (((juce::int64) (x + 1) * fullLength) / width));
             const int rangeLength = juce::jmin (endSample, numSamples) - startSample;
             if (rangeLength <= 0)
                 continue;

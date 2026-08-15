@@ -32,6 +32,12 @@ namespace GGrid
         juce::AudioBuffer<float> displayBuffer;
         juce::int64 lastSeenGeneration = -1;
 
+        // displayBuffer's length before Fade Out's truncation -- paint() draws the waveform
+        // proportionally within this as the reference width instead of always stretching
+        // displayBuffer to fill the component, so raising Fade Out visibly cuts the tail short
+        // (leaving blank space) rather than looking like the whole thing got time-stretched.
+        int preFadeOutLength = 0;
+
         // Set when displayBuffer is still empty AND IRLibrary::resolveIRRoot() can't find the
         // factory library at all -- distinguishes "genuinely still loading" from "never going to
         // load until the IR library is where the plugin expects it," which otherwise both look
