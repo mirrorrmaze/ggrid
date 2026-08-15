@@ -9,8 +9,12 @@ namespace GGrid
     // The patch-bay canvas: right-click blank space to add a node (Waveshaper/Filter/Delay/
     // Dynamics/Convolution/...), drag a node's title bar to reposition it, drag a cable from a
     // node's output to another node's input to connect them. Left-click-drag blank space to pan;
-    // scroll wheel zooms toward the cursor. Grab an existing cable (not just a node's output nub)
-    // to rewire it elsewhere, or drop it on blank space to genuinely disconnect it.
+    // two-finger/wheel scroll also pans, in whichever direction(s) it reports (see
+    // mouseWheelMove) -- zoom is a separate gesture (trackpad pinch via mouseMagnify, Ctrl+scroll,
+    // or the +/-/reset buttons), not something plain scroll does, so a touchpad's natural
+    // two-finger scroll doesn't get misread as pinch-to-zoom. Grab an existing cable (not just a
+    // node's output nub) to rewire it elsewhere, or drop it on blank space to genuinely
+    // disconnect it.
     //
     // Pan vs. select on blank space is told apart by how long the button was held before the
     // first real movement, not by a modifier key: a quick drag pans (the fast/default gesture --
@@ -69,6 +73,9 @@ namespace GGrid
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override;
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+        // Trackpad pinch gesture -- see the .cpp definition for why zoom lives here and not in
+        // mouseWheelMove alongside panning.
+        void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override;
         bool keyPressed (const juce::KeyPress&) override;
 
         // Generously large virtual canvas -- not literally infinite (JUCE components need a

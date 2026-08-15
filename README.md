@@ -21,10 +21,12 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
   Left-click-drag blank canvas to pan (a quick grab-and-go); holding briefly before you drag
   selects instead, opening a rubber band to catch several nodes at once (shift-drag does the same
   instantly, skipping the hold) -- drag any selected node to move the whole selection together,
-  and Delete/Backspace removes every selected node. Scroll to zoom toward the cursor (20%-200%),
-  no modifier needed -- no visible scrollbars, so it reads as an open sandbox rather than a
-  bounded scrollable area. Click a node's title bar to select it, shift-click to add/remove it
-  from the selection.
+  and Delete/Backspace removes every selected node. Two-finger/wheel scroll pans in whichever
+  direction(s) it reports (no visible scrollbars, so it reads as an open sandbox rather than a
+  bounded scrollable area) -- zoom (20%-200%) is a separate gesture: pinch on a trackpad,
+  Ctrl+scroll on a plain mouse wheel, or the +/-/reset buttons, so a touchpad's natural two-finger
+  scroll doesn't get misread as pinch-to-zoom. Click a node's title bar to select it, shift-click
+  to add/remove it from the selection.
 - **Modulation cables** -- LFO nodes have no audio ports at all (they're modulation sources, not
   audio processors) -- just a single violet output nub, dragged onto a matching violet
   modulation-destination dot on **any** continuous knob any other node exposes (essentially every

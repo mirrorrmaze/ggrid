@@ -309,9 +309,27 @@ namespace GGrid
 
     void NodeGraphEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
     {
-        // Plain scroll zooms toward the cursor -- no modifier needed. Scrollbars are hidden and
-        // panning is click-drag, so the wheel is free for this; matches TouchDesigner/Blender.
-        zoomAroundViewportPoint (zoomLevel + wheel.deltaY * 0.5f, getViewportRelativePosition (e));
+        // Plain wheel/two-finger scroll pans -- both axes, whatever the wheel event reports
+        // (a touchpad's two-finger scroll naturally carries both deltaX and deltaY). Delegates to
+        // Viewport's own wheel-scroll logic rather than reimplementing it; the scrollbars being
+        // hidden (see PluginEditor's setScrollBarsShown call) would normally stop that from
+        // working at all, which is exactly what the trailing `true, true` there is for.
+        // Viewport::useMouseWheelMoveIfNeeded refuses to scroll while Alt/Ctrl/Cmd is held, which
+        // leaves Ctrl+scroll free below as a zoom shortcut for plain-mouse (no pinch gesture)
+        // users -- the primary zoom gesture is the trackpad pinch, see mouseMagnify.
+        if (ownerViewport != nullptr && ownerViewport->useMouseWheelMoveIfNeeded (e, wheel))
+            return;
+
+        if (e.mods.isCtrlDown() || e.mods.isCommandDown())
+            zoomAroundViewportPoint (zoomLevel + wheel.deltaY * 0.5f, getViewportRelativePosition (e));
+    }
+
+    void NodeGraphEditor::mouseMagnify (const juce::MouseEvent& e, float scaleFactor)
+    {
+        // Trackpad pinch -- scaleFactor is a multiplicative step for this frame of a continuous
+        // gesture (values close to 1.0), not an absolute target, so it multiplies the current
+        // zoom rather than adding to it like the wheel-based zoom above does.
+        zoomAroundViewportPoint (zoomLevel * scaleFactor, getViewportRelativePosition (e));
     }
 
     void NodeGraphEditor::showAddNodeMenu (juce::Point<int> canvasPosition)

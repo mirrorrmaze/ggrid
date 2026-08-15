@@ -27,10 +27,13 @@ namespace GGrid
         modMatrixPanel.setVisible (false); // Rack tab is active by default
 
         nodeCanvasViewport.setViewedComponent (&nodeGraphEditor, false);
-        // Scrollbars hidden -- panning is click-drag on blank canvas instead (see
-        // NodeGraphEditor::mouseDrag), which reads as an infinite/boundless sandbox rather than
-        // a bounded scrollable area.
-        nodeCanvasViewport.setScrollBarsShown (false, false);
+        // Scrollbars hidden -- panning is click-drag on blank canvas (see
+        // NodeGraphEditor::mouseDrag) or two-finger/wheel scroll (see
+        // NodeGraphEditor::mouseWheelMove), which reads as an infinite/boundless sandbox rather
+        // than a bounded scrollable area. The last two `true`s keep wheel-scroll panning working
+        // despite the scrollbars being hidden -- normally Viewport only honours the wheel when a
+        // scrollbar is actually visible.
+        nodeCanvasViewport.setScrollBarsShown (false, false, true, true);
         addAndMakeVisible (nodeCanvasViewport);
 
         nodeGraphEditor.setOwnerViewport (&nodeCanvasViewport);
