@@ -22,7 +22,8 @@ namespace GGrid
     //
     // Modulation cables: LFO nodes have no audio ports (see NodeComponent::isLfoType) -- instead
     // a single violet modulation-output nub, dragged onto a violet modulation-destination dot on
-    // whichever knob a Filter/Waveshaper/Convolution node exposes (Frequency/Drive/Mix). These
+    // any continuous knob any other node exposes (see each panel's modTargets in
+    // ModuleControlPanels.h -- essentially every knob now, not a fixed few). These
     // are a genuinely separate graph from the orange audio cables (GGridAudioProcessor::
     // connections) -- see ModulationMatrix::modConnections -- with their own capacity rule (one
     // source cable per destination knob) and their own cycle-freeness by construction (a
@@ -91,6 +92,10 @@ namespace GGrid
         void addNode (ModuleType type, juce::Point<int> position);
         void deleteNode (int slotIndex);
 
+        // Removes any connection (audio or modulation) that no longer makes sense now that
+        // slotIndex's type is newType -- see the lastKnownType comment above.
+        void pruneStaleConnectionsForSlot (int slotIndex, ModuleType newType);
+
         // Selection helpers -- all of them keep `selected` and each NodeComponent's own
         // setSelected() highlight in sync, so callers never touch `selected` directly.
         bool isSelected (int slotIndex) const { return selected[(size_t) slotIndex]; }
@@ -120,15 +125,31 @@ namespace GGrid
         bool hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot) const;
         int findInputConnectorNear (juce::Point<float> canvasPoint, int excludeSlot) const;
 
-        // Modulation-cable counterparts of the audio-cable methods just above.
-        bool hitTestModCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, ModDestinationParam& outParam) const;
-        int findModDestinationNear (juce::Point<float> canvasPoint, int excludeSlot) const;
+        // Modulation-cable counterparts of the audio-cable methods just above. A destination is
+        // now a (slot, paramId) pair rather than just a slot, since a node can expose several
+        // modulatable knobs -- findModDestinationNear reports which one via outParamId.
+        bool hitTestModCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, juce::String& outParamId) const;
+        int findModDestinationNear (juce::Point<float> canvasPoint, int excludeSlot, juce::String& outParamId) const;
+
+        // Canvas-space position of the destination dot a given node draws for a specific
+        // paramId -- used to draw/hit-test an already-existing mod cable's fixed endpoint.
+        // Falls back to the node's own position if that node no longer exposes paramId (e.g. its
+        // type just changed, and this connection is about to be pruned).
+        juce::Point<float> modTargetPositionFor (const NodeComponent* node, const juce::String& paramId) const;
 
         juce::Point<float> getViewportRelativePosition (const juce::MouseEvent&) const;
         void zoomAroundViewportPoint (float newZoom, juce::Point<float> viewportPoint);
 
         GGridAudioProcessor& processor;
         std::array<std::unique_ptr<NodeComponent>, kMaxSlots> nodes;
+
+        // Detected in refreshLayout() -- when a slot's type changes (whether via Add/Delete or
+        // by picking a new type directly on an existing node's own dropdown), prunes any
+        // audio/modulation connections that no longer make sense for the new type (e.g. it just
+        // became -- or stopped being -- an LFO). Seeded from the actual loaded state at
+        // construction time, not defaulted to None, so a freshly opened project with existing
+        // wiring doesn't get treated as "everything just changed type" on the first tick.
+        std::array<ModuleType, kMaxSlots> lastKnownType {};
 
         float zoomLevel = 1.0f;
         juce::Viewport* ownerViewport = nullptr;
@@ -146,7 +167,7 @@ namespace GGrid
         // existing mod cable (not a fresh drag from an LFO's output nub) -- lets mouseUp know
         // which destination param the grabbed cable belonged to, in case it needs to reattach to
         // the same node it came from (dropping back where you picked up from should just work).
-        ModDestinationParam cableDragModParam = ModDestinationParam::filterFrequency;
+        juce::String cableDragModParam;
         juce::Point<float> cableDragCurrentPos;
 
         // The most recently added node this session, so a freshly added node auto-chains after

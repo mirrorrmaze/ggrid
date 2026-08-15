@@ -96,7 +96,8 @@ namespace GGrid
         }
 
         // Tone applies immediately (cheap runtime filter coefficients).
-        const float tone = toneParam->load();
+        const float tone = juce::jlimit (-1.0f, 1.0f, toneParam->load()
+            + modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::tone), 0.5f));
         if (! juce::approximatelyEqual (tone, lastTone))
         {
             applyToneCoefficients (tone);
@@ -105,11 +106,18 @@ namespace GGrid
 
         // Debounced reshape trigger for IR-affecting params -- coalesces rapid knob movement
         // into one request ~200ms after the last change, rather than resampling a multi-second
-        // buffer on every callback while the user drags Stretch.
+        // buffer on every callback while the user drags Stretch. A cable modulating one of these
+        // continuously (rather than settling) means irRelevantChanged stays true every block, so
+        // pendingReloadCountdown keeps getting pushed back and the reshape simply never fires --
+        // the last successfully loaded IR keeps playing rather than thrashing the background
+        // worker with an impossible per-block reshape rate.
         const int irIndex = (int) irIndexParam->load();
-        const float fadeIn = fadeInParam->load();
-        const float fadeOut = fadeOutParam->load();
-        const float stretch = stretchParam->load();
+        const float fadeIn = juce::jlimit (0.0f, 500.0f, fadeInParam->load()
+            + modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::fadeIn), 100.0f));
+        const float fadeOut = juce::jlimit (0.0f, 100.0f, fadeOutParam->load()
+            + modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::fadeOut), 25.0f));
+        const float stretch = juce::jlimit (0.25f, 4.0f, stretchParam->load()
+            + modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::stretch), 1.0f));
 
         const bool irRelevantChanged =
             irIndex != lastIrIndexForReload ||
@@ -146,9 +154,12 @@ namespace GGrid
             }
         }
 
-        const float mixOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::convolutionMix));
+        const float mixOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::convolutionMix))
+                               + modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::mix), 50.0f);
         const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
-        const float outputGain = juce::Decibels::decibelsToGain (outputParam->load());
+
+        const float outputOffset = modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::output), 12.0f);
+        const float outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
         const auto numChannels = block.getNumChannels();
 
         for (size_t ch = 0; ch < numChannels; ++ch)

@@ -18,7 +18,8 @@ namespace GGrid
     }
 
     RingModModule::RingModModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
-        : modeParam      (apvtsIn.getRawParameterValue (ringModParamId (slotIndexIn, RingModParam::mode))),
+        : slotIndex (slotIndexIn),
+          modeParam      (apvtsIn.getRawParameterValue (ringModParamId (slotIndexIn, RingModParam::mode))),
           frequencyParam (apvtsIn.getRawParameterValue (ringModParamId (slotIndexIn, RingModParam::frequency))),
           fineParam      (apvtsIn.getRawParameterValue (ringModParamId (slotIndexIn, RingModParam::fine))),
           mixParam       (apvtsIn.getRawParameterValue (ringModParamId (slotIndexIn, RingModParam::mix))),
@@ -51,15 +52,23 @@ namespace GGrid
             channel.reset();
     }
 
-    void RingModModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix&)
+    void RingModModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
         const auto numChannels = block.getNumChannels();
         const auto numSamples = block.getNumSamples();
 
         const int mode = (int) modeParam->load(); // 0 = Ring Mod, 1 = Freq Shift
-        const float carrierHz = frequencyParam->load() + fineParam->load();
-        const float mix = mixParam->load() / 100.0f;
-        const float outputGain = juce::Decibels::decibelsToGain (outputParam->load());
+
+        const float freqOffset = modMatrix.getOffsetForParam (ringModParamId (slotIndex, RingModParam::frequency), 500.0f);
+        const float fineOffset = modMatrix.getOffsetForParam (ringModParamId (slotIndex, RingModParam::fine), 10.0f);
+        const float carrierHz = juce::jlimit (-2000.0f, 2000.0f, frequencyParam->load() + freqOffset)
+                               + juce::jlimit (-20.0f, 20.0f, fineParam->load() + fineOffset);
+
+        const float mixOffset = modMatrix.getOffsetForParam (ringModParamId (slotIndex, RingModParam::mix), 50.0f);
+        const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
+
+        const float outputOffset = modMatrix.getOffsetForParam (ringModParamId (slotIndex, RingModParam::output), 12.0f);
+        const float outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
 
         for (size_t ch = 0; ch < numChannels; ++ch)
             dryBuffer.copyFrom ((int) ch, 0, block.getChannelPointer (ch), (int) numSamples);

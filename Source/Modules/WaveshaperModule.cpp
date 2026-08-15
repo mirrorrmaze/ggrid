@@ -99,13 +99,22 @@ namespace GGrid
         const int shapeIndex        = (int) shapeParam->load();
         const int oversampleChoice  = (int) oversampleParam->load(); // 0 = Off, 1 = 2x, 2 = 4x
 
-        const float driveOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::waveshaperDrive));
+        const float driveOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::waveshaperDrive))
+                                 + modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::drive), 20.0f);
         const float driveDb = juce::jlimit (0.0f, 40.0f, driveParam->load() + driveOffset);
         const float driveGain       = juce::Decibels::decibelsToGain (driveDb);
-        const float symmetry        = symmetryParam->load();
-        const float foldAmount      = foldParam->load();
-        const float mix             = mixParam->load() / 100.0f;
-        const float outputGain      = juce::Decibels::decibelsToGain (outputParam->load());
+
+        const float symmetryOffset = modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::symmetry), 1.0f);
+        const float symmetry        = juce::jlimit (-1.0f, 1.0f, symmetryParam->load() + symmetryOffset);
+
+        const float foldOffset = modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::foldAmount), 0.5f);
+        const float foldAmount      = juce::jlimit (0.0f, 1.0f, foldParam->load() + foldOffset);
+
+        const float mixOffset = modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::mix), 50.0f);
+        const float mix             = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
+
+        const float outputOffset = modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::output), 12.0f);
+        const float outputGain      = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
 
         const auto numChannels = block.getNumChannels();
         const auto numSamples  = block.getNumSamples();

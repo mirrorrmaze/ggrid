@@ -120,10 +120,17 @@ namespace GGrid
             total += depth * getSourceValue (source) * range;
         }
 
+        return total;
+    }
+
+    float ModulationMatrix::getOffsetForParam (const juce::String& paramId, float range) const
+    {
+        float total = 0.0f;
+
         for (int c = 0; c < numModConnections; ++c)
         {
             const auto& conn = modConnections[(size_t) c];
-            if (conn.toSlot * kNumDestinationParamsPerSlot + (int) conn.destinationParam != destinationIndex)
+            if (conn.destinationParamId != paramId)
                 continue;
 
             // The LFO's own Depth knob is already baked into the value it reports (see
@@ -134,7 +141,7 @@ namespace GGrid
         return total;
     }
 
-    bool ModulationMatrix::canAddModConnection (int fromSlot, int toSlot, ModDestinationParam param) const
+    bool ModulationMatrix::canAddModConnection (int fromSlot, int toSlot, const juce::String& destinationParamId) const
     {
         if (fromSlot < 0 || toSlot < 0 || fromSlot == toSlot) return false;
         if (numModConnections >= kMaxModConnections) return false;
@@ -142,30 +149,30 @@ namespace GGrid
         for (int c = 0; c < numModConnections; ++c)
         {
             const auto& conn = modConnections[(size_t) c];
-            if (conn.fromSlot == fromSlot && conn.toSlot == toSlot && conn.destinationParam == param)
+            if (conn.fromSlot == fromSlot && conn.destinationParamId == destinationParamId)
                 return false; // duplicate
-            if (conn.toSlot == toSlot && conn.destinationParam == param)
+            if (conn.destinationParamId == destinationParamId)
                 return false; // destination already has a source
         }
 
         return true;
     }
 
-    bool ModulationMatrix::addModConnection (int fromSlot, int toSlot, ModDestinationParam param)
+    bool ModulationMatrix::addModConnection (int fromSlot, int toSlot, const juce::String& destinationParamId)
     {
-        if (! canAddModConnection (fromSlot, toSlot, param))
+        if (! canAddModConnection (fromSlot, toSlot, destinationParamId))
             return false;
 
-        modConnections[(size_t) numModConnections++] = { fromSlot, toSlot, param };
+        modConnections[(size_t) numModConnections++] = { fromSlot, toSlot, destinationParamId };
         return true;
     }
 
-    void ModulationMatrix::removeModConnection (int fromSlot, int toSlot, ModDestinationParam param)
+    void ModulationMatrix::removeModConnection (int fromSlot, int toSlot, const juce::String& destinationParamId)
     {
         for (int i = 0; i < numModConnections; ++i)
         {
             const auto& conn = modConnections[(size_t) i];
-            if (conn.fromSlot == fromSlot && conn.toSlot == toSlot && conn.destinationParam == param)
+            if (conn.fromSlot == fromSlot && conn.toSlot == toSlot && conn.destinationParamId == destinationParamId)
             {
                 for (int j = i; j + 1 < numModConnections; ++j)
                     modConnections[(size_t) j] = modConnections[(size_t) j + 1];

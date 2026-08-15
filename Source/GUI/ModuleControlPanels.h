@@ -5,23 +5,46 @@
 #include "../Params/Identifiers.h"
 #include "../Rack/RackSlot.h"
 #include "IRWaveformComponent.h"
+#include <vector>
 
 namespace GGrid
 {
+    // One entry per knob a panel exposes as a modulation-cable destination: its exact APVTS
+    // parameter ID (what ModulationMatrix::getOffsetForParam matches cables against), a short
+    // label (tooltip/debug use), and the live juce::Slider so NodeComponent can ask its current
+    // on-screen bounds each time it needs to place/hit-test that knob's destination nub. Built
+    // once per panel, in its constructor (slotIndex is only available there).
+    struct ModTarget
+    {
+        juce::String paramId;
+        juce::String label;
+        juce::Slider* slider = nullptr;
+    };
+
     // Controls for whichever module type is currently active in a node -- one panel class per
     // rack module type, all shown/hidden by NodeComponent depending on the node's current type.
-    class WaveshaperControlsPanel : public juce::Component
+    class WaveshaperControlsPanel : public juce::Component, private juce::Timer
     {
     public:
         WaveshaperControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        ~WaveshaperControlsPanel() override;
 
         void resized() override;
+        void paint (juce::Graphics&) override;
 
-        // Drive's knob bounds, in this panel's own coordinate space -- for NodeComponent to
-        // position a modulation-destination nub against (see NodeComponent::getModDestinationPosition).
-        juce::Rectangle<int> getModTargetKnobBounds() const { return driveSlider.getBounds(); }
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
+        // Repaints the curve preview at a modest rate so it stays live as Shape/Symmetry/Fold
+        // move -- polling rather than a value-change listener, since a Slider::Listener would
+        // need to coexist with the APVTS SliderAttachment already driving these same sliders
+        // (and a raw onValueChange callback would just overwrite the attachment's own one).
+        // Matches the same polling pattern IRWaveformComponent already uses for the same reason.
+        void timerCallback() override { repaint (curveArea); }
+
+        float shapeSample (float x, int shapeIndex, float symmetry, float foldAmount) const;
+
         juce::Label driveLabel { {}, "Drive" }, shapeLabel { {}, "Shape" }, symmetryLabel { {}, "Symmetry" },
                     foldLabel { {}, "Fold" }, oversampleLabel { {}, "Oversample" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
 
@@ -32,6 +55,11 @@ namespace GGrid
             driveAttachment, symmetryAttachment, foldAttachment, mixAttachment, outputAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>
             shapeAttachment, oversampleAttachment;
+
+        // Transfer-curve preview area -- see paint().
+        juce::Rectangle<int> curveArea;
+
+        std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveshaperControlsPanel)
     };
@@ -46,7 +74,8 @@ namespace GGrid
 
         void resized() override;
 
-        juce::Rectangle<int> getModTargetKnobBounds() const { return frequencySlider.getBounds(); }
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
         juce::Label frequencyLabel { {}, "Frequency" }, resonanceLabel { {}, "Resonance" }, feedbackLabel { {}, "Feedback" },
@@ -58,6 +87,8 @@ namespace GGrid
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
             frequencyAttachment, resonanceAttachment, feedbackAttachment, mixAttachment, outputAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAttachment;
+
+        std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FilterControlsPanel)
     };
@@ -73,6 +104,9 @@ namespace GGrid
 
         void resized() override;
 
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
     private:
         juce::Label timeLabel { {}, "Time" }, feedbackLabel { {}, "Feedback" }, saturationLabel { {}, "Saturation" },
                     mixLabel { {}, "Mix" }, outputLabel { {}, "Output" }, lowCutLabel { {}, "Low Cut" }, hiCutLabel { {}, "Hi Cut" };
@@ -87,6 +121,8 @@ namespace GGrid
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment, pingPongAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> divisionAttachment;
 
+        std::vector<ModTarget> modTargets;
+
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayControlsPanel)
     };
 
@@ -98,6 +134,9 @@ namespace GGrid
 
         void resized() override;
 
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
     private:
         juce::Label thresholdLabel { {}, "Threshold" }, ratioLabel { {}, "Ratio" }, attackLabel { {}, "Attack" },
                     releaseLabel { {}, "Release" }, makeupLabel { {}, "Makeup" }, mixLabel { {}, "Mix" };
@@ -106,6 +145,8 @@ namespace GGrid
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
             thresholdAttachment, ratioAttachment, attackAttachment, releaseAttachment, makeupAttachment, mixAttachment;
+
+        std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DynamicsControlsPanel)
     };
@@ -120,7 +161,8 @@ namespace GGrid
 
         void resized() override;
 
-        juce::Rectangle<int> getModTargetKnobBounds() const { return mixSlider.getBounds(); }
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
         void stepIr (int direction);
@@ -141,6 +183,8 @@ namespace GGrid
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
             toneAttachment, fadeInAttachment, fadeOutAttachment, stretchAttachment, mixAttachment, outputAttachment;
 
+        std::vector<ModTarget> modTargets;
+
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ConvolutionControlsPanel)
     };
 
@@ -153,6 +197,9 @@ namespace GGrid
 
         void resized() override;
 
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
     private:
         juce::Label gainLabel { {}, "Gain" }, panLabel { {}, "Pan" }, widthLabel { {}, "Width" };
         juce::Slider gainSlider, panSlider, widthSlider;
@@ -160,6 +207,8 @@ namespace GGrid
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment, panAttachment, widthAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoAttachment, phaseInvertLAttachment, phaseInvertRAttachment;
+
+        std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (UtilityControlsPanel)
     };
@@ -174,6 +223,9 @@ namespace GGrid
 
         void resized() override;
 
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
     private:
         juce::Label frequencyLabel { {}, "Frequency" }, fineLabel { {}, "Fine" }, mixLabel { {}, "Mix" },
                     outputLabel { {}, "Output" }, modeLabel { {}, "Mode" };
@@ -185,12 +237,15 @@ namespace GGrid
             frequencyAttachment, fineAttachment, mixAttachment, outputAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
 
+        std::vector<ModTarget> modTargets;
+
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RingModControlsPanel)
     };
 
     // LFO controls: Rate/Depth knobs, a Shape dropdown, and the same Sync toggle + Division
     // dropdown pattern DelayControlsPanel uses (Division only matters while Sync is on, but stays
-    // visible either way for consistency with how Delay already does this).
+    // visible either way for consistency with how Delay already does this). No getModTarget* --
+    // LFO is a modulation SOURCE, not a destination (see NodeComponent::isLfoType).
     class LfoControlsPanel : public juce::Component
     {
     public:

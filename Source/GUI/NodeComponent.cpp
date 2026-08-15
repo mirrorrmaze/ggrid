@@ -84,7 +84,7 @@ namespace GGrid
         int contentHeight;
         switch (type)
         {
-            case ModuleType::waveshaper:  contentHeight = 146; break; // knobRow(96) + gap(6) + bottomRow(44)
+            case ModuleType::waveshaper:  contentHeight = 212; break; // curveArea(60) + gap(6) + knobRow(96) + gap(6) + bottomRow(44)
             case ModuleType::filter:      contentHeight = 146; break; // knobRow(96) + gap(6) + bottomRow(44)
             case ModuleType::delay:       contentHeight = 228; break; // knobRow(96) + gap(6) + filterRow(96) + gap(6) + bottomRow(24)
             case ModuleType::dynamics:    contentHeight = 198; break; // topRow(96) + gap(6) + bottomRow(96)
@@ -119,37 +119,58 @@ namespace GGrid
         return { getWidth(), getHeight() / 2 };
     }
 
-    bool NodeComponent::hasModDestination() const
-    {
-        const auto type = static_cast<ModuleType> (typeBox.getSelectedId() - 1);
-        return type == ModuleType::filter || type == ModuleType::waveshaper || type == ModuleType::convolution;
-    }
-
-    ModDestinationParam NodeComponent::getModDestinationParam() const
+    int NodeComponent::getModTargetCount() const
     {
         switch (static_cast<ModuleType> (typeBox.getSelectedId() - 1))
         {
-            case ModuleType::filter:      return ModDestinationParam::filterFrequency;
-            case ModuleType::waveshaper:  return ModDestinationParam::waveshaperDrive;
-            case ModuleType::convolution: return ModDestinationParam::convolutionMix;
-            default:                      return ModDestinationParam::filterFrequency; // unreachable if hasModDestination() was checked first
+            case ModuleType::waveshaper:  return waveshaperPanel->getModTargetCount();
+            case ModuleType::filter:      return filterPanel->getModTargetCount();
+            case ModuleType::delay:       return delayPanel->getModTargetCount();
+            case ModuleType::dynamics:    return dynamicsPanel->getModTargetCount();
+            case ModuleType::convolution: return convolutionPanel->getModTargetCount();
+            case ModuleType::utility:     return utilityPanel->getModTargetCount();
+            case ModuleType::ringMod:     return ringModPanel->getModTargetCount();
+            default:                      return 0;
         }
     }
 
-    juce::Point<int> NodeComponent::getModDestinationPosition() const
+    juce::String NodeComponent::getModTargetParamId (int index) const
     {
-        juce::Rectangle<int> knobBounds;
         switch (static_cast<ModuleType> (typeBox.getSelectedId() - 1))
         {
-            case ModuleType::filter:      knobBounds = filterPanel->getModTargetKnobBounds(); break;
-            case ModuleType::waveshaper:  knobBounds = waveshaperPanel->getModTargetKnobBounds(); break;
-            case ModuleType::convolution: knobBounds = convolutionPanel->getModTargetKnobBounds(); break;
+            case ModuleType::waveshaper:  return waveshaperPanel->getModTarget (index).paramId;
+            case ModuleType::filter:      return filterPanel->getModTarget (index).paramId;
+            case ModuleType::delay:       return delayPanel->getModTarget (index).paramId;
+            case ModuleType::dynamics:    return dynamicsPanel->getModTarget (index).paramId;
+            case ModuleType::convolution: return convolutionPanel->getModTarget (index).paramId;
+            case ModuleType::utility:     return utilityPanel->getModTarget (index).paramId;
+            case ModuleType::ringMod:     return ringModPanel->getModTarget (index).paramId;
             default:                      return {};
         }
+    }
 
-        // Top-right corner of the knob, translated from the panel's own coordinates into this
-        // component's.
-        return contentAreaOrigin + juce::Point<int> (knobBounds.getRight(), knobBounds.getY());
+    juce::Point<int> NodeComponent::getModTargetPosition (int index) const
+    {
+        juce::Slider* slider = nullptr;
+        switch (static_cast<ModuleType> (typeBox.getSelectedId() - 1))
+        {
+            case ModuleType::waveshaper:  slider = waveshaperPanel->getModTarget (index).slider; break;
+            case ModuleType::filter:      slider = filterPanel->getModTarget (index).slider; break;
+            case ModuleType::delay:       slider = delayPanel->getModTarget (index).slider; break;
+            case ModuleType::dynamics:    slider = dynamicsPanel->getModTarget (index).slider; break;
+            case ModuleType::convolution: slider = convolutionPanel->getModTarget (index).slider; break;
+            case ModuleType::utility:     slider = utilityPanel->getModTarget (index).slider; break;
+            case ModuleType::ringMod:     slider = ringModPanel->getModTarget (index).slider; break;
+            default:                      break;
+        }
+
+        if (slider == nullptr)
+            return {};
+
+        // Centered on the knob's top edge, not a corner -- a corner sits on the shared boundary
+        // with an adjacent knob and reads as belonging to the wrong one (see task 66).
+        const auto bounds = slider->getBounds();
+        return contentAreaOrigin + juce::Point<int> (bounds.getCentreX(), bounds.getY());
     }
 
     void NodeComponent::setSelected (bool shouldBeSelected)
@@ -177,10 +198,12 @@ namespace GGrid
             g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (1).toFloat()));
         }
 
-        if (hasModDestination())
+        const int modTargetCount = getModTargetCount();
+        if (modTargetCount > 0)
         {
             g.setColour (Palette::modAccent);
-            g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (getModDestinationPosition().toFloat()));
+            for (int i = 0; i < modTargetCount; ++i)
+                g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (getModTargetPosition (i).toFloat()));
         }
     }
 

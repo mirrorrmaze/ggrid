@@ -21,14 +21,17 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
   together, and Delete/Backspace removes every selected node.
 - **Modulation cables** -- LFO nodes have no audio ports at all (they're modulation sources, not
   audio processors) -- just a single violet output nub, dragged onto a matching violet
-  modulation-destination dot that Filter (Frequency), Waveshaper (Drive), and Convolution (Mix)
-  nodes each expose on their relevant knob. A genuinely separate cable graph from the orange audio
-  connections, rendered in violet so the two are never ambiguous at a glance; grab an existing mod
-  cable to rewire/disconnect it exactly like an audio one. Modulation is additive on top of the
-  knob position, never overwrites it -- same rule as the MIDI Mod Matrix below, which these cables
-  share their underlying mechanism with.
+  modulation-destination dot on **any** continuous knob any other node exposes (essentially every
+  knob in the rack, not a fixed handful -- e.g. every Waveshaper knob, not just Drive). A
+  genuinely separate cable graph from the orange audio connections, rendered in violet so the two
+  are never ambiguous at a glance; grab an existing mod cable to rewire/disconnect it exactly like
+  an audio one. Modulation is additive on top of the knob position, never overwrites it. This
+  generic per-knob system is separate from (and additive with) the fixed 6-destination MIDI Mod
+  Matrix below -- a knob that's a MIDI Mod Matrix destination can be nudged by both at once.
 - **Waveshaper/Wavefolder** -- Hard Clip, Soft Clip (tanh/cubic), Foldback Wavefolder, Sine Fold,
-  Rectify/Asymmetric, with Drive, Symmetry, Fold Amount, 2x/4x oversampling, Mix, Output.
+  Rectify/Asymmetric, with Drive, Symmetry, Fold Amount, 2x/4x oversampling, Mix, Output, and a
+  live transfer-curve preview showing the current shape/symmetry/fold as an actual bent line
+  rather than just numbers on the knobs.
 - **Filter** -- one module, 7 algorithms via a Type dropdown: Low Pass / High Pass / Band Pass /
   Notch (resonant biquads), Comb (Feedback), Comb (Feedforward), and an Allpass Diffusor
   (Schroeder allpass -- the classic reverb-diffusion building block).
@@ -170,17 +173,31 @@ Installer/                             Inno Setup installer script
   acyclic.
 - **Modulation is additive**, applied at the point of use inside each destination module, never
   by overwriting the APVTS parameter -- the knob position is always the base value.
+- **Two parallel modulation mechanisms coexist by design.** The original enum-keyed
+  `ModDestinationParam`/`getOffsetForDestination()` path powers only the fixed 6-route MIDI Mod
+  Matrix (its original 6 destinations: Filter Frequency/Feedback, Delay Time/Feedback, Waveshaper
+  Drive, Convolution Mix) and was deliberately left untouched when cables were generalized, to
+  avoid risking already-shipped, tested behavior. The generic `ModulationMatrix::getOffsetForParam
+  (paramId, range)` path is string-APVTS-ID-keyed and powers the cable system's "any knob"
+  destinations -- every continuous knob on every module type builds a `ModTarget` list
+  (`paramId`/label/`juce::Slider*`) in its control panel's constructor (see `ModTarget` in
+  `ModuleControlPanels.h`), and `NodeComponent` exposes it as `getModTargetCount()`/
+  `getModTargetParamId(i)`/`getModTargetPosition(i)` so the canvas can place/hit-test one
+  destination nub per knob rather than a single fixed one. Modules that had old-mechanism support
+  sum both paths (e.g. Filter Frequency reads `getOffsetForDestination(...) +
+  getOffsetForParam(...)`) so a knob that's both a MIDI Mod Matrix destination and a cable target
+  responds to either.
 - **Modulation cables are a second, separate graph** (`ModulationMatrix::modConnections`) from the
-  audio `connections` above -- an LFO slot's depth-scaled output, a destination slot, and which
-  `ModDestinationParam` it targets. Capacity is enforced per-destination (one source per knob)
-  rather than per-source, since a modulation source usefully fans out to several destinations at
-  once. `ModulationMatrix::getOffsetForDestination()` is the single place both this cable graph
-  and the 6 fixed MIDI routes get summed together, so Filter/Waveshaper/Delay/Convolution never
-  need to know or care which kind of source is nudging their parameter. LFO slots are excluded
-  from the audio `connections` graph entirely and ticked in their own pass each block, before the
-  audio graph runs, so a destination always reads this block's LFO value regardless of where the
-  LFO node happens to fall in audio topological order (which has nothing to do with modulation
-  routing) -- see `LFOModule` and `GGridAudioProcessor::processBlock`.
+  audio `connections` above -- each entry is `{ fromSlot, toSlot, destinationParamId }`, an LFO
+  slot's depth-scaled output paired with the exact APVTS parameter ID it targets. Capacity is
+  enforced per-destination (one source per knob, keyed on `destinationParamId` alone) rather than
+  per-source, since a modulation source usefully fans out to several destinations at once. LFO
+  slots are excluded from the audio `connections` graph entirely and ticked in their own pass each
+  block, before the audio graph runs, so a destination always reads this block's LFO value
+  regardless of where the LFO node happens to fall in audio topological order (which has nothing
+  to do with modulation routing) -- see `LFOModule` and `GGridAudioProcessor::processBlock`.
+  Persisted state uses `"|"` as the field separator (not `"-"`) since `destinationParamId` is an
+  arbitrary parameter-ID string rather than a fixed enum.
 - **The safety limiter is not a rack slot** -- it's pinned as the literal last stage in
   `PluginProcessor::processBlock`, specifically so it can't be reordered away from "last."
 - **Node canvas is a view onto `connections`, not a separate routing model.** Node existence

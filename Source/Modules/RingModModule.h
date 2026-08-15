@@ -71,6 +71,8 @@ namespace GGrid
 
         static constexpr int kMaxChannels = 2;
 
+        int slotIndex;
+
         std::atomic<float>* modeParam;
         std::atomic<float>* frequencyParam;
         std::atomic<float>* fineParam;

@@ -4,7 +4,8 @@
 namespace GGrid
 {
     DynamicsModule::DynamicsModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
-        : thresholdParam (apvtsIn.getRawParameterValue (dynamicsParamId (slotIndexIn, DynamicsParam::threshold))),
+        : slotIndex (slotIndexIn),
+          thresholdParam (apvtsIn.getRawParameterValue (dynamicsParamId (slotIndexIn, DynamicsParam::threshold))),
           ratioParam     (apvtsIn.getRawParameterValue (dynamicsParamId (slotIndexIn, DynamicsParam::ratio))),
           attackParam    (apvtsIn.getRawParameterValue (dynamicsParamId (slotIndexIn, DynamicsParam::attack))),
           releaseParam   (apvtsIn.getRawParameterValue (dynamicsParamId (slotIndexIn, DynamicsParam::release))),
@@ -24,15 +25,27 @@ namespace GGrid
         compressor.reset();
     }
 
-    void DynamicsModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix&)
+    void DynamicsModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
-        compressor.setThreshold (thresholdParam->load());
-        compressor.setRatio (ratioParam->load());
-        compressor.setAttack (attackParam->load());
-        compressor.setRelease (releaseParam->load());
+        const float threshold = juce::jlimit (-60.0f, 0.0f, thresholdParam->load()
+            + modMatrix.getOffsetForParam (dynamicsParamId (slotIndex, DynamicsParam::threshold), 12.0f));
+        const float ratio = juce::jlimit (1.0f, 20.0f, ratioParam->load()
+            + modMatrix.getOffsetForParam (dynamicsParamId (slotIndex, DynamicsParam::ratio), 4.0f));
+        const float attack = juce::jlimit (0.1f, 200.0f, attackParam->load()
+            + modMatrix.getOffsetForParam (dynamicsParamId (slotIndex, DynamicsParam::attack), 50.0f));
+        const float release = juce::jlimit (5.0f, 1000.0f, releaseParam->load()
+            + modMatrix.getOffsetForParam (dynamicsParamId (slotIndex, DynamicsParam::release), 200.0f));
 
-        const float makeupGain = juce::Decibels::decibelsToGain (makeupParam->load());
-        const float mix = mixParam->load() / 100.0f;
+        compressor.setThreshold (threshold);
+        compressor.setRatio (ratio);
+        compressor.setAttack (attack);
+        compressor.setRelease (release);
+
+        const float makeupOffset = modMatrix.getOffsetForParam (dynamicsParamId (slotIndex, DynamicsParam::makeup), 12.0f);
+        const float makeupGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, makeupParam->load() + makeupOffset));
+
+        const float mixOffset = modMatrix.getOffsetForParam (dynamicsParamId (slotIndex, DynamicsParam::mix), 50.0f);
+        const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
 
         const auto numChannels = block.getNumChannels();
         const auto numSamples = block.getNumSamples();

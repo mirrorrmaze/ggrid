@@ -1050,7 +1050,7 @@ int main()
         apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
 
         ModulationMatrix cableMatrix (apvts);
-        const bool added = cableMatrix.addModConnection (0, 1, ModDestinationParam::filterFrequency);
+        const bool added = cableMatrix.addModConnection (0, 1, filterParamId (1, FilterParam::frequency));
         expect (added, "a modulation cable from an LFO slot to Filter Frequency is accepted");
 
         LFOModule lfo (apvts, 0, sharedServices);

@@ -50,6 +50,101 @@ namespace GGrid
         outputAttachment     = std::make_unique<SliderAttachment> (apvts, waveshaperParamId (slotIndex, WaveshaperParam::output), outputSlider);
         shapeAttachment      = std::make_unique<ComboBoxAttachment> (apvts, waveshaperParamId (slotIndex, WaveshaperParam::shape), shapeBox);
         oversampleAttachment = std::make_unique<ComboBoxAttachment> (apvts, waveshaperParamId (slotIndex, WaveshaperParam::oversample), oversampleBox);
+
+        modTargets = {
+            { waveshaperParamId (slotIndex, WaveshaperParam::drive),      "Drive",      &driveSlider },
+            { waveshaperParamId (slotIndex, WaveshaperParam::symmetry),   "Symmetry",   &symmetrySlider },
+            { waveshaperParamId (slotIndex, WaveshaperParam::foldAmount), "Fold",       &foldSlider },
+            { waveshaperParamId (slotIndex, WaveshaperParam::mix),        "Mix",        &mixSlider },
+            { waveshaperParamId (slotIndex, WaveshaperParam::output),     "Output",     &outputSlider },
+        };
+
+        startTimerHz (15);
+    }
+
+    WaveshaperControlsPanel::~WaveshaperControlsPanel()
+    {
+        stopTimer();
+    }
+
+    // Mirrors WaveshaperModule::shapeSample exactly (kept in sync by hand -- the DSP and this
+    // preview are two different targets, no shared header for one formula isn't worth the
+    // indirection). Deliberately doesn't apply Drive's gain -- this shows the shape *family*
+    // (Shape/Symmetry/Fold) over its natural [-1, 1] domain, not how hard the signal is being
+    // pushed into it.
+    float WaveshaperControlsPanel::shapeSample (float x, int shapeIndex, float symmetry, float foldAmount) const
+    {
+        x += symmetry * 0.5f;
+
+        float y;
+        switch (shapeIndex)
+        {
+            case 0: y = juce::jlimit (-1.0f, 1.0f, x); break; // Hard Clip
+            case 1: y = std::tanh (x); break; // Soft Clip (tanh)
+            case 2: // Soft Clip (cubic)
+            {
+                const float xc = juce::jlimit (-1.5f, 1.5f, x);
+                y = juce::jlimit (-1.0f, 1.0f, (xc - (xc * xc * xc) / 3.0f) * 1.5f);
+                break;
+            }
+            case 3: // Foldback Wavefolder
+            {
+                const float drive = 1.0f + foldAmount * 7.0f;
+                const float z = x * drive * 0.25f;
+                const float frac = z - std::floor (z + 0.5f);
+                y = 4.0f * std::abs (frac) - 1.0f;
+                break;
+            }
+            case 4: // Sine Fold
+            {
+                const float drive = 1.0f + foldAmount * 8.0f;
+                y = std::sin (x * drive * juce::MathConstants<float>::halfPi);
+                break;
+            }
+            case 5: y = juce::jlimit (-1.0f, 1.0f, std::abs (x) * 2.0f - 1.0f); break; // Rectify/Asymmetric
+            default: y = x; break;
+        }
+
+        return y - symmetry * 0.25f;
+    }
+
+    void WaveshaperControlsPanel::paint (juce::Graphics& g)
+    {
+        auto bounds = curveArea.toFloat();
+        g.setColour (Palette::bg);
+        g.fillRect (bounds);
+        g.setColour (Palette::dim);
+        g.drawRect (bounds, 1.0f);
+
+        if (curveArea.isEmpty())
+            return;
+
+        const int shapeIndex = shapeBox.getSelectedId() - 1;
+        const float symmetry = (float) symmetrySlider.getValue();
+        const float foldAmount = (float) foldSlider.getValue();
+
+        const int width = curveArea.getWidth();
+        const float midY = bounds.getY() + bounds.getHeight() * 0.5f;
+        const float halfH = bounds.getHeight() * 0.45f;
+
+        g.setColour (Palette::dimmer.withAlpha (0.6f));
+        g.drawHorizontalLine ((int) midY, bounds.getX(), bounds.getRight());
+        g.drawVerticalLine ((int) (bounds.getX() + bounds.getWidth() * 0.5f), bounds.getY(), bounds.getBottom());
+
+        juce::Path path;
+        for (int x = 0; x < width; ++x)
+        {
+            const float xNorm = (float) x / (float) juce::jmax (1, width - 1) * 2.0f - 1.0f;
+            const float y = shapeSample (xNorm, shapeIndex, symmetry, foldAmount);
+            const float px = bounds.getX() + (float) x;
+            const float py = juce::jlimit (bounds.getY(), bounds.getBottom(), midY - y * halfH);
+
+            if (x == 0) path.startNewSubPath (px, py);
+            else path.lineTo (px, py);
+        }
+
+        g.setColour (Palette::accent);
+        g.strokePath (path, juce::PathStrokeType (1.5f));
     }
 
     void WaveshaperControlsPanel::resized()
@@ -58,6 +153,9 @@ namespace GGrid
         // whatever's left to the dropdowns" -- that left the shape/oversample row only ~20px
         // tall, so those two dropdowns were rendering as unclickable slivers.
         auto area = getLocalBounds().reduced (4);
+
+        curveArea = area.removeFromTop (60);
+        area.removeFromTop (6);
 
         auto knobRow = area.removeFromTop (96);
         const int knobWidth = knobRow.getWidth() / 5;
@@ -124,6 +222,14 @@ namespace GGrid
         mixAttachment       = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::mix), mixSlider);
         outputAttachment    = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::output), outputSlider);
         typeAttachment      = std::make_unique<ComboBoxAttachment> (apvts, filterParamId (slotIndex, FilterParam::type), typeBox);
+
+        modTargets = {
+            { filterParamId (slotIndex, FilterParam::frequency), "Frequency", &frequencySlider },
+            { filterParamId (slotIndex, FilterParam::resonance), "Resonance", &resonanceSlider },
+            { filterParamId (slotIndex, FilterParam::feedback),  "Feedback",  &feedbackSlider },
+            { filterParamId (slotIndex, FilterParam::mix),       "Mix",       &mixSlider },
+            { filterParamId (slotIndex, FilterParam::output),    "Output",    &outputSlider },
+        };
     }
 
     void FilterControlsPanel::resized()
@@ -194,6 +300,16 @@ namespace GGrid
         syncAttachment       = std::make_unique<ButtonAttachment> (apvts, delayParamId (slotIndex, DelayParam::sync), syncButton);
         pingPongAttachment   = std::make_unique<ButtonAttachment> (apvts, delayParamId (slotIndex, DelayParam::pingPong), pingPongButton);
         divisionAttachment   = std::make_unique<ComboBoxAttachment> (apvts, delayParamId (slotIndex, DelayParam::division), divisionBox);
+
+        modTargets = {
+            { delayParamId (slotIndex, DelayParam::time),       "Time",       &timeSlider },
+            { delayParamId (slotIndex, DelayParam::feedback),   "Feedback",   &feedbackSlider },
+            { delayParamId (slotIndex, DelayParam::saturation), "Saturation", &saturationSlider },
+            { delayParamId (slotIndex, DelayParam::lowCut),     "Low Cut",    &lowCutSlider },
+            { delayParamId (slotIndex, DelayParam::hiCut),      "Hi Cut",     &hiCutSlider },
+            { delayParamId (slotIndex, DelayParam::mix),        "Mix",        &mixSlider },
+            { delayParamId (slotIndex, DelayParam::output),     "Output",     &outputSlider },
+        };
     }
 
     void DelayControlsPanel::resized()
@@ -257,6 +373,15 @@ namespace GGrid
         releaseAttachment   = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::release), releaseSlider);
         makeupAttachment    = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::makeup), makeupSlider);
         mixAttachment       = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::mix), mixSlider);
+
+        modTargets = {
+            { dynamicsParamId (slotIndex, DynamicsParam::threshold), "Threshold", &thresholdSlider },
+            { dynamicsParamId (slotIndex, DynamicsParam::ratio),     "Ratio",     &ratioSlider },
+            { dynamicsParamId (slotIndex, DynamicsParam::attack),    "Attack",    &attackSlider },
+            { dynamicsParamId (slotIndex, DynamicsParam::release),   "Release",   &releaseSlider },
+            { dynamicsParamId (slotIndex, DynamicsParam::makeup),    "Makeup",    &makeupSlider },
+            { dynamicsParamId (slotIndex, DynamicsParam::mix),       "Mix",       &mixSlider },
+        };
     }
 
     void DynamicsControlsPanel::resized()
@@ -340,6 +465,15 @@ namespace GGrid
         stretchAttachment = std::make_unique<SliderAttachment> (apvts, convolutionParamId (slotIndex, ConvolutionParam::stretch), stretchSlider);
         mixAttachment     = std::make_unique<SliderAttachment> (apvts, convolutionParamId (slotIndex, ConvolutionParam::mix), mixSlider);
         outputAttachment  = std::make_unique<SliderAttachment> (apvts, convolutionParamId (slotIndex, ConvolutionParam::output), outputSlider);
+
+        modTargets = {
+            { convolutionParamId (slotIndex, ConvolutionParam::tone),     "Tone",     &toneSlider },
+            { convolutionParamId (slotIndex, ConvolutionParam::fadeIn),   "Fade In",  &fadeInSlider },
+            { convolutionParamId (slotIndex, ConvolutionParam::fadeOut),  "Fade Out", &fadeOutSlider },
+            { convolutionParamId (slotIndex, ConvolutionParam::stretch),  "Stretch",  &stretchSlider },
+            { convolutionParamId (slotIndex, ConvolutionParam::mix),      "Mix",      &mixSlider },
+            { convolutionParamId (slotIndex, ConvolutionParam::output),   "Output",   &outputSlider },
+        };
     }
 
     void ConvolutionControlsPanel::stepIr (int direction)
@@ -419,6 +553,12 @@ namespace GGrid
         monoAttachment           = std::make_unique<ButtonAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::mono), monoButton);
         phaseInvertLAttachment   = std::make_unique<ButtonAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::phaseInvertL), phaseInvertLButton);
         phaseInvertRAttachment   = std::make_unique<ButtonAttachment> (apvts, utilityParamId (slotIndex, UtilityParam::phaseInvertR), phaseInvertRButton);
+
+        modTargets = {
+            { utilityParamId (slotIndex, UtilityParam::gain),  "Gain",  &gainSlider },
+            { utilityParamId (slotIndex, UtilityParam::pan),   "Pan",   &panSlider },
+            { utilityParamId (slotIndex, UtilityParam::width), "Width", &widthSlider },
+        };
     }
 
     void UtilityControlsPanel::resized()
@@ -481,6 +621,13 @@ namespace GGrid
         mixAttachment       = std::make_unique<SliderAttachment> (apvts, ringModParamId (slotIndex, RingModParam::mix), mixSlider);
         outputAttachment    = std::make_unique<SliderAttachment> (apvts, ringModParamId (slotIndex, RingModParam::output), outputSlider);
         modeAttachment      = std::make_unique<ComboBoxAttachment> (apvts, ringModParamId (slotIndex, RingModParam::mode), modeBox);
+
+        modTargets = {
+            { ringModParamId (slotIndex, RingModParam::frequency), "Frequency", &frequencySlider },
+            { ringModParamId (slotIndex, RingModParam::fine),      "Fine",      &fineSlider },
+            { ringModParamId (slotIndex, RingModParam::mix),       "Mix",       &mixSlider },
+            { ringModParamId (slotIndex, RingModParam::output),    "Output",    &outputSlider },
+        };
     }
 
     void RingModControlsPanel::resized()

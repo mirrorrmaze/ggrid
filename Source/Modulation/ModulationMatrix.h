@@ -68,18 +68,25 @@ namespace GGrid
     // depth-scaled contribution is read fresh each block via getCurrentValue() on that slot's
     // live LFOModule -- see PluginProcessor::processBlock, which ticks every active LFO slot and
     // feeds its value in via setLfoValue() before the rest of the graph runs.
+    //
+    // destinationParamId is the exact APVTS parameter ID string (e.g. "slot3_waveshaper_drive")
+    // rather than a fixed enum -- unlike the 6 MIDI routes above (a small, hand-picked, UI-facing
+    // choice list), cables can target ANY continuous knob any module exposes, and a hand-picked
+    // enum for that would mean a new enum entry for every single knob on every module. toSlot is
+    // redundant with what's encoded in the ID string but kept explicit for cheap GUI lookups
+    // (which node currently owns this cable's destination) without string-parsing it back out.
     struct ModConnection
     {
         int fromSlot = -1;
         int toSlot = -1;
-        ModDestinationParam destinationParam = ModDestinationParam::filterFrequency;
+        juce::String destinationParamId;
     };
 
     // Generous fan-out cap (an LFO driving several destinations at once is a normal, useful
     // patch) -- capacity is actually enforced per-destination instead (see canAddModConnection):
-    // each (toSlot, destinationParam) accepts at most one incoming cable, matching "a knob has
-    // one modulation source" in most simple modular designs.
-    constexpr int kMaxModConnections = kMaxSlots * 4;
+    // each destinationParamId accepts at most one incoming cable, matching "a knob has one
+    // modulation source" in most simple modular designs.
+    constexpr int kMaxModConnections = kMaxSlots * 8;
 
     class ModulationMatrix
     {
@@ -96,14 +103,23 @@ namespace GGrid
         void setLfoValue (int slotIndex, float value) { lfoValues[(size_t) slotIndex] = value; }
 
         // Returns the summed offset (in the destination's own natural units, e.g. Hz for
-        // frequency) from every MIDI route AND every LFO cable currently targeting this
-        // destination. 0 if none do.
+        // frequency) from every one of the 6 fixed MIDI routes currently targeting this
+        // destination. 0 if none do. Only covers the 6 hand-picked MIDI-route destinations (see
+        // ModDestinationParam) -- for anything cable-driven, see getOffsetForParam below.
         float getOffsetForDestination (int destinationIndex) const;
 
+        // Returns the summed offset from every modulation cable targeting this exact APVTS
+        // parameter ID, scaled by `range` (the offset's full natural-unit swing at 100% LFO
+        // depth/throw -- e.g. pass 20.0f for a dB knob to let a cable swing it +/-20dB at full
+        // throw). Every knob a node exposes a modulation-destination nub for goes through this,
+        // not just the 6 MIDI-route destinations -- see NodeComponent's per-panel getModTarget*
+        // methods for the full list per module type.
+        float getOffsetForParam (const juce::String& paramId, float range) const;
+
         // -- LFO modulation cables --
-        bool canAddModConnection (int fromSlot, int toSlot, ModDestinationParam param) const;
-        bool addModConnection (int fromSlot, int toSlot, ModDestinationParam param);
-        void removeModConnection (int fromSlot, int toSlot, ModDestinationParam param);
+        bool canAddModConnection (int fromSlot, int toSlot, const juce::String& destinationParamId) const;
+        bool addModConnection (int fromSlot, int toSlot, const juce::String& destinationParamId);
+        void removeModConnection (int fromSlot, int toSlot, const juce::String& destinationParamId);
         void removeAllModConnectionsForSlot (int slot);
 
         std::array<ModConnection, kMaxModConnections> modConnections {};

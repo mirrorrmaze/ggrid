@@ -4,7 +4,8 @@
 namespace GGrid
 {
     UtilityModule::UtilityModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
-        : gainParam          (apvtsIn.getRawParameterValue (utilityParamId (slotIndexIn, UtilityParam::gain))),
+        : slotIndex (slotIndexIn),
+          gainParam          (apvtsIn.getRawParameterValue (utilityParamId (slotIndexIn, UtilityParam::gain))),
           panParam           (apvtsIn.getRawParameterValue (utilityParamId (slotIndexIn, UtilityParam::pan))),
           widthParam         (apvtsIn.getRawParameterValue (utilityParamId (slotIndexIn, UtilityParam::width))),
           monoParam          (apvtsIn.getRawParameterValue (utilityParamId (slotIndexIn, UtilityParam::mono))),
@@ -16,14 +17,15 @@ namespace GGrid
     void UtilityModule::prepare (const juce::dsp::ProcessSpec&) {}
     void UtilityModule::reset() {}
 
-    void UtilityModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix&)
+    void UtilityModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
         const auto numChannels = block.getNumChannels();
         const auto numSamples = block.getNumSamples();
 
+        const float gainOffset = modMatrix.getOffsetForParam (utilityParamId (slotIndex, UtilityParam::gain), 12.0f);
         const float signL = phaseInvertLParam->load() >= 0.5f ? -1.0f : 1.0f;
         const float signR = phaseInvertRParam->load() >= 0.5f ? -1.0f : 1.0f;
-        const float gain = juce::Decibels::decibelsToGain (gainParam->load());
+        const float gain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, gainParam->load() + gainOffset));
 
         if (numChannels < 2)
         {
@@ -34,8 +36,12 @@ namespace GGrid
         }
 
         const bool monoOn = monoParam->load() >= 0.5f;
-        const float widthAmt = widthParam->load() / 100.0f;
-        const float panVal = panParam->load();
+
+        const float widthOffset = modMatrix.getOffsetForParam (utilityParamId (slotIndex, UtilityParam::width), 50.0f);
+        const float widthAmt = juce::jlimit (0.0f, 200.0f, widthParam->load() + widthOffset) / 100.0f;
+
+        const float panOffset = modMatrix.getOffsetForParam (utilityParamId (slotIndex, UtilityParam::pan), 0.5f);
+        const float panVal = juce::jlimit (-1.0f, 1.0f, panParam->load() + panOffset);
 
         // Balance law (input is already stereo, so this trims one side rather than panning a
         // mono source) -- simple linear taper, not constant-power, matching what a plain

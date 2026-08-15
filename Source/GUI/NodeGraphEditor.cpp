@@ -23,6 +23,11 @@ namespace GGrid
 
             addAndMakeVisible (*node);
             nodes[(size_t) i] = std::move (node);
+
+            // Seed from the actual current type (already reflects any loaded project state by
+            // the time the editor is constructed) so refreshLayout()'s change-detection doesn't
+            // mistake "state that was already there" for a fresh type change on the first tick.
+            lastKnownType[(size_t) i] = static_cast<ModuleType> ((int) processor.apvts.getRawParameterValue (slotTypeParamId (i))->load());
         }
 
         refreshLayout();
@@ -47,6 +52,13 @@ namespace GGrid
         {
             auto* node = nodes[(size_t) i].get();
             const auto type = static_cast<ModuleType> ((int) processor.apvts.getRawParameterValue (slotTypeParamId (i))->load());
+
+            if (type != lastKnownType[(size_t) i])
+            {
+                lastKnownType[(size_t) i] = type;
+                pruneStaleConnectionsForSlot (i, type);
+            }
+
             const bool shouldBeVisible = (type != ModuleType::none);
 
             if (node->isVisible() != shouldBeVisible)
@@ -96,14 +108,14 @@ namespace GGrid
             return;
         }
 
-        ModDestinationParam grabParam = ModDestinationParam::filterFrequency;
-        if (hitTestModCable (e.position, grabFrom, grabTo, grabParam))
+        juce::String grabParamId;
+        if (hitTestModCable (e.position, grabFrom, grabTo, grabParamId))
         {
-            processor.getModulationMatrix().removeModConnection (grabFrom, grabTo, grabParam);
+            processor.getModulationMatrix().removeModConnection (grabFrom, grabTo, grabParamId);
             isDraggingCable = true;
             isDraggingModCable = true;
             cableDragSourceSlot = grabFrom;
-            cableDragModParam = grabParam;
+            cableDragModParam = grabParamId;
             cableDragCurrentPos = e.position;
             repaint();
             return;
@@ -188,9 +200,10 @@ namespace GGrid
 
         if (isDraggingCable && isDraggingModCable)
         {
-            const int targetSlot = findModDestinationNear (e.position, cableDragSourceSlot);
+            juce::String targetParamId;
+            const int targetSlot = findModDestinationNear (e.position, cableDragSourceSlot, targetParamId);
             if (targetSlot >= 0)
-                processor.getModulationMatrix().addModConnection (cableDragSourceSlot, targetSlot, nodes[(size_t) targetSlot]->getModDestinationParam());
+                processor.getModulationMatrix().addModConnection (cableDragSourceSlot, targetSlot, targetParamId);
 
             isDraggingCable = false;
             isDraggingModCable = false;
@@ -311,8 +324,11 @@ namespace GGrid
             // Auto-chain after whatever was added right before this, if it's still around and
             // has a spare output -- keeps simple serial patches "just working" without the user
             // having to wire every single node by hand. Explicit rewiring is how you branch off
-            // from that default into something parallel.
-            if (lastAddedSlot >= 0 && nodes[(size_t) lastAddedSlot]->isVisible())
+            // from that default into something parallel. Never auto-chains an LFO on either end
+            // -- it has no audio ports at all (see LFOModule), so an audio edge to/from one would
+            // just be an invisible, inert connection sitting in the graph.
+            if (lastAddedSlot >= 0 && nodes[(size_t) lastAddedSlot]->isVisible()
+                && ! nodes[(size_t) lastAddedSlot]->isLfoType() && type != ModuleType::lfo)
                 processor.addConnection (lastAddedSlot, i);
             lastAddedSlot = i;
 
@@ -343,6 +359,23 @@ namespace GGrid
 
         refreshLayout();
         repaint();
+    }
+
+    void NodeGraphEditor::pruneStaleConnectionsForSlot (int slotIndex, ModuleType newType)
+    {
+        // LFO has no audio ports at all -- any audio edge touching it (either direction) is
+        // stale the moment a slot becomes one, whether that happened via Add Node's auto-chain
+        // or by picking "LFO" directly on an existing node's own type dropdown.
+        if (newType == ModuleType::lfo)
+            processor.removeAllConnectionsForSlot (slotIndex);
+
+        // Modulation connections are pruned unconditionally on ANY type change (not just
+        // to/from LFO): as a source, only LFO slots are ever valid; as a destination, which
+        // specific knob a cable was aimed at is meaningless once the slot's become a different
+        // module type. Cheaper and safer than trying to prove a specific old connection is still
+        // valid for the new type -- rewiring is a small ask, a silently-wrong modulation target
+        // is not.
+        processor.getModulationMatrix().removeAllModConnectionsForSlot (slotIndex);
     }
 
     bool NodeGraphEditor::hasSelection() const
@@ -500,9 +533,10 @@ namespace GGrid
 
         if (isDraggingModCable)
         {
-            const int targetSlot = findModDestinationNear (dropPos, slotIndex);
+            juce::String targetParamId;
+            const int targetSlot = findModDestinationNear (dropPos, slotIndex, targetParamId);
             if (targetSlot >= 0)
-                processor.getModulationMatrix().addModConnection (slotIndex, targetSlot, nodes[(size_t) targetSlot]->getModDestinationParam());
+                processor.getModulationMatrix().addModConnection (slotIndex, targetSlot, targetParamId);
         }
         else
         {
@@ -536,22 +570,39 @@ namespace GGrid
         return -1;
     }
 
-    int NodeGraphEditor::findModDestinationNear (juce::Point<float> canvasPoint, int excludeSlot) const
+    int NodeGraphEditor::findModDestinationNear (juce::Point<float> canvasPoint, int excludeSlot, juce::String& outParamId) const
     {
         for (int i = 0; i < kMaxSlots; ++i)
         {
             auto* candidate = nodes[(size_t) i].get();
-            if (i == excludeSlot || ! candidate->isVisible() || ! candidate->hasModDestination())
+            if (i == excludeSlot || ! candidate->isVisible())
                 continue;
 
-            const auto destPos = (candidate->getPosition() + candidate->getModDestinationPosition()).toFloat();
-            if (destPos.getDistanceFrom (canvasPoint) < 20.0f)
-                return i;
+            const int targetCount = candidate->getModTargetCount();
+            for (int t = 0; t < targetCount; ++t)
+            {
+                const auto destPos = (candidate->getPosition() + candidate->getModTargetPosition (t)).toFloat();
+                if (destPos.getDistanceFrom (canvasPoint) < 20.0f)
+                {
+                    outParamId = candidate->getModTargetParamId (t);
+                    return i;
+                }
+            }
         }
         return -1;
     }
 
-    bool NodeGraphEditor::hitTestModCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, ModDestinationParam& outParam) const
+    juce::Point<float> NodeGraphEditor::modTargetPositionFor (const NodeComponent* node, const juce::String& paramId) const
+    {
+        const int targetCount = node->getModTargetCount();
+        for (int t = 0; t < targetCount; ++t)
+            if (node->getModTargetParamId (t) == paramId)
+                return (node->getPosition() + node->getModTargetPosition (t)).toFloat();
+
+        return node->getPosition().toFloat();
+    }
+
+    bool NodeGraphEditor::hitTestModCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, juce::String& outParamId) const
     {
         const auto& modMatrix = processor.getModulationMatrix();
 
@@ -564,7 +615,7 @@ namespace GGrid
                 continue;
 
             const auto start = (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat();
-            const auto end = (toNode->getPosition() + toNode->getModDestinationPosition()).toFloat();
+            const auto end = modTargetPositionFor (toNode, conn.destinationParamId);
 
             auto cablePath = buildCablePath (start, end);
             juce::Path strokedPath;
@@ -574,7 +625,7 @@ namespace GGrid
             {
                 outFromSlot = conn.fromSlot;
                 outToSlot = conn.toSlot;
-                outParam = conn.destinationParam;
+                outParamId = conn.destinationParamId;
                 return true;
             }
         }
@@ -679,7 +730,7 @@ namespace GGrid
                     continue;
 
                 const auto start = (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat();
-                const auto end = (toNode->getPosition() + toNode->getModDestinationPosition()).toFloat();
+                const auto end = modTargetPositionFor (toNode, conn.destinationParamId);
 
                 g.strokePath (buildCablePath (start, end), juce::PathStrokeType (2.0f));
             }

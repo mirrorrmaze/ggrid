@@ -119,11 +119,18 @@ namespace GGrid
     void FilterModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
         const int type = (int) typeParam->load();
-        const float mix = mixParam->load() / 100.0f;
-        const float outputGain = juce::Decibels::decibelsToGain (outputParam->load());
 
-        const float freqOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFrequency));
-        const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFeedback));
+        const float mixOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::mix), 50.0f);
+        const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
+
+        const float outputOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::output), 12.0f);
+        const float outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
+
+        const float freqOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFrequency))
+                                + modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::frequency), 3000.0f);
+        const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFeedback))
+                                    + modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::feedback), 0.9f);
+        const float resonanceOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::resonance), 3.0f);
 
         const auto numChannels = juce::jmin (block.getNumChannels(), (size_t) kMaxFilterChannels);
         const auto numSamples = block.getNumSamples();
@@ -133,7 +140,8 @@ namespace GGrid
 
         if (isBiquadType (type))
         {
-            updateBiquadCoefficients (frequencyParam->load() + freqOffset, resonanceParam->load());
+            const float resonance = juce::jlimit (0.1f, 20.0f, resonanceParam->load() + resonanceOffset);
+            updateBiquadCoefficients (frequencyParam->load() + freqOffset, resonance);
 
             for (size_t ch = 0; ch < numChannels; ++ch)
             {

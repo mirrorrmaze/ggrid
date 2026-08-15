@@ -207,11 +207,14 @@ namespace GGrid
             connectionTokens.add (juce::String (connections[(size_t) i].from) + "-" + juce::String (connections[(size_t) i].to));
         xml.setAttribute ("connections", connectionTokens.joinIntoString (","));
 
+        // "|" as the field separator (not "-") since destinationParamId is an arbitrary APVTS
+        // parameter ID string, not a fixed enum -- kept unambiguous regardless of what future
+        // parameter names look like.
         juce::StringArray modConnectionTokens;
         for (int i = 0; i < modulationMatrix.numModConnections; ++i)
         {
             const auto& conn = modulationMatrix.modConnections[(size_t) i];
-            modConnectionTokens.add (juce::String (conn.fromSlot) + "-" + juce::String (conn.toSlot) + "-" + juce::String ((int) conn.destinationParam));
+            modConnectionTokens.add (juce::String (conn.fromSlot) + "|" + juce::String (conn.toSlot) + "|" + conn.destinationParamId);
         }
         xml.setAttribute ("modConnections", modConnectionTokens.joinIntoString (","));
 
@@ -248,10 +251,10 @@ namespace GGrid
         modulationMatrix.numModConnections = 0;
         for (auto& token : modConnectionTokens)
         {
-            auto parts = juce::StringArray::fromTokens (token, "-", "");
+            auto parts = juce::StringArray::fromTokens (token, "|", "");
             if (parts.size() == 3 && modulationMatrix.numModConnections < kMaxModConnections)
                 modulationMatrix.modConnections[(size_t) modulationMatrix.numModConnections++] = {
-                    parts[0].getIntValue(), parts[1].getIntValue(), static_cast<ModDestinationParam> (parts[2].getIntValue())
+                    parts[0].getIntValue(), parts[1].getIntValue(), parts[2]
                 };
         }
 

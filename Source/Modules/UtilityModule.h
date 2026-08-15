@@ -19,6 +19,8 @@ namespace GGrid
         void process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer& midi, const ModulationMatrix& modMatrix) override;
 
     private:
+        int slotIndex;
+
         std::atomic<float>* gainParam;
         std::atomic<float>* panParam;
         std::atomic<float>* widthParam;

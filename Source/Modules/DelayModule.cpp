@@ -78,8 +78,15 @@ namespace GGrid
 
     void DelayModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
-        const float timeOffsetMs = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::delayTime));
-        const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::delayFeedback));
+        const float timeOffsetMs = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::delayTime))
+                                  + modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::time), 500.0f);
+        const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::delayFeedback))
+                                    + modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::feedback), 0.9f);
+        const float saturationOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::saturation), 0.5f);
+        const float lowCutOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::lowCut), 300.0f);
+        const float hiCutOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::hiCut), 3000.0f);
+        const float mixOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::mix), 50.0f);
+        const float outputOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::output), 12.0f);
 
         const bool synced = syncParam->load() >= 0.5f;
         float timeMs;
@@ -97,12 +104,13 @@ namespace GGrid
         const float delaySamples = juce::jlimit (1.0f, (float) (currentSampleRate * 2.0 - 1.0),
                                                   (float) (timeMs * 0.001 * currentSampleRate));
         const float feedback = juce::jlimit (-0.98f, 0.98f, feedbackParam->load() + feedbackOffset);
-        const float saturation = saturationParam->load();
+        const float saturation = juce::jlimit (0.0f, 1.0f, saturationParam->load() + saturationOffset);
         const bool pingPong = pingPongParam->load() >= 0.5f;
 
-        updateFilterCoefficients (lowCutParam->load(), hiCutParam->load());
-        const float mix = mixParam->load() / 100.0f;
-        const float outputGain = juce::Decibels::decibelsToGain (outputParam->load());
+        updateFilterCoefficients (juce::jmax (20.0f, lowCutParam->load() + lowCutOffset),
+                                   juce::jmax (20.0f, hiCutParam->load() + hiCutOffset));
+        const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
+        const float outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
 
         const auto numChannels = juce::jmin (block.getNumChannels(), (size_t) kMaxDelayChannels);
         const auto numSamples = block.getNumSamples();

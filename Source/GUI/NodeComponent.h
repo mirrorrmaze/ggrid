@@ -49,13 +49,13 @@ namespace GGrid
         bool isLfoType() const;
         juce::Point<int> getModOutputPosition() const;
 
-        // True for the (currently 3) module types that expose one cable-modulatable knob:
-        // Filter Frequency, Waveshaper Drive, Convolution Mix. At most one per node in this
-        // initial scope, positioned against whichever knob it targets (see ModuleControlPanels'
-        // getModTargetKnobBounds()).
-        bool hasModDestination() const;
-        ModDestinationParam getModDestinationParam() const;
-        juce::Point<int> getModDestinationPosition() const;
+        // Every continuous knob the currently active control panel exposes is a valid cable
+        // modulation destination -- delegates to whichever panel is active (see each panel's
+        // getModTargetCount()/getModTarget() in ModuleControlPanels.h). Index-based rather than
+        // a single fixed destination since most module types now expose several.
+        int getModTargetCount() const;
+        juce::String getModTargetParamId (int index) const;
+        juce::Point<int> getModTargetPosition (int index) const;
 
         // Title-bar gesture callbacks -- NodeGraphEditor owns the resulting selection/position
         // logic entirely (single click select, shift-click toggle, drag to move -- possibly the
@@ -117,8 +117,8 @@ namespace GGrid
         OutputNub modOutputNub { *this, true };
 
         // Top-left of wherever the active control panel is placed within this component -- lets
-        // getModDestinationPosition() translate a panel-local knob position (see
-        // ModuleControlPanels' getModTargetKnobBounds()) into this component's own coordinates.
+        // getModTargetPosition() translate a panel-local knob position (see ModuleControlPanels'
+        // ModTarget::slider bounds) into this component's own coordinates.
         juce::Point<int> contentAreaOrigin;
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAttachment;
