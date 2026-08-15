@@ -316,19 +316,42 @@ namespace GGrid
 
     void NodeGraphEditor::showAddNodeMenu (juce::Point<int> canvasPosition)
     {
+        // Grouped into submenus by category rather than one flat list -- item IDs still map
+        // directly to ModuleType (see addNode's static_cast below), that mapping doesn't care
+        // about nesting depth, only which numeric ID got clicked. Add new module types to
+        // whichever category they fit, or a new category if none do -- this is meant to scale as
+        // the rack grows, not stay a fixed 6-way split.
+        juce::PopupMenu distortionMenu;
+        distortionMenu.addItem (1, "Waveshaper");
+        distortionMenu.addItem (9, "Lossy");
+
+        juce::PopupMenu filterEqMenu;
+        filterEqMenu.addItem (2, "Filter");
+        filterEqMenu.addItem (10, "EQ 8");
+        filterEqMenu.addItem (12, "EQ 3");
+
+        juce::PopupMenu dynamicsMenu;
+        dynamicsMenu.addItem (4, "Dynamics");
+
+        juce::PopupMenu modulationMenu;
+        modulationMenu.addItem (11, "Chorus/Flanger");
+        modulationMenu.addItem (7, "Ring Mod");
+        modulationMenu.addItem (8, "LFO");
+
+        juce::PopupMenu timeSpaceMenu;
+        timeSpaceMenu.addItem (3, "Delay");
+        timeSpaceMenu.addItem (5, "Convolution");
+
+        juce::PopupMenu utilityMenu;
+        utilityMenu.addItem (6, "Utility");
+
         juce::PopupMenu menu;
-        menu.addItem (1, "Waveshaper");
-        menu.addItem (2, "Filter");
-        menu.addItem (3, "Delay");
-        menu.addItem (4, "Dynamics");
-        menu.addItem (5, "Convolution");
-        menu.addItem (6, "Utility");
-        menu.addItem (7, "Ring Mod");
-        menu.addItem (8, "LFO");
-        menu.addItem (9, "Lossy");
-        menu.addItem (10, "EQ 8");
-        menu.addItem (11, "Chorus/Flanger");
-        menu.addItem (12, "EQ 3");
+        menu.addSubMenu ("Distortion", distortionMenu);
+        menu.addSubMenu ("Filter & EQ", filterEqMenu);
+        menu.addSubMenu ("Dynamics", dynamicsMenu);
+        menu.addSubMenu ("Modulation", modulationMenu);
+        menu.addSubMenu ("Time & Space", timeSpaceMenu);
+        menu.addSubMenu ("Utility", utilityMenu);
 
         const auto screenPos = localPointToGlobal (canvasPosition);
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (screenPos, screenPos)),
