@@ -100,7 +100,13 @@ namespace GGrid
         // Called once per block, before the rack graph runs, for every currently-active LFO
         // slot -- see PluginProcessor::processBlock. Slots that aren't currently an LFO (or
         // whose LFO cables have all been removed) simply never get a nonzero value read back.
-        void setLfoValue (int slotIndex, float value) { lfoValues[(size_t) slotIndex] = value; }
+        void setLfoValue (int slotIndex, float value) { lfoValues[(size_t) slotIndex].store (value, std::memory_order_relaxed); }
+
+        // Live depth-scaled output (-1..1) of an LFO slot, for the canvas to animate a mod
+        // cable's traveling pulse in sync with the LFO -- the only reader of this that isn't the
+        // audio thread, hence the atomic (everything else here is audio-thread-only by
+        // convention). Meaningless (stale/zero) for a slot that isn't currently an LFO.
+        float getLfoValue (int slotIndex) const { return lfoValues[(size_t) slotIndex].load (std::memory_order_relaxed); }
 
         // Returns the summed offset (in the destination's own natural units, e.g. Hz for
         // frequency) from every one of the 6 fixed MIDI routes currently targeting this
@@ -139,6 +145,6 @@ namespace GGrid
         float cc2_01 = 0.0f;
         float cc3_01 = 0.0f;
 
-        std::array<float, kMaxSlots> lfoValues {};
+        std::array<std::atomic<float>, kMaxSlots> lfoValues {};
     };
 }

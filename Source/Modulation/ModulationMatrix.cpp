@@ -135,7 +135,7 @@ namespace GGrid
 
             // The LFO's own Depth knob is already baked into the value it reports (see
             // LFOModule::process) -- no separate per-cable depth term needed here.
-            total += lfoValues[(size_t) conn.fromSlot] * range;
+            total += lfoValues[(size_t) conn.fromSlot].load (std::memory_order_relaxed) * range;
         }
 
         return total;

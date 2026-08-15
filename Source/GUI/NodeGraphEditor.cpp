@@ -31,7 +31,7 @@ namespace GGrid
         }
 
         refreshLayout();
-        startTimerHz (20);
+        startTimerHz (30);
     }
 
     NodeGraphEditor::~NodeGraphEditor()
@@ -42,6 +42,13 @@ namespace GGrid
     void NodeGraphEditor::timerCallback()
     {
         refreshLayout();
+
+        // refreshLayout() only repaints on an actual layout change -- but a mod cable's
+        // traveling pulse (see paintOverChildren()) needs a steady redraw purely to animate,
+        // even when nothing about the graph itself has changed. Only pay for that continuous
+        // repaint while at least one mod cable exists to animate.
+        if (processor.getModulationMatrix().numModConnections > 0)
+            repaint();
     }
 
     void NodeGraphEditor::refreshLayout()
@@ -93,6 +100,12 @@ namespace GGrid
     {
         grabKeyboardFocus(); // so Delete/Backspace routes here right after any canvas click
 
+        if (e.mods.isRightButtonDown())
+        {
+            showAddNodeMenu (e.position.toInt());
+            return;
+        }
+
         int grabFrom = -1, grabTo = -1;
         if (hitTestCable (e.position, grabFrom, grabTo))
         {
@@ -123,6 +136,8 @@ namespace GGrid
 
         if (e.mods.isShiftDown())
         {
+            // Instant select, bypassing the hold-before-select timing below -- a shortcut for
+            // anyone who'd rather not wait out holdBeforeSelectMs.
             rubberBandActive = true;
             rubberBandStart = e.position;
             rubberBandCurrent = e.position;
@@ -136,9 +151,11 @@ namespace GGrid
             repaint();
         }
 
-        blankDragMode = BlankDragMode::pendingClickOrPan;
+        blankDragMode = BlankDragMode::pendingGesture;
         dragStartViewportPos = getViewportRelativePosition (e);
         lastPanViewportPos = dragStartViewportPos;
+        blankDragStartCanvasPos = e.position;
+        blankDragHoldStartMs = juce::Time::getMillisecondCounterHiRes();
     }
 
     void NodeGraphEditor::mouseDrag (const juce::MouseEvent& e)
@@ -163,13 +180,27 @@ namespace GGrid
 
         const auto currentViewportPos = getViewportRelativePosition (e);
 
-        if (blankDragMode == BlankDragMode::pendingClickOrPan)
+        if (blankDragMode == BlankDragMode::pendingGesture)
         {
             if (currentViewportPos.getDistanceFrom (dragStartViewportPos) < 5.0f)
                 return;
 
-            // Crossed the click/drag threshold -- start panning cleanly from here rather than
-            // applying the threshold distance itself as a jump.
+            // Crossed the movement threshold -- decide pan vs. select by how long the button was
+            // held before this first real movement, not by a modifier key: a quick flick pans
+            // (grab-and-go stays the fast default), holding briefly first selects instead.
+            const double heldMs = juce::Time::getMillisecondCounterHiRes() - blankDragHoldStartMs;
+
+            if (heldMs >= holdBeforeSelectMs)
+            {
+                blankDragMode = BlankDragMode::none;
+                rubberBandActive = true;
+                rubberBandStart = blankDragStartCanvasPos;
+                rubberBandCurrent = e.position;
+                updateSelectionFromRubberBand();
+                repaint();
+                return;
+            }
+
             blankDragMode = BlankDragMode::panning;
             lastPanViewportPos = currentViewportPos;
             setMouseCursor (juce::MouseCursor::DraggingHandCursor);
@@ -232,13 +263,10 @@ namespace GGrid
         blankDragMode = BlankDragMode::none;
 
         if (wasPanning)
-        {
             setMouseCursor (juce::MouseCursor::NormalCursor);
-            return;
-        }
 
-        // Genuine click (never crossed the pan threshold) on blank canvas -- offer to add a node.
-        showAddNodeMenu (e.position.toInt());
+        // A plain left click on blank space (no pan, no select) just deselects -- already done
+        // in mouseDown. Adding a node is a right-click action now (see mouseDown).
     }
 
     void NodeGraphEditor::zoomAroundViewportPoint (float newZoom, juce::Point<float> viewportPoint)
@@ -727,7 +755,6 @@ namespace GGrid
             g.strokePath (buildCablePath (start, end), juce::PathStrokeType (2.0f));
         }
 
-        g.setColour (Palette::modAccent);
         {
             const auto& modMatrix = processor.getModulationMatrix();
             for (int c = 0; c < modMatrix.numModConnections; ++c)
@@ -741,7 +768,29 @@ namespace GGrid
                 const auto start = (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat();
                 const auto end = modTargetPositionFor (toNode, conn.destinationParamId);
 
-                g.strokePath (buildCablePath (start, end), juce::PathStrokeType (2.0f));
+                auto cablePath = buildCablePath (start, end);
+                g.setColour (Palette::modAccent);
+                g.strokePath (cablePath, juce::PathStrokeType (2.0f));
+
+                // A little glowing pulse riding along the cable, positioned by the source LFO's
+                // live depth-scaled output (-1..1, mapped onto the path's 0..1 length) rather
+                // than a free-running clock -- this way its back-and-forth motion visibly tracks
+                // both the LFO's Rate (how fast it travels) and Shape (a square LFO's pulse
+                // snaps between the two ends; a sine's eases) with no separate animation clock to
+                // keep in sync.
+                const float pathLength = cablePath.getLength();
+                if (pathLength > 0.0f)
+                {
+                    const float lfoValue = juce::jlimit (-1.0f, 1.0f, modMatrix.getLfoValue (conn.fromSlot));
+                    const auto pulsePos = cablePath.getPointAlongPath ((lfoValue + 1.0f) * 0.5f * pathLength);
+
+                    g.setColour (Palette::modAccent.withAlpha (0.25f));
+                    g.fillEllipse (juce::Rectangle<float> (18.0f, 18.0f).withCentre (pulsePos));
+                    g.setColour (Palette::modAccent.brighter (0.6f));
+                    g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (pulsePos));
+                    g.setColour (juce::Colours::white);
+                    g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre (pulsePos));
+                }
             }
         }
 

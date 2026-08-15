@@ -6,19 +6,24 @@
 
 namespace GGrid
 {
-    // The patch-bay canvas: click blank space to add a node (Waveshaper/Filter/Delay/Dynamics/
-    // Convolution), drag a node's title bar to reposition it, drag a cable from a node's output
-    // to another node's input to connect them. Click-drag blank space to pan; scroll wheel zooms
-    // toward the cursor. Grab an existing cable (not just a node's output nub) to rewire it
-    // elsewhere, or drop it on blank space to genuinely disconnect it.
+    // The patch-bay canvas: right-click blank space to add a node (Waveshaper/Filter/Delay/
+    // Dynamics/Convolution/...), drag a node's title bar to reposition it, drag a cable from a
+    // node's output to another node's input to connect them. Left-click-drag blank space to pan;
+    // scroll wheel zooms toward the cursor. Grab an existing cable (not just a node's output nub)
+    // to rewire it elsewhere, or drop it on blank space to genuinely disconnect it.
+    //
+    // Pan vs. select on blank space is told apart by how long the button was held before the
+    // first real movement, not by a modifier key: a quick drag pans (the fast/default gesture --
+    // grab and go), while holding briefly first (see holdBeforeSelectMs) starts a rubber-band
+    // select instead -- see the pendingGesture branch in mouseDrag().
     //
     // Selection: click a node's title bar to select just it; shift-click to toggle it in/out of
-    // the current selection; shift-drag blank space for a rubber-band select. Dragging a title
-    // bar that's already part of the selection moves every selected node together, by a shared
-    // delta -- see handleNodeGrabbed/Dragged/Released, which mirror the click-vs-pan threshold
-    // pattern used for blank canvas below (a plain click on an already-selected node collapses
-    // the selection to just that node; a drag preserves the group). Delete/Backspace removes
-    // every selected node.
+    // the current selection; hold-then-drag blank space for a rubber-band select. Dragging a
+    // title bar that's already part of the selection moves every selected node together, by a
+    // shared delta -- see handleNodeGrabbed/Dragged/Released, which mirror the click-vs-pan
+    // threshold pattern used for blank canvas below (a plain click on an already-selected node
+    // collapses the selection to just that node; a drag preserves the group). Delete/Backspace
+    // removes every selected node.
     //
     // Modulation cables: LFO nodes have no audio ports (see NodeComponent::isLfoType) -- instead
     // a single violet modulation-output nub, dragged onto a violet modulation-destination dot on
@@ -180,13 +185,20 @@ namespace GGrid
         // (fresh instance, or the last-added node was since deleted).
         int lastAddedSlot = -1;
 
-        // Blank-canvas gesture state: a plain click adds a node; a drag pans the canvas; a
-        // shift-drag rubber-band selects. Click vs. pan is told apart by a small movement
-        // threshold, checked in the owning Viewport's coordinate space (stable regardless of
-        // zoom) -- see mouseDrag().
-        enum class BlankDragMode { none, pendingClickOrPan, panning };
+        // Blank-canvas gesture state: right-click adds a node (handled entirely within
+        // mouseDown, doesn't touch this state machine); a left-drag pans or rubber-band selects,
+        // decided in mouseDrag() once the movement threshold is crossed -- see
+        // blankDragHoldStartMs/holdBeforeSelectMs.
+        enum class BlankDragMode { none, pendingGesture, panning };
         BlankDragMode blankDragMode = BlankDragMode::none;
         juce::Point<float> dragStartViewportPos, lastPanViewportPos;
+
+        // Canvas-space point the current blank-drag gesture started at, and the wall-clock time
+        // it started -- used only to decide, once movement crosses the threshold, whether this
+        // resolves as a pan (quick) or a rubber-band select (held briefly first). See mouseDrag().
+        juce::Point<float> blankDragStartCanvasPos;
+        double blankDragHoldStartMs = 0.0;
+        static constexpr double holdBeforeSelectMs = 250.0;
 
         bool rubberBandActive = false;
         juce::Point<float> rubberBandStart, rubberBandCurrent;

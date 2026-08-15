@@ -5,29 +5,35 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
 
 ## Features
 
-- **Node-based patch bay** -- click blank canvas space to add a node (Waveshaper/Filter/Delay/
-  Dynamics/Convolution/Utility/Ring Mod/LFO), drag its title bar to reposition, drag a cable from
-  a node's output to another node's input to connect them. Up to 8 nodes, including duplicates of
-  the same type. Each audio node has 2 output nubs and 2 input dots -- enough to split a signal
-  into two parallel chains and sum them back together, not just a single-file chain. A freshly
-  added node auto-chains after whichever node you added right before it, so simple serial patches
-  still "just work" without wiring every node by hand -- explicit rewiring is how you branch off
-  into something parallel. Grab an *existing* cable (not just a node's output) to rewire it
-  elsewhere, or drop it on blank space to genuinely disconnect it. Click-drag blank canvas to pan;
-  scroll to zoom toward the cursor (20%-200%), no modifier needed -- no visible scrollbars, so it
-  reads as an open sandbox rather than a bounded scrollable area. Click a node's title bar to
-  select it, shift-click to add/remove it from the selection, or shift-drag blank canvas to
-  rubber-band select several at once -- drag any selected node to move the whole selection
-  together, and Delete/Backspace removes every selected node.
+- **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
+  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO), drag its title bar to reposition, drag a cable
+  from a node's output to another node's input to connect them. Up to 8 nodes, including
+  duplicates of the same type. Each audio node has 2 output nubs and 2 input dots -- enough to
+  split a signal into two parallel chains and sum them back together, not just a single-file
+  chain. A freshly added node auto-chains after whichever node you added right before it, so
+  simple serial patches still "just work" without wiring every node by hand -- explicit rewiring
+  is how you branch off into something parallel. Grab an *existing* cable (not just a node's
+  output) to rewire it elsewhere, or drop it on blank space to genuinely disconnect it.
+  Left-click-drag blank canvas to pan (a quick grab-and-go); holding briefly before you drag
+  selects instead, opening a rubber band to catch several nodes at once (shift-drag does the same
+  instantly, skipping the hold) -- drag any selected node to move the whole selection together,
+  and Delete/Backspace removes every selected node. Scroll to zoom toward the cursor (20%-200%),
+  no modifier needed -- no visible scrollbars, so it reads as an open sandbox rather than a
+  bounded scrollable area. Click a node's title bar to select it, shift-click to add/remove it
+  from the selection.
 - **Modulation cables** -- LFO nodes have no audio ports at all (they're modulation sources, not
   audio processors) -- just a single violet output nub, dragged onto a matching violet
   modulation-destination dot on **any** continuous knob any other node exposes (essentially every
   knob in the rack, not a fixed handful -- e.g. every Waveshaper knob, not just Drive). A
   genuinely separate cable graph from the orange audio connections, rendered in violet so the two
   are never ambiguous at a glance; grab an existing mod cable to rewire/disconnect it exactly like
-  an audio one. Modulation is additive on top of the knob position, never overwrites it. This
-  generic per-knob system is separate from (and additive with) the fixed 6-destination MIDI Mod
-  Matrix below -- a knob that's a MIDI Mod Matrix destination can be nudged by both at once.
+  an audio one. A glowing pulse rides along each mod cable, positioned by the source LFO's live
+  output rather than a free-running clock, so its back-and-forth motion visibly tracks that LFO's
+  actual Rate and Shape (a Square LFO's pulse snaps between the two ends; a Sine's eases) as it
+  travels toward the module it's modulating. Modulation is additive on top of the knob position,
+  never overwrites it. This generic per-knob system is separate from (and additive with) the fixed
+  6-destination MIDI Mod Matrix below -- a knob that's a MIDI Mod Matrix destination can be nudged
+  by both at once.
 - **Waveshaper/Wavefolder** -- Hard Clip, Soft Clip (tanh/cubic), Foldback Wavefolder, Sine Fold,
   Rectify/Asymmetric, with Drive, Symmetry, Fold Amount, 2x/4x oversampling, Mix, Output, and a
   live transfer-curve preview showing the current shape/symmetry/fold as an actual bent line
