@@ -30,6 +30,19 @@ namespace GGrid
             lastKnownType[(size_t) i] = static_cast<ModuleType> ((int) processor.apvts.getRawParameterValue (slotTypeParamId (i))->load());
         }
 
+        inputNode.onNodeGrabbed  = [this] (const juce::MouseEvent& e) { handleNodeGrabbed (kInputNodeId, e); };
+        inputNode.onNodeDragged  = [this] (const juce::MouseEvent& e) { handleNodeDragged (kInputNodeId, e); };
+        inputNode.onNodeReleased = [this] (const juce::MouseEvent& e) { handleNodeReleased (kInputNodeId, e); };
+        inputNode.onOutputDragStart = [this] (const juce::MouseEvent& e) { handleOutputDragStart (kInputNodeId, e); };
+        inputNode.onOutputDrag      = [this] (const juce::MouseEvent& e) { handleOutputDrag (kInputNodeId, e); };
+        inputNode.onOutputDragEnd   = [this] (const juce::MouseEvent& e) { handleOutputDragEnd (kInputNodeId, e); };
+        addAndMakeVisible (inputNode);
+
+        outputNode.onNodeGrabbed  = [this] (const juce::MouseEvent& e) { handleNodeGrabbed (kOutputNodeId, e); };
+        outputNode.onNodeDragged  = [this] (const juce::MouseEvent& e) { handleNodeDragged (kOutputNodeId, e); };
+        outputNode.onNodeReleased = [this] (const juce::MouseEvent& e) { handleNodeReleased (kOutputNodeId, e); };
+        addAndMakeVisible (outputNode);
+
         refreshLayout();
         startTimerHz (30);
     }
@@ -84,6 +97,23 @@ namespace GGrid
                     node->setBounds ((int) pos.x, (int) pos.y, NodeComponent::preferredWidth, height);
                     anyChanged = true;
                 }
+            }
+        }
+
+        {
+            const auto pos = processor.nodePositions[(size_t) kInputNodeId];
+            if (inputNode.getPosition() != pos.toInt())
+            {
+                inputNode.setBounds ((int) pos.x, (int) pos.y, IONodeComponent::width, IONodeComponent::height);
+                anyChanged = true;
+            }
+        }
+        {
+            const auto pos = processor.nodePositions[(size_t) kOutputNodeId];
+            if (outputNode.getPosition() != pos.toInt())
+            {
+                outputNode.setBounds ((int) pos.x, (int) pos.y, IONodeComponent::width, IONodeComponent::height);
+                anyChanged = true;
             }
         }
 
@@ -419,22 +449,32 @@ namespace GGrid
 
             processor.nodePositions[(size_t) i] = position.toFloat();
 
-            // Detect this None -> `type` change (and reset slot i's connection history, see
-            // GGridAudioProcessor::everConnected) right now, before the auto-chain wiring below
-            // -- otherwise pruneStaleConnectionsForSlot's generic type-change handling would
-            // instead fire during the *next* refreshLayout() tick and wipe out the
-            // everConnected flag the auto-chain connection is about to set.
             refreshLayout();
 
-            // Auto-chain after whatever was added right before this, if it's still around and
-            // has a spare output -- keeps simple serial patches "just working" without the user
-            // having to wire every single node by hand. Explicit rewiring is how you branch off
-            // from that default into something parallel. Never auto-chains an LFO on either end
-            // -- it has no audio ports at all (see LFOModule), so an audio edge to/from one would
-            // just be an invisible, inert connection sitting in the graph.
-            if (lastAddedSlot >= 0 && nodes[(size_t) lastAddedSlot]->isVisible()
-                && ! nodes[(size_t) lastAddedSlot]->isLfoType() && type != ModuleType::lfo)
-                processor.addConnection (lastAddedSlot, i);
+            // Auto-wire into the signal path so simple serial patches "just work" without hand-
+            // wiring Input -> ... -> Output yourself every time. Never wires an LFO on either end
+            // -- it has no audio ports at all (see LFOModule). A brand-new chain (nothing to
+            // splice into) runs straight Input -> node -> Output; otherwise the new node splices
+            // in after whatever was added right before it, taking over as the new end of the
+            // chain (pushing that node's Output connection onto this one instead) -- explicit
+            // rewiring is how you diverge from that default into something parallel.
+            if (type != ModuleType::lfo)
+            {
+                const bool hasChainToExtend = lastAddedSlot >= 0 && nodes[(size_t) lastAddedSlot]->isVisible()
+                                               && ! nodes[(size_t) lastAddedSlot]->isLfoType();
+
+                if (hasChainToExtend)
+                {
+                    processor.removeConnection (lastAddedSlot, kOutputNodeId);
+                    processor.addConnection (lastAddedSlot, i);
+                }
+                else
+                {
+                    processor.addConnection (kInputNodeId, i);
+                }
+
+                processor.addConnection (i, kOutputNodeId);
+            }
             lastAddedSlot = i;
 
             refreshLayout();
@@ -481,12 +521,6 @@ namespace GGrid
         // valid for the new type -- rewiring is a small ask, a silently-wrong modulation target
         // is not.
         processor.getModulationMatrix().removeAllModConnectionsForSlot (slotIndex);
-
-        // A retyped slot is a structurally new module -- it shouldn't inherit its predecessor's
-        // "was once connected, so a fully disconnected state now means silent" history (see
-        // GGridAudioProcessor::everConnected), or the freshly chosen module would incorrectly
-        // start out silent instead of working standalone.
-        processor.resetEverConnected (slotIndex);
     }
 
     bool NodeGraphEditor::hasSelection() const
@@ -496,44 +530,58 @@ namespace GGrid
         return false;
     }
 
+    void NodeGraphEditor::setNodeSelected (int nodeId, bool shouldBeSelected)
+    {
+        if (nodeId == kInputNodeId) inputNode.setSelected (shouldBeSelected);
+        else if (nodeId == kOutputNodeId) outputNode.setSelected (shouldBeSelected);
+        else nodes[(size_t) nodeId]->setSelected (shouldBeSelected);
+    }
+
+    juce::Component& NodeGraphEditor::componentForNode (int nodeId)
+    {
+        if (nodeId == kInputNodeId) return inputNode;
+        if (nodeId == kOutputNodeId) return outputNode;
+        return *nodes[(size_t) nodeId];
+    }
+
     void NodeGraphEditor::clearSelection()
     {
-        for (int i = 0; i < kMaxSlots; ++i)
+        for (int i = 0; i < kNumGraphNodes; ++i)
         {
             if (selected[(size_t) i])
             {
                 selected[(size_t) i] = false;
-                nodes[(size_t) i]->setSelected (false);
+                setNodeSelected (i, false);
             }
         }
     }
 
-    void NodeGraphEditor::setSelectionToSingle (int slotIndex)
+    void NodeGraphEditor::setSelectionToSingle (int nodeId)
     {
         clearSelection();
-        selected[(size_t) slotIndex] = true;
-        nodes[(size_t) slotIndex]->setSelected (true);
+        selected[(size_t) nodeId] = true;
+        setNodeSelected (nodeId, true);
     }
 
-    void NodeGraphEditor::toggleSelection (int slotIndex)
+    void NodeGraphEditor::toggleSelection (int nodeId)
     {
-        selected[(size_t) slotIndex] = ! selected[(size_t) slotIndex];
-        nodes[(size_t) slotIndex]->setSelected (selected[(size_t) slotIndex]);
+        selected[(size_t) nodeId] = ! selected[(size_t) nodeId];
+        setNodeSelected (nodeId, selected[(size_t) nodeId]);
     }
 
     void NodeGraphEditor::updateSelectionFromRubberBand()
     {
         const juce::Rectangle<float> band (rubberBandStart, rubberBandCurrent);
 
-        for (int i = 0; i < kMaxSlots; ++i)
+        for (int i = 0; i < kNumGraphNodes; ++i)
         {
-            auto* node = nodes[(size_t) i].get();
-            const bool shouldBeSelected = node->isVisible() && band.intersects (node->getBounds().toFloat());
+            auto& comp = componentForNode (i);
+            const bool shouldBeSelected = comp.isVisible() && band.intersects (comp.getBounds().toFloat());
 
             if (selected[(size_t) i] != shouldBeSelected)
             {
                 selected[(size_t) i] = shouldBeSelected;
-                node->setSelected (shouldBeSelected);
+                setNodeSelected (i, shouldBeSelected);
             }
         }
     }
@@ -579,7 +627,7 @@ namespace GGrid
         nodeDragStartCanvasPos = e.getEventRelativeTo (this).position;
         nodeDragStartViewportPos = getViewportRelativePosition (e);
 
-        for (int i = 0; i < kMaxSlots; ++i)
+        for (int i = 0; i < kNumGraphNodes; ++i)
             if (selected[(size_t) i])
                 nodeDragStartPositions[(size_t) i] = processor.nodePositions[(size_t) i];
 
@@ -603,7 +651,7 @@ namespace GGrid
 
         const auto delta = e.getEventRelativeTo (this).position - nodeDragStartCanvasPos;
 
-        for (int i = 0; i < kMaxSlots; ++i)
+        for (int i = 0; i < kNumGraphNodes; ++i)
             if (selected[(size_t) i])
                 processor.nodePositions[(size_t) i] = nodeDragStartPositions[(size_t) i] + delta;
 
@@ -626,7 +674,9 @@ namespace GGrid
     void NodeGraphEditor::handleOutputDragStart (int slotIndex, const juce::MouseEvent& e)
     {
         isDraggingCable = true;
-        isDraggingModCable = nodes[(size_t) slotIndex]->isLfoType();
+        // Input's output nub is a plain audio-cable source, never a modulation source -- only a
+        // real LFO slot (always < kMaxSlots) can start a mod cable.
+        isDraggingModCable = (slotIndex < kMaxSlots) && nodes[(size_t) slotIndex]->isLfoType();
         cableDragSourceSlot = slotIndex;
         cableDragCurrentPos = e.getEventRelativeTo (this).position;
         repaint();
@@ -667,17 +717,21 @@ namespace GGrid
     {
         for (int i = 0; i < kMaxSlots; ++i)
         {
-            auto* candidate = nodes[(size_t) i].get();
-            if (i == excludeSlot || ! candidate->isVisible())
+            if (i == excludeSlot || ! nodes[(size_t) i]->isVisible())
                 continue;
 
-            for (int port = 0; port < 2; ++port)
-            {
-                const auto inputPos = (candidate->getPosition() + candidate->getInputConnectorPosition (port)).toFloat();
-                if (inputPos.getDistanceFrom (canvasPoint) < 20.0f)
+            for (int port = 0; port < kMaxPortsPerSide; ++port)
+                if (inputPortCanvasPos (i, port).getDistanceFrom (canvasPoint) < 20.0f)
                     return i;
-            }
         }
+
+        // Output has input ports too (it's the only place a chain can actually terminate) --
+        // Input never does (see GGridAudioProcessor::canAddConnection), so it's not checked here.
+        if (excludeSlot != kOutputNodeId)
+            for (int port = 0; port < kMaxPortsPerSide; ++port)
+                if (inputPortCanvasPos (kOutputNodeId, port).getDistanceFrom (canvasPoint) < 20.0f)
+                    return kOutputNodeId;
+
         return -1;
     }
 
@@ -751,7 +805,7 @@ namespace GGrid
         for (int i = 0; i < connectionIndex; ++i)
             if (processor.connections[(size_t) i].from == fromSlot)
                 ++ordinal;
-        return juce::jmin (ordinal, 1);
+        return juce::jmin (ordinal, kMaxPortsPerSide - 1);
     }
 
     int NodeGraphEditor::inputPortIndexForConnection (int connectionIndex) const
@@ -761,7 +815,28 @@ namespace GGrid
         for (int i = 0; i < connectionIndex; ++i)
             if (processor.connections[(size_t) i].to == toSlot)
                 ++ordinal;
-        return juce::jmin (ordinal, 1);
+        return juce::jmin (ordinal, kMaxPortsPerSide - 1);
+    }
+
+    bool NodeGraphEditor::nodeExistsAndVisible (int nodeId) const
+    {
+        if (nodeId == kInputNodeId || nodeId == kOutputNodeId)
+            return true;
+        return nodes[(size_t) nodeId]->isVisible();
+    }
+
+    juce::Point<float> NodeGraphEditor::outputPortCanvasPos (int nodeId, int port) const
+    {
+        if (nodeId == kInputNodeId)
+            return (inputNode.getPosition() + inputNode.getPortPosition (port)).toFloat();
+        return (nodes[(size_t) nodeId]->getPosition() + nodes[(size_t) nodeId]->getOutputConnectorPosition (port)).toFloat();
+    }
+
+    juce::Point<float> NodeGraphEditor::inputPortCanvasPos (int nodeId, int port) const
+    {
+        if (nodeId == kOutputNodeId)
+            return (outputNode.getPosition() + outputNode.getPortPosition (port)).toFloat();
+        return (nodes[(size_t) nodeId]->getPosition() + nodes[(size_t) nodeId]->getInputConnectorPosition (port)).toFloat();
     }
 
     bool NodeGraphEditor::hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot) const
@@ -769,13 +844,11 @@ namespace GGrid
         for (int c = 0; c < processor.numConnections; ++c)
         {
             const auto& conn = processor.connections[(size_t) c];
-            auto* fromNode = nodes[(size_t) conn.from].get();
-            auto* toNode = nodes[(size_t) conn.to].get();
-            if (! fromNode->isVisible() || ! toNode->isVisible())
+            if (! nodeExistsAndVisible (conn.from) || ! nodeExistsAndVisible (conn.to))
                 continue;
 
-            const auto start = (fromNode->getPosition() + fromNode->getOutputConnectorPosition (outputPortIndexForConnection (c))).toFloat();
-            const auto end = (toNode->getPosition() + toNode->getInputConnectorPosition (inputPortIndexForConnection (c))).toFloat();
+            const auto start = outputPortCanvasPos (conn.from, outputPortIndexForConnection (c));
+            const auto end = inputPortCanvasPos (conn.to, inputPortIndexForConnection (c));
 
             auto cablePath = buildCablePath (start, end);
             juce::Path strokedPath;
@@ -827,13 +900,11 @@ namespace GGrid
         for (int c = 0; c < processor.numConnections; ++c)
         {
             const auto& conn = processor.connections[(size_t) c];
-            auto* fromNode = nodes[(size_t) conn.from].get();
-            auto* toNode = nodes[(size_t) conn.to].get();
-            if (! fromNode->isVisible() || ! toNode->isVisible())
+            if (! nodeExistsAndVisible (conn.from) || ! nodeExistsAndVisible (conn.to))
                 continue;
 
-            const auto start = (fromNode->getPosition() + fromNode->getOutputConnectorPosition (outputPortIndexForConnection (c))).toFloat();
-            const auto end = (toNode->getPosition() + toNode->getInputConnectorPosition (inputPortIndexForConnection (c))).toFloat();
+            const auto start = outputPortCanvasPos (conn.from, outputPortIndexForConnection (c));
+            const auto end = inputPortCanvasPos (conn.to, inputPortIndexForConnection (c));
 
             g.strokePath (buildCablePath (start, end), juce::PathStrokeType (2.0f));
         }
@@ -879,10 +950,11 @@ namespace GGrid
 
         if (isDraggingCable && cableDragSourceSlot >= 0)
         {
-            auto* fromNode = nodes[(size_t) cableDragSourceSlot].get();
+            // isDraggingModCable is only ever true for a real LFO slot (always < kMaxSlots) --
+            // Input is never a modulation source, so indexing `nodes[]` in that branch is safe.
             const auto start = isDraggingModCable
-                ? (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat()
-                : (fromNode->getPosition() + fromNode->getOutputConnectorPosition (juce::jmin (processor.getOutDegree (cableDragSourceSlot), 1))).toFloat();
+                ? (nodes[(size_t) cableDragSourceSlot]->getPosition() + nodes[(size_t) cableDragSourceSlot]->getModOutputPosition()).toFloat()
+                : outputPortCanvasPos (cableDragSourceSlot, juce::jmin (processor.getOutDegree (cableDragSourceSlot), kMaxPortsPerSide - 1));
 
             g.setColour (isDraggingModCable ? Palette::modAccent : Palette::bright);
             g.strokePath (buildCablePath (start, cableDragCurrentPos), juce::PathStrokeType (1.5f));

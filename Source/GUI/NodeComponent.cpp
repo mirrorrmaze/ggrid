@@ -1,5 +1,6 @@
 #include "NodeComponent.h"
 #include "GGridLookAndFeel.h"
+#include "../Rack/ConnectionGraph.h"
 
 namespace GGrid
 {
@@ -32,8 +33,10 @@ namespace GGrid
         deleteButton.onClick = [this] { if (onDeleteRequested) onDeleteRequested (slotIndex); };
         addAndMakeVisible (deleteButton);
 
-        addAndMakeVisible (outputNubTop);
-        addAndMakeVisible (outputNubBottom);
+        addAndMakeVisible (outputNub0);
+        addAndMakeVisible (outputNub1);
+        addAndMakeVisible (outputNub2);
+        addAndMakeVisible (outputNub3);
         addAndMakeVisible (modOutputNub);
 
         typeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
@@ -117,12 +120,12 @@ namespace GGrid
 
     juce::Point<int> NodeComponent::getInputConnectorPosition (int portIndex) const
     {
-        return { 0, getHeight() * (portIndex == 0 ? 1 : 2) / 3 };
+        return { 0, getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
     juce::Point<int> NodeComponent::getOutputConnectorPosition (int portIndex) const
     {
-        return { getWidth(), getHeight() * (portIndex == 0 ? 1 : 2) / 3 };
+        return { getWidth(), getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
     bool NodeComponent::isLfoType() const
@@ -227,8 +230,8 @@ namespace GGrid
         if (! isLfoType())
         {
             g.setColour (Palette::accent);
-            g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (0).toFloat()));
-            g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (1).toFloat()));
+            for (int port = 0; port < kMaxPortsPerSide; ++port)
+                g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (port).toFloat()));
         }
 
         const int modTargetCount = getModTargetCount();
@@ -277,12 +280,18 @@ namespace GGrid
         eq3Panel->setBounds (contentArea);
 
         const bool lfo = isLfoType();
-        outputNubTop.setVisible (! lfo);
-        outputNubBottom.setVisible (! lfo);
+        outputNub0.setVisible (! lfo);
+        outputNub1.setVisible (! lfo);
+        outputNub2.setVisible (! lfo);
+        outputNub3.setVisible (! lfo);
         modOutputNub.setVisible (lfo);
 
-        outputNubTop.setBounds (getWidth() - 8, getHeight() / 3 - 8, 16, 16);
-        outputNubBottom.setBounds (getWidth() - 8, (getHeight() * 2) / 3 - 8, 16, 16);
+        OutputNub* outputNubs[kMaxPortsPerSide] = { &outputNub0, &outputNub1, &outputNub2, &outputNub3 };
+        for (int port = 0; port < kMaxPortsPerSide; ++port)
+        {
+            const auto pos = getOutputConnectorPosition (port);
+            outputNubs[port]->setBounds (pos.x - 8, pos.y - 8, 16, 16);
+        }
         modOutputNub.setBounds (getWidth() - 8, getHeight() / 2 - 8, 16, 16);
     }
 }

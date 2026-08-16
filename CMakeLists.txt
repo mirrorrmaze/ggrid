@@ -53,6 +53,7 @@ target_sources(GGrid
         Source/IR/IRReshapeWorker.cpp
         Source/GUI/ModuleControlPanels.cpp
         Source/GUI/NodeComponent.cpp
+        Source/GUI/IONodeComponent.cpp
         Source/GUI/NodeGraphEditor.cpp
         Source/GUI/MasterControlsPanel.cpp
         Source/GUI/GGridLookAndFeel.cpp

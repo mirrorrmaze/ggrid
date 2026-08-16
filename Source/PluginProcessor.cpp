@@ -15,8 +15,14 @@ namespace GGrid
         for (int i = 0; i < kMaxSlots; ++i)
         {
             slots[(size_t) i] = std::make_unique<RackSlot> (apvts, i, sharedServices);
-            nodePositions[(size_t) i] = { 40.0f + (float) i * 30.0f, 40.0f + (float) i * 30.0f };
+            nodePositions[(size_t) i] = { 260.0f + (float) i * 30.0f, 40.0f + (float) i * 30.0f };
         }
+
+        // Fixed pseudo-nodes: Input sits to the left of where the module cascade starts, Output
+        // well to the right -- clear of the default module cascade above, but freely draggable
+        // like any other node afterward.
+        nodePositions[(size_t) kInputNodeId] = { 40.0f, 260.0f };
+        nodePositions[(size_t) kOutputNodeId] = { 1100.0f, 260.0f };
 
         limiterEnabledParam = apvts.getRawParameterValue (masterLimiterEnabledParamId());
         limiterCeilingParam = apvts.getRawParameterValue (masterLimiterCeilingParamId());
@@ -53,7 +59,6 @@ namespace GGrid
 
         for (auto& nodeBuffer : nodeBuffers)
             nodeBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
-        rawInputCopy.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
         lfoScratchBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
 
         outputScope.clear();
@@ -89,30 +94,19 @@ namespace GGrid
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
 
-        std::array<bool, kMaxSlots> active {};
-        bool anyActive = false;
+        std::array<bool, kNumGraphNodes> active {};
         for (int i = 0; i < kMaxSlots; ++i)
         {
             const auto type = slots[(size_t) i]->getActiveType();
             // LFO slots are excluded from the audio graph entirely -- they're modulation
-            // sources, not audio processors (see LFOModule's class comment). Including them
-            // here would make every unconnected LFO node silently inject an extra copy of the
-            // dry signal into the mix, since a disconnected node is otherwise its own root+sink.
-            const bool hasType = (type != ModuleType::none) && (type != ModuleType::lfo);
-
-            // A node with zero audio connections normally still runs as a standalone
-            // chain-of-one (its own root, fed the raw input; its own sink, feeding the master
-            // mix) -- the mechanism that lets a freshly dropped node "just work" without wiring
-            // anything. But a node that WAS part of a patch and has since been fully
-            // disconnected means the opposite: it was deliberately taken out of the signal path
-            // and should go silent, not quietly keep processing as an orphaned parallel path
-            // with no cable showing it's still live. everConnected (set in addConnection,
-            // cleared on any type change) is what tells these two zero-connection cases apart.
-            const bool isOrphaned = everConnected[(size_t) i] && getInDegree (i) == 0 && getOutDegree (i) == 0;
-
-            active[(size_t) i] = hasType && ! isOrphaned;
-            anyActive |= active[(size_t) i];
+            // sources, not audio processors (see LFOModule's class comment).
+            active[(size_t) i] = (type != ModuleType::none) && (type != ModuleType::lfo);
         }
+        // Input/Output are always present -- Input is the sole root (seeded with raw dry input
+        // every block regardless of what's patched into it) and Output the sole sink. A regular
+        // module only actually runs if a path connects it to Input; nothing implicit anymore.
+        active[(size_t) kInputNodeId] = true;
+        active[(size_t) kOutputNodeId] = true;
 
         // Tick every active LFO slot once per block, before the graph below runs, so every
         // modulation destination reads a fresh value this block regardless of where an LFO would
@@ -132,19 +126,10 @@ namespace GGrid
                 modulationMatrix.setLfoValue (i, lfo->getCurrentValue());
         }
 
-        if (anyActive)
         {
             const auto graph = buildProcessingOrder (connections, numConnections, active);
 
-            // Root nodes (no active predecessor) get a copy of the plugin's raw dry input; every
-            // other node's buffer is built purely by summing its predecessors' outputs, which
-            // the topological order guarantees have already run by the time this node's turn
-            // comes up.
-            rawInputCopy.setSize (numChannels, numSamples, false, false, true);
-            for (int ch = 0; ch < numChannels; ++ch)
-                rawInputCopy.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-
-            for (int i = 0; i < kMaxSlots; ++i)
+            for (int i = 0; i < kNumGraphNodes; ++i)
             {
                 if (! active[(size_t) i]) continue;
                 nodeBuffers[(size_t) i].setSize (numChannels, numSamples, false, false, true);
@@ -155,34 +140,40 @@ namespace GGrid
             {
                 const int i = graph.order[(size_t) idx];
 
-                if (graph.isRoot[(size_t) i])
+                if (i == kInputNodeId)
                 {
+                    // Input is the sole root -- seeded with the plugin's raw dry input every
+                    // block regardless of what's patched into it.
                     for (int ch = 0; ch < numChannels; ++ch)
-                        nodeBuffers[(size_t) i].copyFrom (ch, 0, rawInputCopy, ch, 0, numSamples);
+                        nodeBuffers[(size_t) i].copyFrom (ch, 0, buffer, ch, 0, numSamples);
+                    continue;
                 }
-                else
-                {
-                    for (int c = 0; c < numConnections; ++c)
-                    {
-                        const auto& conn = connections[(size_t) c];
-                        if (conn.to != i || ! active[(size_t) conn.from]) continue;
 
-                        for (int ch = 0; ch < numChannels; ++ch)
-                            nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conn.from], ch, 0, numSamples);
-                    }
+                // Every other node's buffer (including Output) is built purely by summing its
+                // predecessors' outputs, which the topological order guarantees have already run
+                // by the time this node's turn comes up.
+                for (int c = 0; c < numConnections; ++c)
+                {
+                    const auto& conn = connections[(size_t) c];
+                    if (conn.to != i || ! active[(size_t) conn.from]) continue;
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conn.from], ch, 0, numSamples);
                 }
+
+                if (i == kOutputNodeId)
+                    continue; // Output only collects -- it has no DSP module of its own to run.
 
                 juce::dsp::AudioBlock<float> nodeBlock (nodeBuffers[(size_t) i]);
                 slots[(size_t) i]->process (nodeBlock, midiMessages, modulationMatrix);
             }
 
-            // Sink nodes (no active successor) sum into the final mix -- a DAG always has at
-            // least one, so this can't silently drop the whole signal in normal use.
+            // Output is the sole sink -- whatever reached it is the final mix. If nothing's
+            // patched through to it, its buffer stays cleared above and the plugin goes silent,
+            // matching Bitwig Grid's fully-explicit-patching model.
             buffer.clear();
-            for (int i = 0; i < kMaxSlots; ++i)
-                if (graph.isSink[(size_t) i])
-                    for (int ch = 0; ch < numChannels; ++ch)
-                        buffer.addFrom (ch, 0, nodeBuffers[(size_t) i], ch, 0, numSamples);
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.addFrom (ch, 0, nodeBuffers[(size_t) kOutputNodeId], ch, 0, numSamples);
         }
 
         juce::dsp::AudioBlock<float> block (buffer);
@@ -231,17 +222,17 @@ namespace GGrid
         xml.setAttribute ("modConnections", modConnectionTokens.joinIntoString (","));
 
         juce::StringArray positionTokens;
-        for (int i = 0; i < kMaxSlots; ++i)
+        for (int i = 0; i < kNumGraphNodes; ++i)
         {
             positionTokens.add (juce::String (nodePositions[(size_t) i].x));
             positionTokens.add (juce::String (nodePositions[(size_t) i].y));
         }
         xml.setAttribute ("nodePositions", positionTokens.joinIntoString (","));
 
-        juce::StringArray everConnectedTokens;
-        for (int i = 0; i < kMaxSlots; ++i)
-            everConnectedTokens.add (everConnected[(size_t) i] ? "1" : "0");
-        xml.setAttribute ("everConnected", everConnectedTokens.joinIntoString (","));
+        // Marks this save as using the dedicated Input/Output pseudo-node model -- its absence on
+        // load (see setStateInformation) identifies a save from before that model existed, so its
+        // connections can be migrated rather than silently going mute.
+        xml.setAttribute ("ioNodesVersion", 1);
 
         copyXmlToBinary (xml, destData);
     }
@@ -276,16 +267,37 @@ namespace GGrid
         }
 
         auto positionTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("nodePositions"), ",", "");
-        if (positionTokens.size() == kMaxSlots * 2)
-            for (int i = 0; i < kMaxSlots; ++i)
+        if (positionTokens.size() == kNumGraphNodes * 2)
+            for (int i = 0; i < kNumGraphNodes; ++i)
                 nodePositions[(size_t) i] = { positionTokens[i * 2].getFloatValue(), positionTokens[i * 2 + 1].getFloatValue() };
 
-        // Missing (older save, before this attribute existed) defaults every slot to false --
-        // the same "never connected" standalone treatment those saves already relied on for any
-        // zero-degree node, so old projects keep behaving exactly as they did before.
-        auto everConnectedTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("everConnected"), ",", "");
-        for (int i = 0; i < kMaxSlots; ++i)
-            everConnected[(size_t) i] = (i < everConnectedTokens.size()) && everConnectedTokens[i] == "1";
+        // Legacy migration: a save from before dedicated Input/Output pseudo-nodes existed has
+        // connections only among slots 0..7, under the old implicit-root/implicit-sink convention
+        // (a slot with no incoming edges got the raw input; a slot with no outgoing edges fed the
+        // master mix). Under the new model NOTHING reaches Output unless explicitly wired to it,
+        // so loading such a save as-is would go completely silent -- detected via the absence of
+        // the "ioNodesVersion" marker (see getStateInformation), synthesize the equivalent
+        // explicit Input/Output wiring once, matching what the old implicit behaviour actually did.
+        if (! xml->hasAttribute ("ioNodesVersion"))
+        {
+            const int loadedConnectionCount = numConnections;
+            for (int i = 0; i < kMaxSlots; ++i)
+            {
+                const auto type = static_cast<ModuleType> ((int) apvts.getRawParameterValue (slotTypeParamId (i))->load());
+                if (type == ModuleType::none || type == ModuleType::lfo)
+                    continue;
+
+                bool hasIncoming = false, hasOutgoing = false;
+                for (int c = 0; c < loadedConnectionCount; ++c)
+                {
+                    if (connections[(size_t) c].to == i) hasIncoming = true;
+                    if (connections[(size_t) c].from == i) hasOutgoing = true;
+                }
+
+                if (! hasIncoming) addConnection (kInputNodeId, i);
+                if (! hasOutgoing) addConnection (i, kOutputNodeId);
+            }
+        }
     }
 }
 

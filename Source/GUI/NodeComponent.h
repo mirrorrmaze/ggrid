@@ -35,8 +35,8 @@ namespace GGrid
         int getPreferredHeight() const;
         static constexpr int preferredWidth = 380;
 
-        // Each node has 2 input dots and 2 output nubs (portIndex 0/1) -- capacity for 2 parallel
-        // connections per side, not functionally distinct ports; which physical dot a given cable
+        // Each node has up to kMaxPortsPerSide (4) input dots and 4 output nubs, evenly spaced
+        // down each edge -- not functionally distinct ports; which physical dot a given cable
         // lands on is purely which ordinal connection it is (see NodeGraphEditor's port-counting
         // when drawing/hit-testing), not something the engine cares about. LFO nodes don't
         // participate in the audio graph at all (see LFOModule's class comment) and hide these
@@ -113,7 +113,8 @@ namespace GGrid
         juce::ComboBox typeBox;
         juce::ToggleButton bypassButton { "Bypass" };
         juce::TextButton deleteButton { "X" };
-        OutputNub outputNubTop { *this, false }, outputNubBottom { *this, false };
+        OutputNub outputNub0 { *this, false }, outputNub1 { *this, false },
+                  outputNub2 { *this, false }, outputNub3 { *this, false };
         OutputNub modOutputNub { *this, true };
 
         // Top-left of wherever the active control panel is placed within this component -- lets

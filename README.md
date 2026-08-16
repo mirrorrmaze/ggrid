@@ -5,20 +5,23 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
 
 ## Features
 
-- **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
-  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/EQ 3), drag its title
-  bar to reposition, drag a cable from a node's output to another node's input to connect them. Up
-  to 8 nodes, including duplicates of the same type. Each audio node has 2 output nubs and 2 input
-  dots -- enough to split a signal into two parallel chains and sum them back together, not just a
-  single-file chain. A freshly added node auto-chains after whichever node you added right before
-  it, so simple serial patches still "just work" without wiring every node by hand -- explicit
-  rewiring is how you branch off into something parallel. Grab an *existing* cable (not just a
-  node's output) to rewire it elsewhere, or drop it on blank space to genuinely disconnect it --
-  a node that's had every connection removed goes silent (out of the signal path entirely), not a
-  free-running unpatched copy of the dry signal still bleeding into the mix. A brand-new node
-  that's never been wired at all is the one exception: it still works standalone as a
-  chain-of-one, the same convenience that's always let a freshly dropped single module "just work."
-  Left-click-drag blank canvas to pan (a quick grab-and-go); holding briefly before you drag
+- **Node-based patch bay** -- two fixed nodes, Input and Output, are always present and can't be
+  deleted: Input is the plugin's raw dry signal (output ports only), Output is the final mix
+  (input ports only), Bitwig-Grid-style. Right-click blank canvas space to add a node (Waveshaper/
+  Filter/Delay/Dynamics/Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/EQ 3), drag its
+  title bar to reposition, drag a cable from a node's output to another node's input to connect
+  them. Up to 8 modules alongside the fixed Input/Output pair, including duplicates of the same
+  type. Each audio node has 4 output nubs and 4 input dots -- enough to split a signal into several
+  parallel chains and sum them back together (e.g. three outs into Low/Mid/Hi EQ bands processed
+  individually), not just a single-file chain. A freshly added node splices in after whichever node
+  you added right before it -- pushing that node's connection to Output onto the new one instead --
+  so simple serial patches still "just work," always running from Input through to Output, without
+  wiring every node by hand; explicit rewiring is how you branch off into something parallel. Grab
+  an *existing* cable (not just a node's output) to rewire it elsewhere, or drop it on blank space
+  to genuinely disconnect it. Nothing reaches the speakers unless it's patched all the way from
+  Input to Output -- a node with no path between them (including one that's had every connection
+  removed) does nothing, full stop; there's no implicit per-node dry-through the way there used to
+  be. Left-click-drag blank canvas to pan (a quick grab-and-go); holding briefly before you drag
   selects instead, opening a rubber band to catch several nodes at once (shift-drag does the same
   instantly, skipping the hold) -- drag any selected node to move the whole selection together,
   and Delete/Backspace removes every selected node. Two-finger/wheel scroll pans in whichever
@@ -191,30 +194,35 @@ Installer/                             Inno Setup installer script
 
 ## Architecture notes
 
-- **Routing = flexible rack with a separate connection graph.** Each slot has stable APVTS
-  parameter IDs (`slot{n}_moduleType`, `slot{n}_bypass`, `slot{n}_{moduleType}_{param}`) that
-  never move. What the canvas edits is a separate, non-automated list of directed edges
-  (`GGridAudioProcessor::connections`, `Source/Rack/ConnectionGraph.h`) persisted alongside the
-  APVTS state -- this is what lets slots be freely wired/duplicated/branched without fighting
-  JUCE's static-parameter-layout requirement or breaking automation/preset recall. Each slot
-  allows at most 2 outgoing and 2 incoming edges (matching each node's 2 output nubs / 2 input
-  dots) -- enough for parallel chains and merges without a general N-port model. A slot with no
-  active predecessor is a root and gets the plugin's raw dry input; a slot with no active
-  successor is a sink and its output sums into the final mix; `processBlock` computes a
-  topological order (`buildProcessingOrder`, Kahn's algorithm) each block and processes every
-  active slot exactly once in dependency order, pulling the sum of each slot's predecessor
-  outputs before running it. New connections are rejected at add-time if they'd exceed capacity,
-  duplicate an existing edge, or create a cycle (`GGridAudioProcessor::canAddConnection`) --
+- **Routing = flexible rack with a separate connection graph, anchored by dedicated Input/Output
+  pseudo-nodes.** Each slot has stable APVTS parameter IDs (`slot{n}_moduleType`, `slot{n}_bypass`,
+  `slot{n}_{moduleType}_{param}`) that never move. What the canvas edits is a separate,
+  non-automated list of directed edges (`GGridAudioProcessor::connections`,
+  `Source/Rack/ConnectionGraph.h`) persisted alongside the APVTS state -- this is what lets slots
+  be freely wired/duplicated/branched without fighting JUCE's static-parameter-layout requirement
+  or breaking automation/preset recall. Graph nodes are the 8 module slots plus two fixed IDs,
+  `kInputNodeId`/`kOutputNodeId`, representing the plugin's raw dry input and the final mix --
+  always present, never deletable, never retypeable. Each node allows at most `kMaxPortsPerSide`
+  (4) outgoing and 4 incoming edges (matching each node's 4 output nubs / 4 input dots) -- enough
+  for real parallel-processing patches without a general N-port model. Input is the *only* root
+  (seeded with the plugin's raw dry input every block, regardless of what's patched into it) and
+  Output is the *only* sink (its summed input is the final mix) -- a regular module is never an
+  implicit root or sink the way slots used to be; if it has no path from Input it simply doesn't
+  run, matching Bitwig Grid's fully-explicit patching model. `processBlock` computes a topological
+  order (`buildProcessingOrder`, Kahn's algorithm anchored at Input, with a separate reachability
+  pass so a node genuinely unpatched from Input is excluded even by the defensive cycle fallback)
+  each block and processes every reachable node exactly once in dependency order, pulling the sum
+  of each node's predecessor outputs before running it. New connections are rejected at add-time
+  if they'd exceed capacity, duplicate an existing edge, create a cycle
+  (`GGridAudioProcessor::canAddConnection`), point *into* Input, or point *out of* Output --
   block-based processing has no notion of a same-block feedback loop, so the graph must stay
   acyclic.
-- **A slot with zero connections is only a root+sink pass-through if it's never been connected.**
-  `active[i]` in `processBlock` also checks `GGridAudioProcessor::everConnected[i]` -- a node that
-  WAS wired and is now fully disconnected is excluded from the graph entirely (silent) rather than
-  defaulting back to root+sink, which would otherwise make it a free-running unpatched parallel
-  path invisibly summing its processed output into the mix, indistinguishable at a glance from
-  actually being removed from the signal path. `everConnected` is set in `addConnection` and
-  cleared via `resetEverConnected()` on any type change (`NodeGraphEditor::
-  pruneStaleConnectionsForSlot`), persisted alongside `connections`/`nodePositions`.
+- **Loading a save from before Input/Output existed migrates it automatically.** Detected via a
+  missing `ioNodesVersion` XML attribute in `setStateInformation` -- for every populated slot with
+  no incoming edges under the old implicit-root convention, an `Input -> slot` edge is synthesized;
+  for every slot with no outgoing edges (the old implicit-sink convention), a `slot -> Output` edge
+  is synthesized. This reproduces the old implicit behavior explicitly, once, so an existing
+  in-progress patch doesn't go silent just from opening it in a newer build.
 - **Modulation is additive**, applied at the point of use inside each destination module, never
   by overwriting the APVTS parameter -- the knob position is always the base value.
 - **Two parallel modulation mechanisms coexist by design.** The original enum-keyed
@@ -255,11 +263,10 @@ Installer/                             Inno Setup installer script
   mouseDown, not mouseUp) -- both "rewire" and "drag fresh from an output" then look identical
   from mouseUp onward: add the new edge if a valid target was found, otherwise there's nothing
   left to do.
-- **"Unplugging" a cable now genuinely disconnects it** -- with a real graph underneath instead
-  of a single ordered list, dropping a grabbed cable on blank space just removes that edge; a
-  node with no connections at all still processes (it becomes its own root and sink, taking the
-  dry input straight to the mix), it just isn't chained to anything else. Use a node's own Bypass
-  toggle if you want it silent instead.
+- **"Unplugging" a cable now genuinely disconnects it** -- dropping a grabbed cable on blank space
+  just removes that edge; a node with no path from Input simply doesn't run at all (see above),
+  it isn't an implicit standalone pass-through the way a slot used to be. Use a node's own Bypass
+  toggle instead if you want a *patched* node silent without removing it from the chain.
 - **Pan/zoom is a Component transform on `NodeGraphEditor` inside a Viewport with scrollbars
   hidden**, not a from-scratch camera system. Zoom (`setTransform(scale(zoom))`) pivots around a
   chosen point by solving for the Viewport scroll position that keeps that canvas point fixed on
@@ -271,15 +278,10 @@ Installer/                             Inno Setup installer script
 
 - GUI aesthetics are still fairly plain (flat SPANDEX styling, no custom skin/textures) -- the
   node-based interaction model is done, but it hasn't had a visual polish pass.
-- Each node caps out at 2 outgoing and 2 incoming connections, and the graph must stay acyclic --
+- Each node caps out at 4 outgoing and 4 incoming connections, and the graph must stay acyclic --
   no true feedback loop *across* nodes (a node's own internal feedback, like Delay's, is
-  unaffected). This covers standard parallel-chain/group patching but not an arbitrary N-port
-  modular grid.
-- **Upgrading from a build before this routing rewrite will lose an existing project's wiring.**
-  The old `chainOrder` save format was replaced with the new `connections` graph rather than
-  migrated (this is still unreleased/actively-iterated software, so there are no real users'
-  presets to preserve) -- a project saved with an older build will reopen with its nodes in place
-  but disconnected, and need to be rewired.
+  unaffected). This covers real parallel-chain/group patching but not an arbitrary N-port modular
+  grid.
 - The 6000x4000 canvas is generously large but not literally infinite, and a Viewport's scroll
   range doesn't grow with a child's zoom transform -- dragging a node very close to that edge
   and then zooming in past 100% could in principle make a corner hard to reach by panning. Not

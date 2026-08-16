@@ -2,13 +2,18 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "NodeComponent.h"
+#include "IONodeComponent.h"
 #include "../PluginProcessor.h"
 
 namespace GGrid
 {
     // The patch-bay canvas: right-click blank space to add a node (Waveshaper/Filter/Delay/
     // Dynamics/Convolution/...), drag a node's title bar to reposition it, drag a cable from a
-    // node's output to another node's input to connect them. Left-click-drag blank space to pan;
+    // node's output to another node's input to connect them. Two fixed pseudo-nodes -- Input
+    // (the plugin's raw dry signal) and Output (the final mix) -- are always present and can't be
+    // deleted (see IONodeComponent); nothing reaches the speakers unless it's patched all the way
+    // from Input through to Output, Bitwig-Grid-style -- there's no implicit per-node dry-through
+    // the way there used to be. Left-click-drag blank space to pan;
     // two-finger/wheel scroll also pans, in whichever direction(s) it reports (see
     // mouseWheelMove) -- zoom is a separate gesture (trackpad pinch via mouseMagnify, Ctrl+scroll,
     // or the +/-/reset buttons), not something plain scroll does, so a touchpad's natural
@@ -42,21 +47,24 @@ namespace GGrid
     // itself reuses the exact same onOutputDragStart/Drag/DragEnd callbacks as audio cables.
     //
     // The underlying engine (GGridAudioProcessor::connections) is a real directed graph, not a
-    // single linear chain -- each node allows up to 2 outgoing and 2 incoming edges (matching the
-    // 2 output nubs / 2 input dots each NodeComponent draws), enough to split a signal into two
-    // parallel chains and sum them back together (Bitwig Grid / Ableton parallel-chain style)
-    // without a general N-port model. Cycles are rejected when a connection is attempted (see
-    // GGridAudioProcessor::canAddConnection) -- block-based processing has no notion of a
-    // same-block feedback loop. A freshly added node is auto-wired after whichever node was added
-    // immediately before it (see lastAddedSlot), so simple serial chains still "just work" the
-    // way they did before this canvas supported branching; explicit rewiring is how you diverge
-    // from that into something parallel.
+    // single linear chain -- each node (including Input/Output) allows up to kMaxPortsPerSide (4)
+    // outgoing and 4 incoming edges (matching the 4 output nubs / 4 input dots each NodeComponent
+    // draws), enough to split a signal into several parallel chains and sum them back together
+    // (Bitwig Grid / Ableton parallel-chain style) without a general N-port model. Cycles are
+    // rejected when a connection is attempted (see GGridAudioProcessor::canAddConnection) --
+    // block-based processing has no notion of a same-block feedback loop. A freshly added node is
+    // spliced in after whichever node was added immediately before it (see lastAddedSlot),
+    // pushing that node's Output connection onto the new node instead -- so simple serial chains
+    // still "just work" the way they did before this canvas supported branching, always running
+    // from Input to Output; explicit rewiring is how you diverge from that into something
+    // parallel.
     //
-    // Node existence mirrors each slot's type parameter (a node is visible iff its slot's type !=
-    // None); node canvas position is stored in ::nodePositions, cosmetic only. Both are
-    // reconciled from processor state on a timer rather than through fine-grained callbacks,
-    // since several different things can change them (this canvas, automation, undo, project
-    // load) and polling is simple and cheap for 8 slots.
+    // Node existence for the kMaxSlots module nodes mirrors each slot's type parameter (a node is
+    // visible iff its slot's type != None); Input/Output are always present. Node canvas position
+    // is stored in ::nodePositions (indexed by slot, or by kInputNodeId/kOutputNodeId for the two
+    // pseudo-nodes), cosmetic only. Both are reconciled from processor state on a timer rather
+    // than through fine-grained callbacks, since several different things can change them (this
+    // canvas, automation, undo, project load) and polling is simple and cheap for this few nodes.
     class NodeGraphEditor : public juce::Component, private juce::Timer
     {
     public:
@@ -127,11 +135,28 @@ namespace GGrid
         void handleNodeReleased (int slotIndex, const juce::MouseEvent&);
 
         // For a specific edge (identified by its index into processor.connections), which of the
-        // 2 output/input port positions it should be drawn/hit-tested at -- just its ordinal
-        // among other edges sharing the same endpoint, so multiple cables into/out of one node
-        // fan out to visually distinct dots instead of stacking on top of each other.
+        // kMaxPortsPerSide output/input port positions it should be drawn/hit-tested at -- just
+        // its ordinal among other edges sharing the same endpoint, so multiple cables into/out of
+        // one node fan out to visually distinct dots instead of stacking on top of each other.
         int outputPortIndexForConnection (int connectionIndex) const;
         int inputPortIndexForConnection (int connectionIndex) const;
+
+        // Canvas-space port positions/visibility for any graph node id (0..kMaxSlots-1 for a
+        // regular module, or kInputNodeId/kOutputNodeId) -- the single place that knows how to
+        // resolve a generic node id to either a NodeComponent or one of the two IONodeComponent
+        // pseudo-nodes, so the cable drawing/hit-testing code below doesn't need to care which
+        // kind of node either endpoint is. Input has no input ports and Output has no output
+        // ports (see GGridAudioProcessor::canAddConnection) -- callers only ever ask for the port
+        // kind a given node actually has.
+        bool nodeExistsAndVisible (int nodeId) const;
+        juce::Point<float> outputPortCanvasPos (int nodeId, int port) const;
+        juce::Point<float> inputPortCanvasPos (int nodeId, int port) const;
+
+        // Selection-highlight dispatch for a generic node id, mirroring the position helpers
+        // above -- NodeComponent and IONodeComponent both have their own setSelected(), but
+        // aren't related by a common base beyond juce::Component.
+        void setNodeSelected (int nodeId, bool shouldBeSelected);
+        juce::Component& componentForNode (int nodeId);
 
         void handleOutputDragStart (int slotIndex, const juce::MouseEvent&);
         void handleOutputDrag (int slotIndex, const juce::MouseEvent&);
@@ -158,6 +183,11 @@ namespace GGrid
 
         GGridAudioProcessor& processor;
         std::array<std::unique_ptr<NodeComponent>, kMaxSlots> nodes;
+
+        // The two fixed pseudo-nodes -- always present, never deleted, so plain members rather
+        // than living in `nodes` (which mirrors the type-swappable module slots and is indexed
+        // 0..kMaxSlots-1 to match APVTS's slot parameter IDs).
+        IONodeComponent inputNode { true }, outputNode { false };
 
         // Detected in refreshLayout() -- when a slot's type changes (whether via Add/Delete or
         // by picking a new type directly on an existing node's own dropdown), prunes any
@@ -210,7 +240,10 @@ namespace GGrid
         bool rubberBandActive = false;
         juce::Point<float> rubberBandStart, rubberBandCurrent;
 
-        std::array<bool, kMaxSlots> selected {};
+        // Sized for every graph node, including the two pseudo-nodes -- Input/Output can be
+        // selected and dragged around like any other node (see handleNodeGrabbed/Dragged), just
+        // never deleted (deleteSelectedNodes only ever iterates the real module slots).
+        std::array<bool, kNumGraphNodes> selected {};
 
         // Node-drag gesture state, mirroring BlankDragMode's click-vs-drag threshold: grabbing an
         // already-selected node's title bar preserves the current (possibly multi-node)
@@ -220,7 +253,7 @@ namespace GGrid
         enum class NodeDragMode { none, pendingClickOrMove, movingGroup };
         NodeDragMode nodeDragMode = NodeDragMode::none;
         juce::Point<float> nodeDragStartCanvasPos, nodeDragStartViewportPos;
-        std::array<juce::Point<float>, kMaxSlots> nodeDragStartPositions {};
+        std::array<juce::Point<float>, kNumGraphNodes> nodeDragStartPositions {};
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NodeGraphEditor)
     };

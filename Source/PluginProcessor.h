@@ -39,14 +39,17 @@ namespace GGrid
         void getStateInformation (juce::MemoryBlock& destData) override;
         void setStateInformation (const void* data, int sizeInBytes) override;
 
-        // Routing graph: a directed edge from one slot's output to another slot's input. Each
-        // slot allows at most 2 outgoing and 2 incoming edges ("2 outs / 2 ins", matching the
-        // node canvas's 2 output nubs / 2 input dots) -- enough to split a signal into two
-        // parallel chains and merge them back together, Bitwig-Grid-style, without needing a
-        // general N-port graph. A slot with 0 incoming edges is a "root" and receives the
-        // plugin's raw input; a slot with 0 outgoing edges is a "sink" and its output is summed
-        // into the final mix. Cycles are rejected at connect-time (see canAddConnection) since
-        // block-based processing has no notion of a same-block feedback loop.
+        // Routing graph: a directed edge from one graph node's output to another's input. Graph
+        // nodes are the kMaxSlots regular module slots plus two fixed pseudo-nodes, kInputNodeId
+        // and kOutputNodeId (see ConnectionGraph.h) -- Bitwig-Grid-style dedicated In/Out, always
+        // present, never deletable. Each node allows at most kMaxPortsPerSide (4) outgoing and 4
+        // incoming edges -- enough to split a signal into several parallel chains and merge them
+        // back together without needing a general N-port graph. Input is the ONLY root (it seeds
+        // every block with the plugin's raw dry input) and Output is the ONLY sink (its summed
+        // input is what reaches the final mix) -- a regular module with no path from Input simply
+        // never runs; there's no implicit per-node dry-through the way there used to be. Cycles
+        // are rejected at connect-time (see wouldCreateCycle) since block-based processing has no
+        // notion of a same-block feedback loop.
         //
         // Deliberately NOT AudioProcessorValueTreeState parameters -- structural/preset-level
         // config edited via canvas cable gestures, not automated mid-performance. Persisted
@@ -60,19 +63,19 @@ namespace GGrid
         std::array<Connection, kMaxConnections> connections {};
         int numConnections = 0;
 
-        int getOutDegree (int slot) const
+        int getOutDegree (int node) const
         {
             int n = 0;
             for (int i = 0; i < numConnections; ++i)
-                if (connections[(size_t) i].from == slot) ++n;
+                if (connections[(size_t) i].from == node) ++n;
             return n;
         }
 
-        int getInDegree (int slot) const
+        int getInDegree (int node) const
         {
             int n = 0;
             for (int i = 0; i < numConnections; ++i)
-                if (connections[(size_t) i].to == slot) ++n;
+                if (connections[(size_t) i].to == node) ++n;
             return n;
         }
 
@@ -85,11 +88,11 @@ namespace GGrid
         }
 
         // Would adding from->to create a cycle -- i.e. can `to` already reach `from` by following
-        // existing edges forward? A plain DFS/BFS over at most kMaxSlots nodes.
+        // existing edges forward? A plain DFS/BFS over at most kNumGraphNodes nodes.
         bool wouldCreateCycle (int from, int to) const
         {
-            std::array<bool, kMaxSlots> visited {};
-            std::array<int, kMaxSlots> stack {};
+            std::array<bool, kNumGraphNodes> visited {};
+            std::array<int, kNumGraphNodes> stack {};
             int stackSize = 0;
 
             stack[(size_t) stackSize++] = to;
@@ -118,8 +121,13 @@ namespace GGrid
         bool canAddConnection (int from, int to) const
         {
             if (from < 0 || to < 0 || from == to) return false;
+            if (from >= kNumGraphNodes || to >= kNumGraphNodes) return false;
+            // Input has no input ports at all (it's the raw dry source); Output has no output
+            // ports at all (it's the final collection point) -- matches their fixed single-side
+            // port set in the GUI (see IONodeComponent).
+            if (to == kInputNodeId || from == kOutputNodeId) return false;
             if (numConnections >= kMaxConnections) return false;
-            if (getOutDegree (from) >= 2 || getInDegree (to) >= 2) return false;
+            if (getOutDegree (from) >= kMaxPortsPerSide || getInDegree (to) >= kMaxPortsPerSide) return false;
             if (hasConnection (from, to)) return false;
             if (wouldCreateCycle (from, to)) return false;
             return true;
@@ -131,17 +139,8 @@ namespace GGrid
         {
             if (! canAddConnection (from, to)) return false;
             connections[(size_t) numConnections++] = { from, to };
-            everConnected[(size_t) from] = true;
-            everConnected[(size_t) to] = true;
             return true;
         }
-
-        // Clears "has this slot ever had an audio connection" (see everConnected below) --
-        // called whenever a slot's type changes (including to/from None), so a structurally new
-        // module doesn't inherit its predecessor's connection history. Without this, a freshly
-        // retyped node that happens to land on a slot index that was previously wired-then-
-        // disconnected would incorrectly start out silent instead of working standalone.
-        void resetEverConnected (int slot) { everConnected[(size_t) slot] = false; }
 
         void removeConnection (int from, int to)
         {
@@ -166,10 +165,11 @@ namespace GGrid
             numConnections = w;
         }
 
-        // Canvas position of each slot's node in the node-graph editor. Purely a GUI layout
-        // concern (doesn't affect audio at all) but persisted alongside chainOrder/APVTS so a
-        // saved project reopens with nodes where you left them instead of re-cascading.
-        std::array<juce::Point<float>, kMaxSlots> nodePositions;
+        // Canvas position of each graph node (the kMaxSlots module slots plus the fixed Input/
+        // Output pseudo-nodes at indices kInputNodeId/kOutputNodeId) in the node-graph editor.
+        // Purely a GUI layout concern (doesn't affect audio at all) but persisted alongside APVTS
+        // so a saved project reopens with nodes where you left them instead of re-cascading.
+        std::array<juce::Point<float>, kNumGraphNodes> nodePositions;
 
         juce::AudioProcessorValueTreeState apvts;
 
@@ -199,23 +199,13 @@ namespace GGrid
 
         std::array<std::unique_ptr<RackSlot>, kMaxSlots> slots;
 
-        // Whether this slot has ever had an audio connection since it last became its current
-        // type. Distinguishes the two ways a slot can have zero audio connections right now: a
-        // brand-new node that's never been wired (still gets the standalone chain-of-one
-        // treatment in processBlock, so a freshly dropped node "just works") vs. a node that WAS
-        // part of a patch and has since been fully disconnected (goes silent instead -- see
-        // processBlock's isOrphaned check). Set in addConnection, cleared via
-        // resetEverConnected() whenever the slot's type changes. Persisted alongside
-        // connections/nodePositions so a reloaded project doesn't forget which nodes were
-        // deliberately disconnected.
-        std::array<bool, kMaxSlots> everConnected {};
-
-        // Per-node scratch buffers for graph processing (one per slot) plus a copy of the raw
-        // input for seeding root nodes -- preallocated in prepareToPlay and just resized (never
-        // reallocated, since maximumBlockSize never shrinks below what's requested) each block,
-        // so building/summing the graph never allocates on the audio thread.
-        std::array<juce::AudioBuffer<float>, kMaxSlots> nodeBuffers;
-        juce::AudioBuffer<float> rawInputCopy;
+        // Per-graph-node scratch buffers (one per module slot plus the Input/Output pseudo-nodes)
+        // -- preallocated in prepareToPlay and just resized (never reallocated, since
+        // maximumBlockSize never shrinks below what's requested) each block, so building/summing
+        // the graph never allocates on the audio thread. nodeBuffers[kInputNodeId] is seeded with
+        // the plugin's raw dry input each block; nodeBuffers[kOutputNodeId] accumulates whatever
+        // reaches Output and becomes the final mix.
+        std::array<juce::AudioBuffer<float>, kNumGraphNodes> nodeBuffers;
 
         // Scratch buffer LFO slots process into each block -- LFOModule ignores its content
         // entirely (see LFOModule's class comment), this just gives RackSlot::process() a

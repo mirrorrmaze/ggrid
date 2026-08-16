@@ -671,51 +671,78 @@ int main()
                     + juce::String (lowNoteRms, 4) + ", high-note RMS " + juce::String (highNoteRms, 4) + ")");
     }
 
-    // --- ConnectionGraph: a diamond (0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3) topologically orders roots/sinks correctly ---
+    // --- ConnectionGraph: Input -> 0 -> 1 -> 2 -> Output topologically orders the fixed root/sink correctly ---
     {
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { 0, 1 };
-        conns[1] = { 0, 2 };
-        conns[2] = { 1, 3 };
-        conns[3] = { 2, 3 };
+        conns[0] = { kInputNodeId, 0 };
+        conns[1] = { 0, 1 };
+        conns[2] = { 1, 2 };
+        conns[3] = { 2, kOutputNodeId };
 
-        std::array<bool, kMaxSlots> active {};
-        active[0] = active[1] = active[2] = active[3] = true;
+        std::array<bool, kNumGraphNodes> active {};
+        active[0] = active[1] = active[2] = true;
+        active[(size_t) kInputNodeId] = true;
+        active[(size_t) kOutputNodeId] = true;
 
         const auto graph = buildProcessingOrder (conns, 4, active);
 
-        expect (graph.orderCount == 4, "diamond graph orders all 4 active nodes");
-        expect (graph.isRoot[0] && ! graph.isRoot[1] && ! graph.isRoot[2] && ! graph.isRoot[3],
-                "diamond graph: only slot 0 (no predecessors) is a root");
-        expect (! graph.isSink[0] && ! graph.isSink[1] && ! graph.isSink[2] && graph.isSink[3],
-                "diamond graph: only slot 3 (no successors) is a sink");
+        expect (graph.orderCount == 5, "a linear Input->0->1->2->Output chain orders all 5 active nodes");
+        expect (graph.isRoot[(size_t) kInputNodeId] && ! graph.isRoot[0] && ! graph.isRoot[1] && ! graph.isRoot[2] && ! graph.isRoot[(size_t) kOutputNodeId],
+                "only Input is ever a root, regardless of which regular slot has zero incoming edges");
+        expect (graph.isSink[(size_t) kOutputNodeId] && ! graph.isSink[0] && ! graph.isSink[1] && ! graph.isSink[2] && ! graph.isSink[(size_t) kInputNodeId],
+                "only Output is ever a sink, regardless of which regular slot has zero outgoing edges");
 
-        auto positionOf = [&] (int slot) -> int
+        auto positionOf = [&] (int node) -> int
         {
             for (int i = 0; i < graph.orderCount; ++i)
-                if (graph.order[(size_t) i] == slot)
+                if (graph.order[(size_t) i] == node)
                     return i;
             return -1;
         };
 
-        expect (positionOf (0) < positionOf (1) && positionOf (0) < positionOf (2),
-                "diamond graph: root 0 is ordered before both of its successors");
-        expect (positionOf (1) < positionOf (3) && positionOf (2) < positionOf (3),
-                "diamond graph: sink 3 is ordered after both of its predecessors");
+        expect (positionOf (kInputNodeId) < positionOf (0) && positionOf (0) < positionOf (1)
+                    && positionOf (1) < positionOf (2) && positionOf (2) < positionOf (kOutputNodeId),
+                "chain orders strictly Input, 0, 1, 2, Output");
     }
 
-    // --- ConnectionGraph: a cycle (defensive fallback) still includes every active node exactly once ---
+    // --- ConnectionGraph: a regular module with no path from Input is excluded from the order entirely ---
     {
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { 0, 1 };
-        conns[1] = { 1, 0 };
+        conns[0] = { kInputNodeId, 0 };
+        conns[1] = { 0, kOutputNodeId };
+        // Slot 1 is active (a real module sits there) but nothing connects it to Input or
+        // Output -- a floating, unpatched node, which should simply never run.
 
-        std::array<bool, kMaxSlots> active {};
+        std::array<bool, kNumGraphNodes> active {};
         active[0] = active[1] = true;
+        active[(size_t) kInputNodeId] = true;
+        active[(size_t) kOutputNodeId] = true;
 
         const auto graph = buildProcessingOrder (conns, 2, active);
 
-        expect (graph.orderCount == 2, "a 2-node cycle still produces an order containing both nodes (defensive fallback), not a hang or a drop");
+        bool slot1InOrder = false;
+        for (int i = 0; i < graph.orderCount; ++i)
+            if (graph.order[(size_t) i] == 1)
+                slot1InOrder = true;
+
+        expect (! slot1InOrder, "a module with no path from Input is excluded from the processing order -- an unpatched node does nothing");
+        expect (graph.orderCount == 3, "only Input, 0, and Output actually run");
+    }
+
+    // --- ConnectionGraph: a cycle reachable from Input (defensive fallback) still includes every active node exactly once, doesn't hang ---
+    {
+        std::array<Connection, kMaxConnections> conns {};
+        conns[0] = { kInputNodeId, 0 };
+        conns[1] = { 0, 1 };
+        conns[2] = { 1, 0 }; // artificial cycle -- connect-time validation would normally reject this
+
+        std::array<bool, kNumGraphNodes> active {};
+        active[0] = active[1] = true;
+        active[(size_t) kInputNodeId] = true;
+
+        const auto graph = buildProcessingOrder (conns, 3, active);
+
+        expect (graph.orderCount == 3, "a cycle reachable from Input still produces an order containing Input and both cyclic nodes (defensive fallback), not a hang or a drop");
     }
 
     // --- End-to-end graph: fan-out from one root into two parallel branches, summed back at the sinks ---
@@ -792,15 +819,22 @@ int main()
         slotBranchA.reset();
         slotBranchB.reset();
 
+        // Input -> 0 (root), 0 fans out to both branches, both branches feed Output (the sink) --
+        // mirrors GGridAudioProcessor::processBlock's actual Input/Output-anchored model exactly.
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { 0, 1 };
-        conns[1] = { 0, 2 };
-        std::array<bool, kMaxSlots> active {};
+        conns[0] = { kInputNodeId, 0 };
+        conns[1] = { 0, 1 };
+        conns[2] = { 0, 2 };
+        conns[3] = { 1, kOutputNodeId };
+        conns[4] = { 2, kOutputNodeId };
+        std::array<bool, kNumGraphNodes> active {};
         active[0] = active[1] = active[2] = true;
-        const auto graph = buildProcessingOrder (conns, 2, active);
+        active[(size_t) kInputNodeId] = true;
+        active[(size_t) kOutputNodeId] = true;
+        const auto graph = buildProcessingOrder (conns, 5, active);
 
-        std::array<juce::AudioBuffer<float>, kMaxSlots> nodeBuffers;
-        for (int i = 0; i < kMaxSlots; ++i)
+        std::array<juce::AudioBuffer<float>, kNumGraphNodes> nodeBuffers;
+        for (int i = 0; i < kNumGraphNodes; ++i)
             if (active[(size_t) i])
                 nodeBuffers[(size_t) i].setSize (2, blockSize);
 
@@ -809,20 +843,23 @@ int main()
         for (int idx = 0; idx < graph.orderCount; ++idx)
         {
             const int i = graph.order[(size_t) idx];
-            if (graph.isRoot[(size_t) i])
+
+            if (i == kInputNodeId)
             {
                 for (int ch = 0; ch < 2; ++ch)
                     nodeBuffers[(size_t) i].copyFrom (ch, 0, dry, ch, 0, blockSize);
+                continue;
             }
-            else
+
+            for (int c = 0; c < 5; ++c)
             {
-                for (int c = 0; c < 2; ++c)
-                {
-                    if (conns[(size_t) c].to != i) continue;
-                    for (int ch = 0; ch < 2; ++ch)
-                        nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conns[(size_t) c].from], ch, 0, blockSize);
-                }
+                if (conns[(size_t) c].to != i) continue;
+                for (int ch = 0; ch < 2; ++ch)
+                    nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conns[(size_t) c].from], ch, 0, blockSize);
             }
+
+            if (i == kOutputNodeId)
+                continue;
 
             juce::dsp::AudioBlock<float> nodeBlock (nodeBuffers[(size_t) i]);
             juce::MidiBuffer midi;
@@ -831,10 +868,8 @@ int main()
 
         juce::AudioBuffer<float> actualSum (2, blockSize);
         actualSum.clear();
-        for (int i = 0; i < kMaxSlots; ++i)
-            if (graph.isSink[(size_t) i])
-                for (int ch = 0; ch < 2; ++ch)
-                    actualSum.addFrom (ch, 0, nodeBuffers[(size_t) i], ch, 0, blockSize);
+        for (int ch = 0; ch < 2; ++ch)
+            actualSum.addFrom (ch, 0, nodeBuffers[(size_t) kOutputNodeId], ch, 0, blockSize);
 
         bool matches = true;
         for (int ch = 0; ch < 2 && matches; ++ch)
