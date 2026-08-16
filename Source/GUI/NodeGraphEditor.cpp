@@ -334,6 +334,32 @@ namespace GGrid
 
     void NodeGraphEditor::showAddNodeMenu (juce::Point<int> canvasPosition)
     {
+        // addNode() silently no-ops if every slot is already occupied (matches the rest of the
+        // plugin's "never block with a modal" philosophy) -- but a menu that opens normally and
+        // then does nothing when you click an item is indistinguishable from a bug. Replace the
+        // whole menu with one disabled, explanatory line in that case instead.
+        bool anyFreeSlot = false;
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            if (static_cast<ModuleType> ((int) processor.apvts.getRawParameterValue (slotTypeParamId (i))->load()) == ModuleType::none)
+            {
+                anyFreeSlot = true;
+                break;
+            }
+        }
+
+        juce::PopupMenu menu;
+
+        if (! anyFreeSlot)
+        {
+            menu.addItem (0, "Rack full (" + juce::String (kMaxSlots) + "/" + juce::String (kMaxSlots)
+                              + " slots) -- delete a node first", false);
+
+            const auto screenPos = localPointToGlobal (canvasPosition);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (screenPos, screenPos)));
+            return;
+        }
+
         // Grouped into submenus by category rather than one flat list -- item IDs still map
         // directly to ModuleType (see addNode's static_cast below), that mapping doesn't care
         // about nesting depth, only which numeric ID got clicked. Add new module types to
@@ -363,7 +389,6 @@ namespace GGrid
         juce::PopupMenu utilityMenu;
         utilityMenu.addItem (6, "Utility");
 
-        juce::PopupMenu menu;
         menu.addSubMenu ("Distortion", distortionMenu);
         menu.addSubMenu ("Filter & EQ", filterEqMenu);
         menu.addSubMenu ("Dynamics", dynamicsMenu);

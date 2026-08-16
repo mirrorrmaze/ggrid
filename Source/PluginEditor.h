@@ -31,6 +31,17 @@ namespace GGrid
         void updateZoomLabel (float zoom);
         void showHeaderMenu();
 
+        // Save/load the full plugin state (every module's params, the connection graph, node
+        // positions) to/from a file on disk -- independent of whatever preset mechanism the host
+        // provides (Standalone mode has none at all), and works identically in both since both
+        // just call GGridAudioProcessor's existing get/setStateInformation, the same pair a host
+        // already calls for its own preset save/recall. fileChooser is a member (not a local) so
+        // it stays alive across the async dialog's callback -- see FileChooser::launchAsync's own
+        // docs for why a locally-scoped one would be destroyed before the user finishes picking.
+        void savePatch();
+        void loadPatch();
+        std::unique_ptr<juce::FileChooser> fileChooser;
+
         // Declared first so it's constructed before, and destroyed after, every other member --
         // components must never outlive the LookAndFeel they're pointing at.
         GGridLookAndFeel lookAndFeel;

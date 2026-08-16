@@ -96,9 +96,61 @@ namespace GGrid
             menu.addSeparator();
         }
 
+        menu.addItem ("Save Patch...", [this] { savePatch(); });
+        menu.addItem ("Load Patch...", [this] { loadPatch(); });
+        menu.addSeparator();
+
         menu.addItem ("GGrid v" + juce::String (GGRID_VERSION), false, false, nullptr);
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (menuButton));
+    }
+
+    static juce::File getPatchesDirectory()
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                       .getChildFile ("GGrid").getChildFile ("Patches");
+        dir.createDirectory();
+        return dir;
+    }
+
+    void GGridAudioProcessorEditor::savePatch()
+    {
+        fileChooser = std::make_unique<juce::FileChooser> ("Save GGrid Patch", getPatchesDirectory(), "*.ggridpatch");
+
+        fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+            [this] (const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file == juce::File {})
+                    return;
+
+                if (! file.hasFileExtension (".ggridpatch"))
+                    file = file.withFileExtension (".ggridpatch");
+
+                juce::MemoryBlock data;
+                processorRef.getStateInformation (data);
+                file.replaceWithData (data.getData(), data.getSize());
+            });
+    }
+
+    void GGridAudioProcessorEditor::loadPatch()
+    {
+        fileChooser = std::make_unique<juce::FileChooser> ("Load GGrid Patch", getPatchesDirectory(), "*.ggridpatch");
+
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode,
+            [this] (const juce::FileChooser& fc)
+            {
+                auto file = fc.getResult();
+                if (file == juce::File {})
+                    return;
+
+                juce::MemoryBlock data;
+                if (file.loadFileAsData (data))
+                    // NodeGraphEditor picks up the new connections/node positions/param values
+                    // on its next timer tick (see its class comment on why reconciliation is
+                    // poll-based) -- no explicit refresh call needed here.
+                    processorRef.setStateInformation (data.getData(), (int) data.getSize());
+            });
     }
 
     void GGridAudioProcessorEditor::setActiveTab (bool showModMatrix)

@@ -110,6 +110,11 @@ rack slots, drop in whichever modules you want (in whatever order), and mangle t
   the Mod Matrix tab.
 - **Live output scope** -- a waveform display fed from the true final output (post-chain,
   post-limiter), in the header.
+- **Save/Load Patch** -- in the "..." header menu: writes/reads the full plugin state (every
+  module's params, the connection graph, node positions) to/from a `.ggridpatch` file, defaulting
+  to `Documents/GGrid/Patches`. Independent of whatever preset mechanism the host provides --
+  Standalone mode has none at all -- since both just call the same get/setStateInformation pair a
+  host already uses for its own preset save/recall.
 - **Update checker** -- on launch, a background check against this repo's GitHub Releases (fail
   silent -- no network/GitHub-down/rate-limit ever shows an error, it just quietly finds nothing).
   If a newer version is out, the "..." menu button in the header recolors and its menu gets an
