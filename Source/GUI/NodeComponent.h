@@ -65,6 +65,19 @@ namespace GGrid
         // ports only, same reasoning).
         bool isInputType() const;
         bool isOutputType() const;
+
+        // True for 3xOsc nodes -- a graph source like Input (no input ports, generates its own
+        // audio rather than processing whatever reaches it -- see ModuleType::threeOsc's own
+        // comment), but UNLIKE Input it keeps the full title/bypass/control-panel treatment every
+        // regular module gets (it's a real instrument with real knobs, not a compact wire
+        // endpoint) -- so it's a separate predicate from isInputType(), not folded into it.
+        bool isThreeOscType() const;
+
+        // No input ports at all: Input (a source of the raw dry signal) and ThreeOsc (a source of
+        // its own MIDI-generated audio) alike -- see isInputType()/isThreeOscType(). Used to hide
+        // the input-side connector dots and exclude a node from being a valid cable-drop target.
+        bool hasNoInputPorts() const { return isInputType() || isThreeOscType(); }
+
         juce::Point<int> getModOutputPosition() const;
 
         // Every continuous knob the currently active control panel exposes is a valid cable
@@ -162,6 +175,7 @@ namespace GGrid
         std::unique_ptr<ChorusControlsPanel> chorusPanel;
         std::unique_ptr<Eq3ControlsPanel> eq3Panel;
         std::unique_ptr<MultibandConvolutionControlsPanel> multibandConvolutionPanel;
+        std::unique_ptr<ThreeOscControlsPanel> threeOscPanel;
 
         bool isSelectedFlag = false;
 

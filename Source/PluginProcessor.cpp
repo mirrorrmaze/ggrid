@@ -116,6 +116,12 @@ namespace GGrid
         std::array<bool, kMaxSlots> active {};
         std::array<bool, kMaxSlots> isInputRole {};
         std::array<bool, kMaxSlots> isOutputRole {};
+        // Topological roots: both Input (raw dry passthrough) and ThreeOsc (MIDI-driven
+        // generator) start the processing order and seed graph reachability -- see
+        // buildProcessingOrder's isRootRole parameter. They differ in what happens once a root's
+        // turn comes up in the graph loop below (isInputRole gates that split), not in whether
+        // they're a root at all.
+        std::array<bool, kMaxSlots> isSourceRole {};
         for (int i = 0; i < kMaxSlots; ++i)
         {
             const auto type = slots[(size_t) i]->getActiveType();
@@ -124,6 +130,7 @@ namespace GGrid
             active[(size_t) i] = (type != ModuleType::none) && (type != ModuleType::lfo);
             isInputRole[(size_t) i] = (type == ModuleType::input);
             isOutputRole[(size_t) i] = (type == ModuleType::output);
+            isSourceRole[(size_t) i] = isInputRole[(size_t) i] || (type == ModuleType::threeOsc);
         }
 
         // Tick every active LFO slot once per block, before the graph below runs, so every
@@ -145,7 +152,7 @@ namespace GGrid
         }
 
         {
-            const auto graph = buildProcessingOrder (connections, numConnections, active, isInputRole, isOutputRole);
+            const auto graph = buildProcessingOrder (connections, numConnections, active, isSourceRole, isOutputRole);
 
             for (int i = 0; i < kMaxSlots; ++i)
             {
@@ -158,7 +165,7 @@ namespace GGrid
             {
                 const int i = graph.order[(size_t) idx];
 
-                if (graph.isRoot[(size_t) i])
+                if (graph.isRoot[(size_t) i] && isInputRole[(size_t) i])
                 {
                     // Every Input-type slot is seeded with the plugin's raw dry input every
                     // block, regardless of what's patched into it.
@@ -167,9 +174,11 @@ namespace GGrid
                     continue;
                 }
 
-                // Every other node's buffer (including an Output-type slot) is built purely by
-                // summing its predecessors' outputs, which the topological order guarantees have
-                // already run by the time this node's turn comes up.
+                // Every other node's buffer (including an Output-type slot, or a generator-type
+                // root like ThreeOsc, which simply has no incoming edges to sum since it has no
+                // input ports -- see canAddConnection) is built by summing its predecessors'
+                // outputs, which the topological order guarantees have already run by the time
+                // this node's turn comes up.
                 for (int c = 0; c < numConnections; ++c)
                 {
                     const auto& conn = connections[(size_t) c];

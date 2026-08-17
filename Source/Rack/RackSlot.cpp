@@ -12,6 +12,7 @@
 #include "../Modules/ChorusModule.h"
 #include "../Modules/Eq3Module.h"
 #include "../Modules/MultibandConvolutionModule.h"
+#include "../Modules/ThreeOscModule.h"
 
 namespace GGrid
 {
@@ -64,6 +65,13 @@ namespace GGrid
 
             case ModuleType::multibandConvolution:
                 return std::make_unique<MultibandConvolutionModule> (apvts, slotIndex, services);
+
+            // ThreeOsc is a graph SOURCE role like Input (see ModuleType::threeOsc's own
+            // comment), but unlike Input it IS a real DSP/MIDI processor -- process() generates
+            // its audio from MIDI notes rather than being skipped for a raw-dry-buffer copy, so
+            // it needs an actual module instance here, not the nullptr Input/Output get below.
+            case ModuleType::threeOsc:
+                return std::make_unique<ThreeOscModule> (apvts, slotIndex);
 
             // Input/Output are structural graph roles, not DSP processors -- process() is never
             // called on a slot playing either role (see GGridAudioProcessor::processBlock's

@@ -540,6 +540,91 @@ namespace GGrid
         }
     }
 
+    static void addThreeOscParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::attack), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Attack",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.005f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::decay), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Decay",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.1f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::sustain), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Sustain",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 80.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::release), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Release",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.2f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::fm1to2), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc FM 1>2",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::fm2to3), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc FM 2>3",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            const auto oscLabel = getThreeOscOscLabels()[osc];
+            // Osc 1 defaults to a Saw at full level so a freshly-added node is immediately
+            // audible with a single clean voice; Osc 2/3 default to silent (Level 0%) so bringing
+            // them in is a deliberate choice rather than an automatic thick/detuned default stack.
+            const float defaultLevel = osc == 0 ? 100.0f : 0.0f;
+            const int defaultWaveform = osc == 0 ? 2 : 0; // 2 = Saw, 0 = Sine
+
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::waveform), 1 },
+                "Slot " + String (slotIndex + 1) + " 3xOsc " + oscLabel + " Waveform",
+                getThreeOscWaveformChoices(), defaultWaveform));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::coarse), 1 },
+                "Slot " + String (slotIndex + 1) + " 3xOsc " + oscLabel + " Coarse",
+                NormalisableRange<float> (-36.0f, 36.0f, 1.0f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("st")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::fine), 1 },
+                "Slot " + String (slotIndex + 1) + " 3xOsc " + oscLabel + " Fine",
+                NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("ct")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::pan), 1 },
+                "Slot " + String (slotIndex + 1) + " 3xOsc " + oscLabel + " Pan",
+                NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::level), 1 },
+                "Slot " + String (slotIndex + 1) + " 3xOsc " + oscLabel + " Level",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), defaultLevel,
+                AudioParameterFloatAttributes().withLabel ("%")));
+        }
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -571,6 +656,7 @@ namespace GGrid
             addChorusParams (layout, slot);
             addEq3Params (layout, slot);
             addMultibandConvolutionParams (layout, slot);
+            addThreeOscParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

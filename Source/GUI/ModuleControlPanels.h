@@ -425,4 +425,46 @@ namespace GGrid
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MultibandConvolutionControlsPanel)
     };
+
+    // 3xOsc controls: 3 oscillator sections (Waveform dropdown + Coarse/Fine/Pan/Level knobs
+    // each), then a shared ADSR amp-envelope row and an FM/Output row -- see ThreeOscModule for
+    // the synth engine these drive. Unlike Convolution/Multiband Convolution, this module has no
+    // waveform/IR display -- the "instrument" here is purely the knob values, nothing to preview.
+    class ThreeOscControlsPanel : public juce::Component
+    {
+    public:
+        ThreeOscControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        struct OscControls
+        {
+            juce::Label nameLabel;
+            juce::ComboBox waveformBox;
+            juce::Label coarseLabel { {}, "Coarse" }, fineLabel { {}, "Fine" }, panLabel { {}, "Pan" }, levelLabel { {}, "Level" };
+            juce::Slider coarseSlider, fineSlider, panSlider, levelSlider;
+
+            std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> waveformAttachment;
+            std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+                coarseAttachment, fineAttachment, panAttachment, levelAttachment;
+        };
+
+        std::array<OscControls, kNumThreeOscOscillators> oscs;
+
+        juce::Label attackLabel { {}, "Attack" }, decayLabel { {}, "Decay" }, sustainLabel { {}, "Sustain" }, releaseLabel { {}, "Release" },
+                    fm1to2Label { {}, "FM 1>2" }, fm2to3Label { {}, "FM 2>3" }, outputLabel { {}, "Output" };
+        juce::Slider attackSlider, decaySlider, sustainSlider, releaseSlider, fm1to2Slider, fm2to3Slider, outputSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            attackAttachment, decayAttachment, sustainAttachment, releaseAttachment,
+            fm1to2Attachment, fm2to3Attachment, outputAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThreeOscControlsPanel)
+    };
 }

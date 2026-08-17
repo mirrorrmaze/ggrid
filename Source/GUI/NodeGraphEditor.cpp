@@ -391,6 +391,12 @@ namespace GGrid
         juce::PopupMenu utilityMenu;
         utilityMenu.addItem (6, "Utility");
 
+        // 3xOsc is a MIDI-driven synth generator, not an effect -- gets its own category rather
+        // than living in I/O (it's a graph source like Input structurally, but semantically an
+        // instrument, not a routing utility -- see ModuleType::threeOsc's class comment).
+        juce::PopupMenu generatorsMenu;
+        generatorsMenu.addItem ((int) ModuleType::threeOsc, "3xOsc");
+
         // Input/Output are ordinary addable module types like any other here -- adding another
         // of either just gives you a second entry/exit point for another parallel rack sharing
         // this canvas (see NodeComponent::isInputType/isOutputType), not something structurally
@@ -405,6 +411,7 @@ namespace GGrid
         menu.addSubMenu ("Modulation", modulationMenu);
         menu.addSubMenu ("Time & Space", timeSpaceMenu);
         menu.addSubMenu ("Utility", utilityMenu);
+        menu.addSubMenu ("Generators", generatorsMenu);
         menu.addSubMenu ("I/O", ioMenu);
 
         const auto screenPos = localPointToGlobal (canvasPosition);
@@ -462,10 +469,22 @@ namespace GGrid
             // anything.
             if (! anyRegularModuleExists && type != ModuleType::lfo && type != ModuleType::input && type != ModuleType::output)
             {
-                const int inputSlot = findFirstSlotOfType (ModuleType::input);
                 const int outputSlot = findFirstSlotOfType (ModuleType::output);
-                if (inputSlot >= 0) processor.addConnection (inputSlot, i);
-                if (outputSlot >= 0) processor.addConnection (i, outputSlot);
+
+                if (type == ModuleType::threeOsc)
+                {
+                    // ThreeOsc is itself a source (like Input, see ModuleType::threeOsc's class
+                    // comment) -- there's no "from Input" leg to wire (it has no input port at
+                    // all), just connect it straight to the first Output so it's audible the
+                    // instant it's added.
+                    if (outputSlot >= 0) processor.addConnection (i, outputSlot);
+                }
+                else
+                {
+                    const int inputSlot = findFirstSlotOfType (ModuleType::input);
+                    if (inputSlot >= 0) processor.addConnection (inputSlot, i);
+                    if (outputSlot >= 0) processor.addConnection (i, outputSlot);
+                }
             }
 
             refreshLayout();
@@ -503,11 +522,11 @@ namespace GGrid
         if (newType == ModuleType::lfo)
             processor.removeAllConnectionsForSlot (slotIndex);
 
-        // Input has no input ports (only its outgoing edges are still valid); Output has no
-        // output ports (only its incoming edges are still valid) -- prune whichever side just
-        // became invalid for the new type. Iterated backward since removeConnection shifts later
-        // entries down.
-        if (newType == ModuleType::input)
+        // Input/ThreeOsc have no input ports (only their outgoing edges are still valid); Output
+        // has no output ports (only its incoming edges are still valid) -- prune whichever side
+        // just became invalid for the new type. Iterated backward since removeConnection shifts
+        // later entries down.
+        if (newType == ModuleType::input || newType == ModuleType::threeOsc)
         {
             for (int c = processor.numConnections - 1; c >= 0; --c)
                 if (processor.connections[(size_t) c].to == slotIndex)
@@ -879,10 +898,11 @@ namespace GGrid
         for (int i = 0; i < kMaxSlots; ++i)
         {
             auto* candidate = nodes[(size_t) i].get();
-            // LFO and Input nodes have no input ports at all -- LFO isn't part of the audio graph
-            // (see LFOModule), Input is a source only (see isInputType()). Output nodes DO have
-            // input ports (that's their entire purpose) so aren't excluded here.
-            if (i == excludeSlot || ! candidate->isVisible() || candidate->isLfoType() || candidate->isInputType())
+            // LFO, Input, and ThreeOsc nodes have no input ports at all -- LFO isn't part of the
+            // audio graph (see LFOModule), Input/ThreeOsc are sources only (see
+            // hasNoInputPorts()). Output nodes DO have input ports (that's their entire purpose)
+            // so aren't excluded here.
+            if (i == excludeSlot || ! candidate->isVisible() || candidate->isLfoType() || candidate->hasNoInputPorts())
                 continue;
 
             for (int port = 0; port < kMaxPortsPerSide; ++port)

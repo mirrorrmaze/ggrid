@@ -33,12 +33,13 @@ namespace GGrid
         input = 13,
         output = 14,
         multibandConvolution = 15,
+        threeOsc = 16,
     };
 
     inline juce::StringArray getModuleTypeChoices()
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
-                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution" };
+                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -355,6 +356,50 @@ namespace GGrid
         static const juce::String stretch = "stretch";
         static const juce::String mix     = "mix";
         static const juce::String output  = "output";
+    }
+
+    // A 16-voice polyphonic MIDI synth (inspired by FL Studio's 3xOsc): 3 oscillators per voice,
+    // each independently tuned/panned/leveled, phase-modulated by the previous oscillator (FM
+    // 1->2, FM 2->3), shaped by a shared per-voice ADSR amp envelope. Unlike every other module
+    // type, a ThreeOsc slot is a graph SOURCE (like Input) rather than a signal processor -- it
+    // ignores whatever audio reaches it and generates its own from the MIDI notes in the same
+    // MidiBuffer every RackModule already receives (see ThreeOscModule). See
+    // GGridAudioProcessor::processBlock's isSourceRole handling and RackSlot::createModuleForType.
+    constexpr int kNumThreeOscOscillators = 3;
+    constexpr int kMaxThreeOscVoices = 16;
+    inline juce::StringArray getThreeOscWaveformChoices() { return { "Sine", "Triangle", "Saw", "Square" }; }
+    inline juce::StringArray getThreeOscOscLabels() { return { "Osc 1", "Osc 2", "Osc 3" }; }
+
+    inline juce::String threeOscParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_threeOsc_" + paramName;
+    }
+
+    // Shared per-voice ADSR amp envelope, the two inter-oscillator FM depths, and the overall
+    // output trim -- not per-oscillator, these shape the voice as a whole.
+    namespace ThreeOscParam
+    {
+        static const juce::String attack  = "attack";
+        static const juce::String decay   = "decay";
+        static const juce::String sustain = "sustain";
+        static const juce::String release = "release";
+        static const juce::String fm1to2  = "fm1to2"; // osc 1's output phase-modulates osc 2
+        static const juce::String fm2to3  = "fm2to3"; // osc 2's output phase-modulates osc 3
+        static const juce::String output  = "output";
+    }
+
+    inline juce::String threeOscOscParamId (int slotIndex, int oscIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_threeOsc_osc" + juce::String (oscIndex) + "_" + paramName;
+    }
+
+    namespace ThreeOscOscParam
+    {
+        static const juce::String waveform = "waveform";
+        static const juce::String coarse   = "coarse"; // semitones
+        static const juce::String fine     = "fine";   // cents
+        static const juce::String pan      = "pan";
+        static const juce::String level    = "level";
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

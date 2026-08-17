@@ -48,6 +48,7 @@ target_sources(GGrid
         Source/Modules/ChorusModule.cpp
         Source/Modules/Eq3Module.cpp
         Source/Modules/MultibandConvolutionModule.cpp
+        Source/Modules/ThreeOscModule.cpp
         Source/Modulation/ModulationMatrix.cpp
         Source/IR/IRLibrary.cpp
         Source/IR/IRProcessor.cpp
@@ -104,6 +105,7 @@ add_executable(OfflineDspTest
     Source/Modules/ChorusModule.cpp
     Source/Modules/Eq3Module.cpp
     Source/Modules/MultibandConvolutionModule.cpp
+    Source/Modules/ThreeOscModule.cpp
     Source/Modulation/ModulationMatrix.cpp
     Source/IR/IRLibrary.cpp
     Source/IR/IRProcessor.cpp

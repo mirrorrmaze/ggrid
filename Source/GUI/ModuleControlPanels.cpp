@@ -1116,4 +1116,129 @@ namespace GGrid
         layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
         layoutKnob (bottomKnobRow, outputLabel, outputSlider);
     }
+
+    ThreeOscControlsPanel::ThreeOscControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        const auto oscLabels = getThreeOscOscLabels();
+        const auto waveformChoices = getThreeOscWaveformChoices();
+
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            auto& o = oscs[(size_t) osc];
+
+            o.nameLabel.setText (oscLabels[osc], juce::dontSendNotification);
+            o.nameLabel.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+            o.nameLabel.setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (o.nameLabel);
+
+            int itemId = 1;
+            for (auto& choice : waveformChoices)
+                o.waveformBox.addItem (choice, itemId++);
+            addAndMakeVisible (o.waveformBox);
+
+            setupRotary (o.coarseSlider, o.coarseLabel, "Coarse");
+            setupRotary (o.fineSlider, o.fineLabel, "Fine");
+            setupRotary (o.panSlider, o.panLabel, "Pan");
+            setupRotary (o.levelSlider, o.levelLabel, "Level");
+
+            o.waveformAttachment = std::make_unique<ComboBoxAttachment> (
+                apvts, threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::waveform), o.waveformBox);
+            o.coarseAttachment = std::make_unique<SliderAttachment> (
+                apvts, threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::coarse), o.coarseSlider);
+            o.fineAttachment = std::make_unique<SliderAttachment> (
+                apvts, threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::fine), o.fineSlider);
+            o.panAttachment = std::make_unique<SliderAttachment> (
+                apvts, threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::pan), o.panSlider);
+            o.levelAttachment = std::make_unique<SliderAttachment> (
+                apvts, threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::level), o.levelSlider);
+
+            modTargets.push_back ({ threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::coarse), oscLabels[osc] + " Coarse", &o.coarseSlider });
+            modTargets.push_back ({ threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::fine),   oscLabels[osc] + " Fine",   &o.fineSlider });
+            modTargets.push_back ({ threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::pan),    oscLabels[osc] + " Pan",    &o.panSlider });
+            modTargets.push_back ({ threeOscOscParamId (slotIndex, osc, ThreeOscOscParam::level),  oscLabels[osc] + " Level",  &o.levelSlider });
+        }
+
+        setupRotary (attackSlider, attackLabel, "Attack");
+        setupRotary (decaySlider, decayLabel, "Decay");
+        setupRotary (sustainSlider, sustainLabel, "Sustain");
+        setupRotary (releaseSlider, releaseLabel, "Release");
+        setupRotary (fm1to2Slider, fm1to2Label, "FM 1>2");
+        setupRotary (fm2to3Slider, fm2to3Label, "FM 2>3");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        attackAttachment  = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::attack), attackSlider);
+        decayAttachment   = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::decay), decaySlider);
+        sustainAttachment = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::sustain), sustainSlider);
+        releaseAttachment = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::release), releaseSlider);
+        fm1to2Attachment  = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::fm1to2), fm1to2Slider);
+        fm2to3Attachment  = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::fm2to3), fm2to3Slider);
+        outputAttachment  = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::output), outputSlider);
+
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::attack),  "Attack",  &attackSlider });
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::decay),   "Decay",   &decaySlider });
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::sustain), "Sustain", &sustainSlider });
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::release), "Release", &releaseSlider });
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::fm1to2),  "FM 1>2",  &fm1to2Slider });
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::fm2to3),  "FM 2>3",  &fm2to3Slider });
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::output),  "Output",  &outputSlider });
+    }
+
+    void ThreeOscControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            auto& o = oscs[(size_t) osc];
+
+            auto waveformRow = area.removeFromTop (24);
+            o.nameLabel.setBounds (waveformRow.removeFromLeft (48));
+            o.waveformBox.setBounds (waveformRow);
+            area.removeFromTop (6);
+
+            auto knobRow = area.removeFromTop (106);
+            const int knobWidth = knobRow.getWidth() / 4;
+            layoutKnob (knobRow.removeFromLeft (knobWidth), o.coarseLabel, o.coarseSlider);
+            layoutKnob (knobRow.removeFromLeft (knobWidth), o.fineLabel, o.fineSlider);
+            layoutKnob (knobRow.removeFromLeft (knobWidth), o.panLabel, o.panSlider);
+            layoutKnob (knobRow, o.levelLabel, o.levelSlider);
+
+            area.removeFromTop (10);
+        }
+
+        auto envRow = area.removeFromTop (106);
+        const int envKnobWidth = envRow.getWidth() / 4;
+        layoutKnob (envRow.removeFromLeft (envKnobWidth), attackLabel, attackSlider);
+        layoutKnob (envRow.removeFromLeft (envKnobWidth), decayLabel, decaySlider);
+        layoutKnob (envRow.removeFromLeft (envKnobWidth), sustainLabel, sustainSlider);
+        layoutKnob (envRow, releaseLabel, releaseSlider);
+
+        area.removeFromTop (6);
+
+        auto fmRow = area.removeFromTop (106);
+        const int fmKnobWidth = fmRow.getWidth() / 3;
+        layoutKnob (fmRow.removeFromLeft (fmKnobWidth), fm1to2Label, fm1to2Slider);
+        layoutKnob (fmRow.removeFromLeft (fmKnobWidth), fm2to3Label, fm2to3Slider);
+        layoutKnob (fmRow, outputLabel, outputSlider);
+    }
 }

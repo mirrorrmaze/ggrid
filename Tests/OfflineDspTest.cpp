@@ -13,6 +13,7 @@
 #include "Modules/Eq8Module.h"
 #include "Modules/Eq3Module.h"
 #include "Modules/ChorusModule.h"
+#include "Modules/ThreeOscModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
@@ -1714,6 +1715,272 @@ int main()
 
         expect (! identical, "Chorus and Flanger modes produce different output at the same Feedback setting "
                               "(Flanger's feedback path is actually active, Chorus's is gated off)");
+    }
+
+    // --- 3xOsc: a held note produces audible, finite/bounded output, and settles toward silence
+    // after note-off once the release tail completes ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm1to2))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm2to3))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::output))->store (0.0f);
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f); // Sine
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        ThreeOscModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> heldBuffer (2, blockSize);
+        heldBuffer.clear();
+        {
+            juce::dsp::AudioBlock<float> block (heldBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            module.process (block, midi, modMatrix);
+        }
+        // A couple more held blocks so the (near-instant) attack/decay have settled into sustain.
+        for (int i = 0; i < 2; ++i)
+        {
+            heldBuffer.clear();
+            juce::dsp::AudioBlock<float> block (heldBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        const double heldRms = rms (heldBuffer, 0);
+        expect (isFiniteAndBounded (heldBuffer, 4.0f) && heldRms > 0.05,
+                "3xOsc produces audible finite/bounded output while a note is held (RMS " + juce::String (heldRms, 4) + ")");
+
+        // Release, then process enough blocks to run well past the 50ms release tail.
+        juce::AudioBuffer<float> releasedBuffer (2, blockSize);
+        const int blocksForRelease = (int) std::ceil ((0.05 * sampleRate * 4.0) / blockSize) + 1;
+        for (int i = 0; i < blocksForRelease; ++i)
+        {
+            releasedBuffer.clear();
+            juce::dsp::AudioBlock<float> block (releasedBuffer);
+            juce::MidiBuffer midi;
+            if (i == 0)
+                midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+            module.process (block, midi, modMatrix);
+        }
+
+        const double releasedRms = rms (releasedBuffer, 0);
+        expect (releasedRms < heldRms * 0.05,
+                "3xOsc settles toward silence well after note-off's release tail completes (held RMS "
+                    + juce::String (heldRms, 4) + ", released RMS " + juce::String (releasedRms, 4) + ")");
+    }
+
+    // --- 3xOsc: two simultaneously-held notes both contribute their own frequency content
+    // (polyphony actually works, not just "a" voice being retriggered) ---
+    {
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f); // Sine
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        auto runNotes = [&] (std::vector<int> notes) -> juce::AudioBuffer<float>
+        {
+            ThreeOscModule polyModule (apvts, 0);
+            polyModule.prepare (spec);
+
+            juce::AudioBuffer<float> buffer (2, blockSize * 4);
+            buffer.clear();
+            for (int chunk = 0; chunk < 4; ++chunk)
+            {
+                juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), 2, chunk * blockSize, blockSize);
+                juce::dsp::AudioBlock<float> block (sub);
+                juce::MidiBuffer midi;
+                if (chunk == 0)
+                    for (int n : notes)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) 100), 0);
+                polyModule.process (block, midi, modMatrix);
+            }
+            return buffer;
+        };
+
+        // Note 57 (A3, ~220Hz) and note 69 (A4, ~440Hz) together vs. each alone.
+        auto bothNotes = runNotes ({ 57, 69 });
+        auto onlyLow = runNotes ({ 57 });
+        auto onlyHigh = runNotes ({ 69 });
+
+        const int settle = blockSize; // skip the first block so onset transients don't skew magnitude
+        juce::AudioBuffer<float> bothTail (1, bothNotes.getNumSamples() - settle);
+        bothTail.copyFrom (0, 0, bothNotes, 0, settle, bothTail.getNumSamples());
+        juce::AudioBuffer<float> lowTail (1, onlyLow.getNumSamples() - settle);
+        lowTail.copyFrom (0, 0, onlyLow, 0, settle, lowTail.getNumSamples());
+        juce::AudioBuffer<float> highTail (1, onlyHigh.getNumSamples() - settle);
+        highTail.copyFrom (0, 0, onlyHigh, 0, settle, highTail.getNumSamples());
+
+        const double magLowInBoth = goertzelMagnitude (bothTail, 0, 220.0, sampleRate);
+        const double magHighInBoth = goertzelMagnitude (bothTail, 0, 440.0, sampleRate);
+        const double magLowAlone = goertzelMagnitude (lowTail, 0, 220.0, sampleRate);
+        const double magHighAlone = goertzelMagnitude (highTail, 0, 440.0, sampleRate);
+
+        expect (magLowInBoth > magLowAlone * 0.5 && magHighInBoth > magHighAlone * 0.5,
+                "3xOsc plays two simultaneously-held notes as genuine polyphony -- both notes' own "
+                "frequency content shows up together near as strongly as each does alone (220Hz: "
+                    + juce::String (magLowInBoth, 3) + " vs " + juce::String (magLowAlone, 3)
+                    + ", 440Hz: " + juce::String (magHighInBoth, 3) + " vs " + juce::String (magHighAlone, 3) + ")");
+    }
+
+    // --- 3xOsc: Coarse tune genuinely shifts pitch (+12 semitones -> one octave up) ---
+    {
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f); // Sine
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        auto runWithCoarse = [&] (float coarse) -> juce::AudioBuffer<float>
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, 0, ThreeOscOscParam::coarse))->store (coarse);
+
+            ThreeOscModule tuneModule (apvts, 0);
+            tuneModule.prepare (spec);
+
+            juce::AudioBuffer<float> buffer (2, blockSize * 3);
+            buffer.clear();
+            for (int chunk = 0; chunk < 3; ++chunk)
+            {
+                juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), 2, chunk * blockSize, blockSize);
+                juce::dsp::AudioBlock<float> block (sub);
+                juce::MidiBuffer midi;
+                if (chunk == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0); // middle C, ~261.63Hz
+                tuneModule.process (block, midi, modMatrix);
+            }
+            return buffer;
+        };
+
+        auto atZero = runWithCoarse (0.0f);
+        auto upOctave = runWithCoarse (12.0f);
+
+        const int settle = blockSize;
+        juce::AudioBuffer<float> zeroTail (1, atZero.getNumSamples() - settle);
+        zeroTail.copyFrom (0, 0, atZero, 0, settle, zeroTail.getNumSamples());
+        juce::AudioBuffer<float> octaveTail (1, upOctave.getNumSamples() - settle);
+        octaveTail.copyFrom (0, 0, upOctave, 0, settle, octaveTail.getNumSamples());
+
+        const double baseFreq = 261.63, octaveFreq = 523.25;
+        const double magBaseAtZero = goertzelMagnitude (zeroTail, 0, baseFreq, sampleRate);
+        const double magOctaveAtZero = goertzelMagnitude (zeroTail, 0, octaveFreq, sampleRate);
+        const double magBaseAtOctave = goertzelMagnitude (octaveTail, 0, baseFreq, sampleRate);
+        const double magOctaveAtOctave = goertzelMagnitude (octaveTail, 0, octaveFreq, sampleRate);
+
+        expect (magBaseAtZero > magOctaveAtZero * 3.0 && magOctaveAtOctave > magBaseAtOctave * 3.0,
+                "3xOsc Coarse +12 semitones shifts a held note's pitch up one octave (base-freq energy "
+                "dominates at Coarse=0, octave-freq energy dominates at Coarse=+12: "
+                    + juce::String (magBaseAtZero, 3) + "/" + juce::String (magOctaveAtZero, 3) + " vs "
+                    + juce::String (magBaseAtOctave, 3) + "/" + juce::String (magOctaveAtOctave, 3) + ")");
+    }
+
+    // --- 3xOsc: ADSR actually shapes amplitude over time -- a slow attack starts near-silent and
+    // rises, rather than jumping straight to full level ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.5f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        ThreeOscModule envModule (apvts, 0);
+        envModule.prepare (spec);
+
+        juce::AudioBuffer<float> earlyBuffer (2, blockSize);
+        earlyBuffer.clear();
+        {
+            juce::dsp::AudioBlock<float> block (earlyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            envModule.process (block, midi, modMatrix);
+        }
+
+        // Process forward well past the 0.5s attack ramp.
+        juce::AudioBuffer<float> laterBuffer (2, blockSize);
+        const int blocksToAdvance = (int) std::ceil ((0.5 * sampleRate * 2.0) / blockSize);
+        for (int i = 0; i < blocksToAdvance; ++i)
+        {
+            laterBuffer.clear();
+            juce::dsp::AudioBlock<float> block (laterBuffer);
+            juce::MidiBuffer midi;
+            envModule.process (block, midi, modMatrix);
+        }
+
+        const double earlyRms = rms (earlyBuffer, 0);
+        const double laterRms = rms (laterBuffer, 0);
+        expect (laterRms > earlyRms * 3.0,
+                "3xOsc's Attack knob genuinely ramps amplitude up over time rather than jumping straight "
+                "to full level (early-block RMS " + juce::String (earlyRms, 4) + ", post-attack RMS "
+                    + juce::String (laterRms, 4) + ")");
+    }
+
+    // --- 3xOsc: stays finite/bounded at extreme settings -- max FM depth, all 4 waveforms
+    // in play (Saw/Square PolyBLEP-corrected), a very high note (stresses PolyBLEP's dt clamp),
+    // and more simultaneously-triggered notes than there are voices (forces voice stealing) ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm1to2))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm2to3))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::output))->store (24.0f);
+
+        const int waveformForOsc[kNumThreeOscOscillators] = { 2, 3, 1 }; // Saw, Square, Triangle
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store ((float) waveformForOsc[osc]);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (osc == 0 ? 36.0f : -36.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (osc % 2 == 0 ? 100.0f : -100.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (osc % 2 == 0 ? 1.0f : -1.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (100.0f);
+        }
+
+        ThreeOscModule stressModule (apvts, 0);
+        stressModule.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int block = 0; block < 5; ++block)
+        {
+            buffer.clear();
+            juce::dsp::AudioBlock<float> dspBlock (buffer);
+            juce::MidiBuffer midi;
+            if (block == 0)
+                for (int n = 100; n < 120; ++n) // 20 distinct notes, more than kMaxThreeOscVoices (16)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) 127), 0);
+            stressModule.process (dspBlock, midi, modMatrix);
+        }
+
+        // Bound set generously above the ~190x peak this legitimately reaches at these settings
+        // (16 stolen voices x 3 oscillators x +24dB output x 100% FM overshoot, confirmed stable
+        // rather than growing across blocks when checked by hand) -- this check is for NaN/Inf/
+        // runaway growth, not for clamping legitimate extreme-stacking headroom (same reasoning
+        // as Multiband Convolution's own extreme-stress bound above).
+        expect (isFiniteAndBounded (buffer, 300.0f),
+                "3xOsc stays finite/bounded at extreme FM depth/output/tuning with more simultaneous "
+                "notes than voices (forces voice stealing)");
     }
 
     std::cout << std::endl;

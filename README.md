@@ -8,7 +8,7 @@ modulation, convolution, and more), wire them together however you like, and sha
 
 - **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
   Delay/Dynamics/Convolution/Multiband Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/
-  EQ 3, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
+  EQ 3/3xOsc, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
   output to another node's input to connect them. Up to 24 modules at once, including duplicates
   of the same type. Input and Output are ordinary addable/deletable node types like any other --
   a small compact box (rather than the wider boxes every other module gets) showing a live
@@ -129,6 +129,16 @@ modulation, convolution, and more), wire them together however you like, and sha
   Output.
 - **EQ 3** -- a simple 3-band tone EQ, EQ 8's lighter sibling: Low Shelf (~150Hz), Mid Bell
   (~1kHz), High Shelf (~4kHz), each just a gain knob, plus Mix/Output.
+- **3xOsc** -- a 16-voice polyphonic MIDI synth inspired by FL Studio's 3xOsc, GGrid's first
+  generator module. Unlike every other node, it doesn't process incoming audio at all -- it's a
+  graph *source* like Input (no input ports, ignores anything patched into it), generating its own
+  sound from the MIDI notes reaching the plugin. 3 independently tuned oscillators per voice
+  (Waveform, Coarse/Fine tune, Pan, Level), each phase-modulating the next (FM 1>2, FM 2>3) for
+  DX7-ish timbres, shaped by a shared Attack/Decay/Sustain/Release amp envelope, plus Output. Saw/
+  Square are PolyBLEP-corrected against audio-rate aliasing. Voice-stealing kicks in past 16
+  simultaneous notes (oldest triggered first). Lives in its own "Generators" category in the add-
+  node menu; wire it straight to an Output node (or anywhere else) -- no Input node needed
+  upstream, since it doesn't use one.
 - **MIDI Mod Matrix** -- its own tab (next to Rack), separate from the canvas: 6 routes, each
   Source (Note Pitch/Velocity/Mod Wheel/2 CC lanes) -> Destination (any slot's Filter Frequency/
   Feedback, Delay Time/Feedback, Waveshaper Drive, or Convolution Mix) -> bipolar Depth.

@@ -59,6 +59,7 @@ namespace GGrid
         chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
         eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
         multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex);
+        threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvts, slotIndex);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);
@@ -72,6 +73,7 @@ namespace GGrid
         addAndMakeVisible (*chorusPanel);
         addAndMakeVisible (*eq3Panel);
         addAndMakeVisible (*multibandConvolutionPanel);
+        addAndMakeVisible (*threeOscPanel);
 
         typeBox.onChange = [this] { updateVisiblePanel(); };
         updateVisiblePanel();
@@ -93,6 +95,7 @@ namespace GGrid
         chorusPanel->setVisible (type == ModuleType::chorus);
         eq3Panel->setVisible (type == ModuleType::eq3);
         multibandConvolutionPanel->setVisible (type == ModuleType::multibandConvolution);
+        threeOscPanel->setVisible (type == ModuleType::threeOsc);
     }
 
     int NodeComponent::getPreferredHeight() const
@@ -118,6 +121,8 @@ namespace GGrid
             case ModuleType::eq3:         contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::multibandConvolution:
                 contentHeight = 308; break; // splitBar(50)+gap(10)+irRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106) -- one shared knob set, retargeted per selected band
+            case ModuleType::threeOsc:
+                contentHeight = 656; break; // 3x[waveformRow(24)+gap(6)+knobRow(106)+gap(10)] + envRow(106)+gap(6)+fmRow(106)
             case ModuleType::input:
             case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:
@@ -157,6 +162,11 @@ namespace GGrid
         return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::output;
     }
 
+    bool NodeComponent::isThreeOscType() const
+    {
+        return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::threeOsc;
+    }
+
     juce::Point<int> NodeComponent::getModOutputPosition() const
     {
         return { getWidth(), getHeight() / 2 };
@@ -178,6 +188,7 @@ namespace GGrid
             case ModuleType::chorus:      return chorusPanel->getModTargetCount();
             case ModuleType::eq3:         return eq3Panel->getModTargetCount();
             case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTargetCount();
+            case ModuleType::threeOsc:    return threeOscPanel->getModTargetCount();
             default:                      return 0;
         }
     }
@@ -198,6 +209,7 @@ namespace GGrid
             case ModuleType::chorus:      return chorusPanel->getModTarget (index).paramId;
             case ModuleType::eq3:         return eq3Panel->getModTarget (index).paramId;
             case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTarget (index).paramId;
+            case ModuleType::threeOsc:    return threeOscPanel->getModTarget (index).paramId;
             default:                      return {};
         }
     }
@@ -219,6 +231,7 @@ namespace GGrid
             case ModuleType::chorus:      slider = chorusPanel->getModTarget (index).slider; break;
             case ModuleType::eq3:         slider = eq3Panel->getModTarget (index).slider; break;
             case ModuleType::multibandConvolution: slider = multibandConvolutionPanel->getModTarget (index).slider; break;
+            case ModuleType::threeOsc:    slider = threeOscPanel->getModTarget (index).slider; break;
             default:                      break;
         }
 
@@ -253,9 +266,9 @@ namespace GGrid
 
         // Input dots are a static visual only -- dragging always starts from an (separately
         // interactive) output nub, never from here. LFO nodes have no audio ports at all (they
-        // aren't part of the audio graph -- see LFOModule); Input nodes have no input ports at
-        // all (they're a source, not a destination -- see isInputType()).
-        if (! isLfoType() && ! isInputType())
+        // aren't part of the audio graph -- see LFOModule); Input/ThreeOsc nodes have no input
+        // ports at all (they're both sources, not destinations -- see hasNoInputPorts()).
+        if (! isLfoType() && ! hasNoInputPorts())
         {
             g.setColour (Palette::accent);
             for (int port = 0; port < kMaxPortsPerSide; ++port)
@@ -323,6 +336,7 @@ namespace GGrid
         chorusPanel->setBounds (contentArea);
         eq3Panel->setBounds (contentArea);
         multibandConvolutionPanel->setBounds (contentArea);
+        threeOscPanel->setBounds (contentArea);
 
         scope.setBounds (contentArea);
         scope.setVisible (isIOType);
