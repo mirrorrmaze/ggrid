@@ -117,7 +117,7 @@ namespace GGrid
             case ModuleType::chorus:      contentHeight = 268; break; // knobRow(106) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::eq3:         contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::multibandConvolution:
-                contentHeight = 824; break; // splitBar(50)+gap(10) + 3x[irRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106)] + 2 gaps(10)
+                contentHeight = 308; break; // splitBar(50)+gap(10)+irRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106) -- one shared knob set, retargeted per selected band
             case ModuleType::input:
             case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:

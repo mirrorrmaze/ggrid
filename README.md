@@ -92,11 +92,13 @@ modulation, convolution, and more), wire them together however you like, and sha
   a fixed 3 bands (Low/Mid/High) so it fits the rack's node format: an LR4 (24dB/oct) crossover
   splits the signal at 2 split points, shown as draggable markers on a frequency strip across the
   top of the node (drag them directly rather than turning a knob -- the strip is log-frequency-
-  mapped 20Hz-20kHz, same range the split parameters themselves cover) rather than a numeric knob.
-  Each band then runs its own full independent copy of Convolution's engine -- its own IR picker,
-  Tone, Fade In, Fade Out, Stretch, Mix, Output -- and the 3 bands sum back together at the output.
-  By far the tallest node in the rack (3 full band sections stacked), but every knob still exposes
-  itself as a modulation-cable destination like any other module.
+  mapped 20Hz-20kHz, same range the split parameters themselves cover). That same strip doubles as
+  a Low/Mid/High tab switcher -- click a band to select it (the lit-up region shows which is
+  active) and the single IR picker + Tone/Fade In/Fade Out/Stretch/Mix/Output knob set below
+  retargets to that band's own parameters, matching the original MultibandConvolver desktop app's
+  tabbed layout rather than showing all 3 bands' controls at once. Each band still runs its own
+  full independent copy of Convolution's engine internally and they sum back together at the
+  output -- only the on-screen controls are shared, not the underlying processing.
 - **Utility** -- Gain, Pan (balance, for already-stereo material), Width (mid/side stereo width,
   0-200%), Mono, and independent Phase Invert per channel. Mirrors Ableton's Utility device: pure
   gain-staging/imaging, no coloration of its own.

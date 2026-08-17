@@ -989,9 +989,29 @@ namespace GGrid
     }
 
     MultibandConvolutionControlsPanel::MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
-        : splitBar (apvts, slotIndex)
+        : apvtsRef (apvts), slotIndexValue (slotIndex), splitBar (apvts, slotIndex)
     {
         addAndMakeVisible (splitBar);
+
+        nameLabel.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+        nameLabel.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (nameLabel);
+
+        // The IR catalog itself doesn't depend on which band is selected -- only which entry is
+        // currently chosen does (that's the attachment setActiveBand() rebuilds) -- so this list
+        // is populated once, not per band-switch.
+        int itemId = 1;
+        juce::String lastCategory;
+        for (auto& entry : IRLibrary::getCatalog())
+        {
+            if (entry.category != lastCategory)
+            {
+                irBox.addSectionHeading (entry.category);
+                lastCategory = entry.category;
+            }
+            irBox.addItem (entry.displayName, itemId++);
+        }
+        addAndMakeVisible (irBox);
 
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
@@ -1003,62 +1023,65 @@ namespace GGrid
             addAndMakeVisible (label);
         };
 
+        setupRotary (toneSlider, toneLabel, "Tone");
+        setupRotary (fadeInSlider, fadeInLabel, "Fade In");
+        setupRotary (fadeOutSlider, fadeOutLabel, "Fade Out");
+        setupRotary (stretchSlider, stretchLabel, "Stretch");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        splitBar.onBandSelected = [this] (int band) { setActiveBand (band); };
+        setActiveBand (splitBar.getSelectedBand());
+    }
+
+    void MultibandConvolutionControlsPanel::setActiveBand (int band)
+    {
         using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
         using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
-        const auto bandLabels = getConvolutionBandLabels();
+        nameLabel.setText (getConvolutionBandLabels()[band], juce::dontSendNotification);
 
-        for (int b = 0; b < kNumConvolutionBands; ++b)
-        {
-            auto& band = bands[(size_t) b];
+        // Explicitly release the OLD attachments before constructing the new ones -- assigning
+        // straight into the unique_ptrs (`irAttachment = std::make_unique<...>(...)`) builds the
+        // new attachment first, while the old one is still alive and still a registered listener
+        // on the same slider/combo box. The new attachment's constructor syncs the knob's display
+        // via sendNotificationSync, which fires synchronously on EVERY current listener -- so the
+        // still-alive old attachment would receive the new band's value as if the user had just
+        // dragged the old band's knob there, and write it straight into the old band's parameter.
+        // That's what caused values to appear to "reset": switching to Mid silently overwrote
+        // Low's real values with Mid's, and switching back just displayed the damage.
+        irAttachment.reset();
+        toneAttachment.reset();
+        fadeInAttachment.reset();
+        fadeOutAttachment.reset();
+        stretchAttachment.reset();
+        mixAttachment.reset();
+        outputAttachment.reset();
 
-            band.nameLabel.setText (bandLabels[b], juce::dontSendNotification);
-            band.nameLabel.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
-            band.nameLabel.setJustificationType (juce::Justification::centredLeft);
-            addAndMakeVisible (band.nameLabel);
+        irAttachment = std::make_unique<ComboBoxAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::irIndex), irBox);
+        toneAttachment = std::make_unique<SliderAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::tone), toneSlider);
+        fadeInAttachment = std::make_unique<SliderAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::fadeIn), fadeInSlider);
+        fadeOutAttachment = std::make_unique<SliderAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::fadeOut), fadeOutSlider);
+        stretchAttachment = std::make_unique<SliderAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::stretch), stretchSlider);
+        mixAttachment = std::make_unique<SliderAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::mix), mixSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (
+            apvtsRef, multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::output), outputSlider);
 
-            int itemId = 1;
-            juce::String lastCategory;
-            for (auto& entry : IRLibrary::getCatalog())
-            {
-                if (entry.category != lastCategory)
-                {
-                    band.irBox.addSectionHeading (entry.category);
-                    lastCategory = entry.category;
-                }
-                band.irBox.addItem (entry.displayName, itemId++);
-            }
-            addAndMakeVisible (band.irBox);
-
-            setupRotary (band.toneSlider, band.toneLabel, "Tone");
-            setupRotary (band.fadeInSlider, band.fadeInLabel, "Fade In");
-            setupRotary (band.fadeOutSlider, band.fadeOutLabel, "Fade Out");
-            setupRotary (band.stretchSlider, band.stretchLabel, "Stretch");
-            setupRotary (band.mixSlider, band.mixLabel, "Mix");
-            setupRotary (band.outputSlider, band.outputLabel, "Output");
-
-            band.irAttachment = std::make_unique<ComboBoxAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::irIndex), band.irBox);
-            band.toneAttachment = std::make_unique<SliderAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::tone), band.toneSlider);
-            band.fadeInAttachment = std::make_unique<SliderAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeIn), band.fadeInSlider);
-            band.fadeOutAttachment = std::make_unique<SliderAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeOut), band.fadeOutSlider);
-            band.stretchAttachment = std::make_unique<SliderAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::stretch), band.stretchSlider);
-            band.mixAttachment = std::make_unique<SliderAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::mix), band.mixSlider);
-            band.outputAttachment = std::make_unique<SliderAttachment> (
-                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::output), band.outputSlider);
-
-            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::tone),     bandLabels[b] + " Tone",     &band.toneSlider });
-            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeIn),   bandLabels[b] + " Fade In",  &band.fadeInSlider });
-            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeOut),  bandLabels[b] + " Fade Out", &band.fadeOutSlider });
-            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::stretch),  bandLabels[b] + " Stretch",  &band.stretchSlider });
-            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::mix),      bandLabels[b] + " Mix",      &band.mixSlider });
-            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::output),   bandLabels[b] + " Output",   &band.outputSlider });
-        }
+        const auto bandLabel = getConvolutionBandLabels()[band];
+        modTargets = {
+            { multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::tone),     bandLabel + " Tone",     &toneSlider },
+            { multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::fadeIn),   bandLabel + " Fade In",  &fadeInSlider },
+            { multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::fadeOut),  bandLabel + " Fade Out", &fadeOutSlider },
+            { multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::stretch),  bandLabel + " Stretch",  &stretchSlider },
+            { multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::mix),      bandLabel + " Mix",      &mixSlider },
+            { multibandConvolutionBandParamId (slotIndexValue, band, MultibandConvolutionBandParam::output),   bandLabel + " Output",   &outputSlider },
+        };
     }
 
     void MultibandConvolutionControlsPanel::resized()
@@ -1068,6 +1091,11 @@ namespace GGrid
         splitBar.setBounds (area.removeFromTop (50));
         area.removeFromTop (10);
 
+        auto irRow = area.removeFromTop (24);
+        nameLabel.setBounds (irRow.removeFromLeft (40));
+        irBox.setBounds (irRow);
+        area.removeFromTop (6);
+
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
@@ -1075,30 +1103,17 @@ namespace GGrid
             slider.setBounds (col);
         };
 
-        for (int b = 0; b < kNumConvolutionBands; ++b)
-        {
-            auto& band = bands[(size_t) b];
+        auto topKnobRow = area.removeFromTop (106);
+        const int topKnobWidth = topKnobRow.getWidth() / 3;
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), toneLabel, toneSlider);
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), fadeInLabel, fadeInSlider);
+        layoutKnob (topKnobRow, fadeOutLabel, fadeOutSlider);
+        area.removeFromTop (6);
 
-            auto irRow = area.removeFromTop (24);
-            band.nameLabel.setBounds (irRow.removeFromLeft (40));
-            band.irBox.setBounds (irRow);
-            area.removeFromTop (6);
-
-            auto topKnobRow = area.removeFromTop (106);
-            const int topKnobWidth = topKnobRow.getWidth() / 3;
-            layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), band.toneLabel, band.toneSlider);
-            layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), band.fadeInLabel, band.fadeInSlider);
-            layoutKnob (topKnobRow, band.fadeOutLabel, band.fadeOutSlider);
-            area.removeFromTop (6);
-
-            auto bottomKnobRow = area.removeFromTop (106);
-            const int bottomKnobWidth = bottomKnobRow.getWidth() / 3;
-            layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), band.stretchLabel, band.stretchSlider);
-            layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), band.mixLabel, band.mixSlider);
-            layoutKnob (bottomKnobRow, band.outputLabel, band.outputSlider);
-
-            if (b < kNumConvolutionBands - 1)
-                area.removeFromTop (10);
-        }
+        auto bottomKnobRow = area.removeFromTop (106);
+        const int bottomKnobWidth = bottomKnobRow.getWidth() / 3;
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), stretchLabel, stretchSlider);
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
+        layoutKnob (bottomKnobRow, outputLabel, outputSlider);
     }
 }

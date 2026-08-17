@@ -18,6 +18,12 @@ namespace GGrid
     // control this maps onto. Polls both params on a Timer (matching IRWaveformComponent's
     // established pattern) so host automation or a preset load moving either split point outside
     // of a drag still repaints promptly.
+    //
+    // Also doubles as the band tab-switcher: clicking anywhere in a band's region (away from
+    // either marker) selects it -- MultibandConvolutionControlsPanel listens via onBandSelected
+    // and retargets its single shared knob set to that band's parameters, matching the original
+    // MultibandConvolver desktop app's tabbed layout instead of showing all 3 bands' controls
+    // stacked at once.
     class CrossoverSplitBar : public juce::Component, private juce::Timer
     {
     public:
@@ -32,6 +38,11 @@ namespace GGrid
         void mouseUp (const juce::MouseEvent&) override;
         void mouseMove (const juce::MouseEvent&) override;
 
+        int getSelectedBand() const { return selectedBand; }
+
+        // Fired when a click (not a marker drag) picks a different band -- see class comment.
+        std::function<void (int)> onBandSelected;
+
     private:
         void timerCallback() override;
 
@@ -41,11 +52,15 @@ namespace GGrid
         // Index (0 or 1) of whichever marker is nearest the given x, if within grab range.
         int hitTestMarker (float x) const;
 
+        // Which of the 3 band regions (0/1/2) a given x falls into, ignoring markers entirely.
+        int bandForX (float x) const;
+
         juce::RangedAudioParameter* splitParams[2] = { nullptr, nullptr };
         float lastSeenValue[2] = { -1.0f, -1.0f };
 
         int draggingMarker = -1; // -1 = not dragging
         int hoveredMarker = -1;
+        int selectedBand = 0;
 
         static constexpr float grabToleranceX = 7.0f;
         // Split 2's Hz must stay at least this multiple above Split 1's -- mirrors

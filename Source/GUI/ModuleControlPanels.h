@@ -376,13 +376,13 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Eq3ControlsPanel)
     };
 
-    // Multiband Convolution controls: a CrossoverSplitBar for the 2 draggable split points (Low/
-    // Mid/High), then one section per band -- an IR dropdown and the same Tone/Fade In/Fade Out/
-    // Stretch/Mix/Output knob set ConvolutionControlsPanel uses, minus that panel's waveform
-    // display and prev/next/open-folder buttons (3 waveforms would make this by far the tallest
-    // node in the rack for little benefit -- the split bar already shows where each band sits).
-    // See the user's own scoping answers this was built from: fixed 3 bands but still draggable,
-    // and the full per-band knob set rather than an "essentials only" trim.
+    // Multiband Convolution controls: a CrossoverSplitBar for the 2 draggable split points, which
+    // doubles as a Low/Mid/High tab switcher -- ONE shared IR dropdown + Tone/Fade In/Fade Out/
+    // Stretch/Mix/Output knob set (matching ConvolutionControlsPanel's own knob set, minus its
+    // waveform display and prev/next/open-folder buttons) that retargets to whichever band is
+    // currently selected, exactly like the original MultibandConvolver desktop app's tabbed
+    // layout -- rather than showing all 3 bands' controls stacked at once, which was the first
+    // version built here and is what this replaced.
     class MultibandConvolutionControlsPanel : public juce::Component
     {
     public:
@@ -390,25 +390,36 @@ namespace GGrid
 
         void resized() override;
 
+        // Scoped to the currently selected band's 6 knobs only -- a cable already patched to a
+        // hidden band's parameter keeps working (ModulationMatrix is keyed by paramId, not by
+        // whether this GUI happens to be showing it), it just has nowhere valid to draw its nub
+        // to until that band is selected again (NodeGraphEditor::modTargetPositionFor falls back
+        // to the node's own corner in that case rather than failing).
         int getModTargetCount() const { return (int) modTargets.size(); }
         const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
-        struct BandControls
-        {
-            juce::Label nameLabel;
-            juce::ComboBox irBox;
-            juce::Label toneLabel { {}, "Tone" }, fadeInLabel { {}, "Fade In" }, fadeOutLabel { {}, "Fade Out" },
-                        stretchLabel { {}, "Stretch" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
-            juce::Slider toneSlider, fadeInSlider, fadeOutSlider, stretchSlider, mixSlider, outputSlider;
+        // Rebuilds the 6 attachments (and modTargets) to point at `band`'s parameters instead of
+        // whichever band was previously showing -- called once at construction and again every
+        // time CrossoverSplitBar's onBandSelected fires. Recreating a SliderAttachment/
+        // ComboBoxAttachment both rewires the knob and immediately syncs its displayed value from
+        // the new parameter, so the knobs visibly snap to the newly-selected band's values.
+        void setActiveBand (int band);
 
-            std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> irAttachment;
-            std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
-                toneAttachment, fadeInAttachment, fadeOutAttachment, stretchAttachment, mixAttachment, outputAttachment;
-        };
+        juce::AudioProcessorValueTreeState& apvtsRef;
+        int slotIndexValue;
 
         CrossoverSplitBar splitBar;
-        std::array<BandControls, kNumConvolutionBands> bands;
+
+        juce::Label nameLabel;
+        juce::ComboBox irBox;
+        juce::Label toneLabel { {}, "Tone" }, fadeInLabel { {}, "Fade In" }, fadeOutLabel { {}, "Fade Out" },
+                    stretchLabel { {}, "Stretch" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+        juce::Slider toneSlider, fadeInSlider, fadeOutSlider, stretchSlider, mixSlider, outputSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> irAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            toneAttachment, fadeInAttachment, fadeOutAttachment, stretchAttachment, mixAttachment, outputAttachment;
 
         std::vector<ModTarget> modTargets;
 

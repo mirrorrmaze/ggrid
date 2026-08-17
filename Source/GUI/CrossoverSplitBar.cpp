@@ -59,11 +59,32 @@ namespace GGrid
         return best;
     }
 
+    int CrossoverSplitBar::bandForX (float x) const
+    {
+        if (x < xForParam (*splitParams[0]))
+            return 0;
+        if (x < xForParam (*splitParams[1]))
+            return 1;
+        return 2;
+    }
+
     void CrossoverSplitBar::mouseDown (const juce::MouseEvent& e)
     {
         draggingMarker = hitTestMarker ((float) e.x);
         if (draggingMarker >= 0)
+        {
             splitParams[(size_t) draggingMarker]->beginChangeGesture();
+            return;
+        }
+
+        const int clickedBand = bandForX ((float) e.x);
+        if (clickedBand != selectedBand)
+        {
+            selectedBand = clickedBand;
+            if (onBandSelected)
+                onBandSelected (selectedBand);
+            repaint();
+        }
     }
 
     void CrossoverSplitBar::mouseDrag (const juce::MouseEvent& e)
@@ -127,18 +148,21 @@ namespace GGrid
             { x2, bounds.getY(), bounds.getRight() - x2, bounds.getHeight() }
         };
 
-        // Faint alternating tint per band so the 3 regions read at a glance, no legend needed.
-        const juce::Colour bandFills[3] { Palette::dimmer.withAlpha (0.35f), Palette::dimmer.withAlpha (0.6f), Palette::dimmer.withAlpha (0.35f) };
-
-        g.setFont (juce::Font (juce::FontOptions (11.0f)));
         for (int b = 0; b < 3; ++b)
         {
             if (bandAreas[b].getWidth() <= 0.0f)
                 continue;
 
-            g.setColour (bandFills[b]);
+            // The selected band reads as a raised/lit tab (brighter fill, bold bright text) --
+            // the other two sit back as faint, clickable-but-inactive regions. See
+            // MultibandConvolutionControlsPanel, whose single shared knob set currently reflects
+            // whichever band is lit here.
+            const bool active = b == selectedBand;
+            g.setColour (active ? Palette::dimmer.withAlpha (0.9f) : Palette::dimmer.withAlpha (0.3f));
             g.fillRect (bandAreas[b]);
-            g.setColour (Palette::dim);
+
+            g.setColour (active ? Palette::bright : Palette::dim);
+            g.setFont (juce::Font (juce::FontOptions (11.0f, active ? juce::Font::bold : juce::Font::plain)));
             g.drawText (labels[b], bandAreas[b].toNearestInt(), juce::Justification::centred);
         }
 
