@@ -1,6 +1,6 @@
 # GGrid
 
-A modular distortion VST3/Standalone plugin built with JUCE: build a signal chain out of up to 8
+A modular processing-rack VST3/Standalone plugin built with JUCE: build a signal chain out of up to 8
 rack slots, drop in whichever modules you want (in whatever order), and mangle the sound.
 
 ## Features
