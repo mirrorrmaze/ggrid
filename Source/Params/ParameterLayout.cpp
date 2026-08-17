@@ -586,6 +586,22 @@ namespace GGrid
             NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
 
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::monoLegato), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Mono/Legato",
+            false));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::glide), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Glide",
+            false));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { threeOscParamId (slotIndex, ThreeOscParam::glideTimeMs), 1 },
+            "Slot " + String (slotIndex + 1) + " 3xOsc Glide Time",
+            skewedRange (1.0f, 2000.0f, 100.0f), 50.0f,
+            AudioParameterFloatAttributes().withLabel ("ms")));
+
         for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
         {
             const auto oscLabel = getThreeOscOscLabels()[osc];

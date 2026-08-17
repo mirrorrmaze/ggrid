@@ -507,6 +507,13 @@ namespace GGrid
             attackAttachment, decayAttachment, sustainAttachment, releaseAttachment,
             fm1to2Attachment, fm2to3Attachment, outputAttachment;
 
+        juce::ToggleButton monoLegatoButton { "Mono/Legato" }, glideButton { "Glide" };
+        juce::Label glideTimeLabel { {}, "Glide Time" };
+        juce::Slider glideTimeSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoLegatoAttachment, glideAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> glideTimeAttachment;
+
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThreeOscControlsPanel)

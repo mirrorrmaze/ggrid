@@ -128,7 +128,8 @@ namespace GGrid
             case ModuleType::multibandConvolution:
                 contentHeight = 308; break; // splitBar(50)+gap(10)+irRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106) -- one shared knob set, retargeted per selected band
             case ModuleType::threeOsc:
-                contentHeight = 656; break; // 3x[waveformRow(24)+gap(6)+knobRow(106)+gap(10)] + envRow(106)+gap(6)+fmRow(106)
+                contentHeight = 714; break; // 3x[waveformRow(24)+gap(6)+knobRow(106)+gap(10)] + envRow(106)+gap(6)+fmRow(106)
+                                             // + gap(6)+monoRow(24)+gap(4)+glideTimeRow(24)
             case ModuleType::adsr:        contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::envelope:
                 contentHeight = 276; break; // editor(160) + gap(10) + knobRow(106)

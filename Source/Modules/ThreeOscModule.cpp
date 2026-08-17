@@ -35,7 +35,10 @@ namespace GGrid
           releaseParam (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::release))),
           fm1to2Param  (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::fm1to2))),
           fm2to3Param  (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::fm2to3))),
-          outputParam  (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::output)))
+          outputParam  (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::output))),
+          monoLegatoParam  (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::monoLegato))),
+          glideParam       (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::glide))),
+          glideTimeMsParam (apvtsIn.getRawParameterValue (threeOscParamId (slotIndexIn, ThreeOscParam::glideTimeMs)))
     {
         for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
         {
@@ -58,6 +61,13 @@ namespace GGrid
             for (auto& p : voice.phase)
                 p = 0.0;
         }
+
+        heldNoteStackSize = 0;
+        // A short initial ramp length just to satisfy juce::SmoothedValue's "must call reset()
+        // before use" contract -- the real Glide Time is set fresh at each legato retarget (see
+        // handleMonoNoteOn/handleMonoNoteOff), so this value never actually matters in practice.
+        monoNoteNumberSmoothed.reset (sampleRate, 0.001);
+        monoNoteNumberSmoothed.setCurrentAndTargetValue (60.0f);
     }
 
     void ThreeOscModule::reset()
@@ -67,6 +77,7 @@ namespace GGrid
             voice.active = false;
             voice.envelope.reset();
         }
+        heldNoteStackSize = 0;
     }
 
     float ThreeOscModule::oscillatorSample (int waveform, double phase, double phaseIncrement, double modOffset)
@@ -120,6 +131,10 @@ namespace GGrid
         r.outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load()
             + modMatrix.getOffsetForParam (threeOscParamId (slotIndex, ThreeOscParam::output), 12.0f)));
 
+        r.monoLegato = monoLegatoParam->load() >= 0.5f;
+        r.glide = glideParam->load() >= 0.5f;
+        r.glideTimeMs = juce::jmax (1.0f, glideTimeMsParam->load());
+
         for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
         {
             r.waveform[(size_t) osc] = (int) waveformParams[(size_t) osc]->load();
@@ -159,6 +174,13 @@ namespace GGrid
         if (message.isNoteOn())
         {
             const int note = message.getNoteNumber();
+
+            if (resolved.monoLegato)
+            {
+                handleMonoNoteOn (note, message.getFloatVelocity(), resolved);
+                return;
+            }
+
             auto& voice = voices[(size_t) findVoiceForNoteOn()];
 
             // Hard-reset rather than reusing whatever state a stolen voice was in -- juce::ADSR
@@ -179,6 +201,13 @@ namespace GGrid
         else if (message.isNoteOff())
         {
             const int note = message.getNoteNumber();
+
+            if (resolved.monoLegato)
+            {
+                handleMonoNoteOff (note, resolved);
+                return;
+            }
+
             for (auto& voice : voices)
                 if (voice.active && voice.noteNumber == note)
                     voice.envelope.noteOff();
@@ -188,23 +217,126 @@ namespace GGrid
             for (auto& voice : voices)
                 if (voice.active)
                     voice.envelope.noteOff();
+            heldNoteStackSize = 0;
         }
+    }
+
+    void ThreeOscModule::handleMonoNoteOn (int note, float velocity, const ResolvedParams& resolved)
+    {
+        const bool wasEmpty = (heldNoteStackSize == 0);
+
+        // Remove any existing occurrence of this note (defensive against duplicate note-ons) then
+        // push it as the new top of the stack.
+        for (int i = 0; i < heldNoteStackSize; ++i)
+        {
+            if (heldNoteStack[(size_t) i] == note)
+            {
+                for (int j = i; j < heldNoteStackSize - 1; ++j)
+                    heldNoteStack[(size_t) j] = heldNoteStack[(size_t) (j + 1)];
+                --heldNoteStackSize;
+                break;
+            }
+        }
+        if (heldNoteStackSize < kMaxThreeOscVoices)
+            heldNoteStack[(size_t) heldNoteStackSize++] = note;
+
+        auto& voice = voices[0];
+        voice.velocity = velocity;
+        voice.noteNumber = note;
+
+        if (wasEmpty)
+        {
+            // First note of a run -- full trigger, same as a poly voice: envelope reset+noteOn,
+            // phase reset, and the pitch snaps instantly (there's nothing to glide from yet).
+            voice.envelope.reset();
+            voice.active = true;
+            voice.triggerOrder = nextTriggerOrder++;
+            for (auto& p : voice.phase)
+                p = 0.0;
+
+            voice.envelope.setSampleRate (sampleRate);
+            voice.envelope.setParameters ({ resolved.attack, resolved.decay, resolved.sustain / 100.0f, resolved.release });
+            voice.envelope.noteOn();
+            monoNoteNumberSmoothed.setCurrentAndTargetValue ((float) note);
+        }
+        else
+        {
+            // Legato retarget -- envelope and phase are left running; only the pitch moves.
+            if (resolved.glide)
+            {
+                monoNoteNumberSmoothed.reset (sampleRate, (double) resolved.glideTimeMs / 1000.0);
+                monoNoteNumberSmoothed.setTargetValue ((float) note);
+            }
+            else
+            {
+                monoNoteNumberSmoothed.setCurrentAndTargetValue ((float) note);
+            }
+        }
+    }
+
+    void ThreeOscModule::handleMonoNoteOff (int note, const ResolvedParams& resolved)
+    {
+        for (int i = 0; i < heldNoteStackSize; ++i)
+        {
+            if (heldNoteStack[(size_t) i] == note)
+            {
+                for (int j = i; j < heldNoteStackSize - 1; ++j)
+                    heldNoteStack[(size_t) j] = heldNoteStack[(size_t) (j + 1)];
+                --heldNoteStackSize;
+                break;
+            }
+        }
+
+        auto& voice = voices[0];
+
+        if (heldNoteStackSize == 0)
+        {
+            voice.envelope.noteOff();
+        }
+        else
+        {
+            // Fall back to whichever other held note was pressed most recently (last-note
+            // priority) rather than cutting off -- classic mono/legato behaviour.
+            const int newTopNote = heldNoteStack[(size_t) (heldNoteStackSize - 1)];
+            voice.noteNumber = newTopNote;
+            if (resolved.glide)
+            {
+                monoNoteNumberSmoothed.reset (sampleRate, (double) resolved.glideTimeMs / 1000.0);
+                monoNoteNumberSmoothed.setTargetValue ((float) newTopNote);
+            }
+            else
+            {
+                monoNoteNumberSmoothed.setCurrentAndTargetValue ((float) newTopNote);
+            }
+        }
+    }
+
+    float ThreeOscModule::noteNumberToHz (float fractionalNoteNumber)
+    {
+        return 440.0f * std::pow (2.0f, (fractionalNoteNumber - 69.0f) / 12.0f);
     }
 
     void ThreeOscModule::renderRange (juce::dsp::AudioBlock<float>& block, int startSample, int endSample, const ResolvedParams& resolved)
     {
         const int numChannels = (int) block.getNumChannels();
+        // Mono/Legato uses only voices[0] -- see the class comment. Restricting the loop bound
+        // (rather than checking resolved.monoLegato per-voice) also guarantees
+        // monoNoteNumberSmoothed.getNextValue() below is called exactly once per sample.
+        const int voiceCount = resolved.monoLegato ? 1 : kMaxThreeOscVoices;
 
         for (int i = startSample; i < endSample; ++i)
         {
             float accumL = 0.0f, accumR = 0.0f;
 
-            for (auto& voice : voices)
+            for (int v = 0; v < voiceCount; ++v)
             {
+                auto& voice = voices[(size_t) v];
                 if (! voice.active)
                     continue;
 
-                const double baseFreq = juce::MidiMessage::getMidiNoteInHertz (voice.noteNumber);
+                const double baseFreq = resolved.monoLegato
+                    ? (double) noteNumberToHz (monoNoteNumberSmoothed.getNextValue())
+                    : juce::MidiMessage::getMidiNoteInHertz (voice.noteNumber);
 
                 std::array<double, kNumThreeOscOscillators> dt {};
                 for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)

@@ -229,9 +229,13 @@ namespace GGrid
         static const juce::String depth    = "depth";
     }
 
+    // Append-only, like ModuleType -- a saved shape choice index must keep meaning the same thing
+    // across versions. Ramp Up/Ramp Down are separate entries from Saw (mathematically identical
+    // to Ramp Up) rather than a rename, so existing automation pointing at Saw's index 3 isn't
+    // disturbed.
     inline juce::StringArray getLfoShapeChoices()
     {
-        return { "Sine", "Triangle", "Square", "Saw", "Sample & Hold" };
+        return { "Sine", "Triangle", "Square", "Saw", "Sample & Hold", "Ramp Up", "Ramp Down" };
     }
 
     inline juce::String lossyParamId (int slotIndex, const juce::String& paramName)
@@ -399,6 +403,18 @@ namespace GGrid
         static const juce::String fm1to2  = "fm1to2"; // osc 1's output phase-modulates osc 2
         static const juce::String fm2to3  = "fm2to3"; // osc 2's output phase-modulates osc 3
         static const juce::String output  = "output";
+
+        // Mono/Legato collapses all 16 voices into one: a new note-on while another is still
+        // held retargets that single voice's pitch instead of triggering a new one (no envelope
+        // retrigger, no phase reset) -- classic monosynth behaviour, last-held-note priority via
+        // a small note stack (releasing one note of an overlapping run falls back to whichever
+        // other held note was pressed most recently, not silence, as long as one remains held).
+        static const juce::String monoLegato = "monoLegato";
+        // Glide only affects Mono/Legato's pitch retargeting (poly voices always start directly
+        // at their own note's pitch) -- when on, the retarget ramps over Glide Time instead of
+        // snapping immediately.
+        static const juce::String glide       = "glide";
+        static const juce::String glideTimeMs = "glideTimeMs";
     }
 
     inline juce::String threeOscOscParamId (int slotIndex, int oscIndex, const juce::String& paramName)

@@ -1220,6 +1220,7 @@ namespace GGrid
         };
 
         using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
         using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
         const auto oscLabels = getThreeOscOscLabels();
@@ -1284,6 +1285,22 @@ namespace GGrid
         modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::fm1to2),  "FM 1>2",  &fm1to2Slider });
         modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::fm2to3),  "FM 2>3",  &fm2to3Slider });
         modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::output),  "Output",  &outputSlider });
+
+        addAndMakeVisible (monoLegatoButton);
+        addAndMakeVisible (glideButton);
+
+        glideTimeSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        glideTimeSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 20);
+        glideTimeLabel.setText ("Glide Time", juce::dontSendNotification);
+        glideTimeLabel.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (glideTimeSlider);
+        addAndMakeVisible (glideTimeLabel);
+
+        monoLegatoAttachment = std::make_unique<ButtonAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::monoLegato), monoLegatoButton);
+        glideAttachment      = std::make_unique<ButtonAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::glide), glideButton);
+        glideTimeAttachment  = std::make_unique<SliderAttachment> (apvts, threeOscParamId (slotIndex, ThreeOscParam::glideTimeMs), glideTimeSlider);
+
+        modTargets.push_back ({ threeOscParamId (slotIndex, ThreeOscParam::glideTimeMs), "Glide Time", &glideTimeSlider });
     }
 
     void ThreeOscControlsPanel::resized()
@@ -1330,5 +1347,18 @@ namespace GGrid
         layoutKnob (fmRow.removeFromLeft (fmKnobWidth), fm1to2Label, fm1to2Slider);
         layoutKnob (fmRow.removeFromLeft (fmKnobWidth), fm2to3Label, fm2to3Slider);
         layoutKnob (fmRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto monoRow = area.removeFromTop (24);
+        monoLegatoButton.setBounds (monoRow.removeFromLeft (110));
+        monoRow.removeFromLeft (8);
+        auto glideCol = monoRow.removeFromLeft (110);
+        glideButton.setBounds (glideCol);
+
+        area.removeFromTop (4);
+        auto glideTimeRow = area.removeFromTop (24);
+        glideTimeRow.removeFromLeft (110 + 8); // align under the Glide button, past Mono/Legato + gap
+        glideTimeLabel.setBounds (glideTimeRow.removeFromLeft (66));
+        glideTimeSlider.setBounds (glideTimeRow);
     }
 }

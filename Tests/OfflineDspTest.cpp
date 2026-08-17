@@ -1341,6 +1341,58 @@ int main()
         expect (bounded, "LFO Sample & Hold stays within [-1, 1]");
     }
 
+    // --- LFO: Ramp Up climbs from strongly negative near phase 0 to strongly positive near phase 1 ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (5.0f); // Ramp Up
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateMode))->store (0.0f); // Free
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (1.0f); // 1s period
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        LFOModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        float earlyValue = 0.0f, lateValue = 0.0f;
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int chunk = 0; chunk < 80; ++chunk) // stays within the first ~0.93s of the 1s period
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+            if (chunk == 0) earlyValue = module.getCurrentValue();
+            if (chunk == 79) lateValue = module.getCurrentValue();
+        }
+
+        expect (earlyValue < -0.7f && lateValue > 0.7f,
+                "LFO Ramp Up climbs from strongly negative near phase 0 to strongly positive near phase 1 (early "
+                    + juce::String (earlyValue, 3) + ", late " + juce::String (lateValue, 3) + ")");
+    }
+
+    // --- LFO: Ramp Down falls from strongly positive near phase 0 to strongly negative near phase 1 ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (6.0f); // Ramp Down
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateMode))->store (0.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (1.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        LFOModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        float earlyValue = 0.0f, lateValue = 0.0f;
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int chunk = 0; chunk < 80; ++chunk)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+            if (chunk == 0) earlyValue = module.getCurrentValue();
+            if (chunk == 79) lateValue = module.getCurrentValue();
+        }
+
+        expect (earlyValue > 0.7f && lateValue < -0.7f,
+                "LFO Ramp Down falls from strongly positive near phase 0 to strongly negative near phase 1 (early "
+                    + juce::String (earlyValue, 3) + ", late " + juce::String (lateValue, 3) + ")");
+    }
+
     // --- Modulation cable: an LFO routed to Filter Frequency actually moves the cutoff ---
     {
         apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (2.0f); // Square -- deterministic +1/-1, no phase-timing ambiguity
@@ -1984,6 +2036,250 @@ int main()
         expect (isFiniteAndBounded (buffer, 300.0f),
                 "3xOsc stays finite/bounded at extreme FM depth/output/tuning with more simultaneous "
                 "notes than voices (forces voice stealing)");
+    }
+
+    // --- 3xOsc Mono/Legato: a second held note retargets the single voice instead of adding a
+    // simultaneous second one ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::monoLegato))->store (1.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::glide))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm1to2))->store (0.0f); // preceding test leaves this at 100%
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm2to3))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::output))->store (0.0f); // preceding test leaves this at +24dB
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f); // Sine
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        ThreeOscModule monoModule (apvts, 0);
+        monoModule.prepare (spec);
+
+        const int totalChunks = 6;
+        juce::AudioBuffer<float> buffer (2, blockSize * totalChunks);
+        buffer.clear();
+        for (int chunk = 0; chunk < totalChunks; ++chunk)
+        {
+            juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), 2, chunk * blockSize, blockSize);
+            juce::dsp::AudioBlock<float> block (sub);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0); // A3, ~220Hz
+            if (chunk == 1)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 69, (juce::uint8) 100), 0); // A4, ~440Hz -- legato retarget, no note-off for 57
+            monoModule.process (block, midi, modMatrix);
+        }
+
+        const int settle = blockSize * 3; // well past the retarget's instant snap
+        juce::AudioBuffer<float> tail (1, buffer.getNumSamples() - settle);
+        tail.copyFrom (0, 0, buffer, 0, settle, tail.getNumSamples());
+
+        const double magLow = goertzelMagnitude (tail, 0, 220.0, sampleRate);
+        const double magHigh = goertzelMagnitude (tail, 0, 440.0, sampleRate);
+
+        expect (magHigh > magLow * 3.0,
+                "3xOsc Mono/Legato retargets its single voice to the newest note rather than adding a second "
+                "simultaneous voice -- 440Hz dominates over 220Hz well after the retarget (220Hz "
+                    + juce::String (magLow, 3) + ", 440Hz " + juce::String (magHigh, 3) + ")");
+    }
+
+    // --- 3xOsc Mono/Legato: retargeting via a legato note-on does not retrigger the amp envelope ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::monoLegato))->store (1.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::glide))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.3f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm1to2))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm2to3))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::output))->store (0.0f);
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        ThreeOscModule legatoModule (apvts, 0);
+        legatoModule.prepare (spec);
+
+        juce::AudioBuffer<float> midBuffer (2, blockSize);
+        for (int chunk = 0; chunk < 10; ++chunk)
+        {
+            juce::AudioBuffer<float> scratch (2, blockSize);
+            scratch.clear();
+            juce::dsp::AudioBlock<float> block (scratch);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            legatoModule.process (block, midi, modMatrix);
+            if (chunk == 9)
+                midBuffer = scratch; // still ~120ms into a 300ms attack -- partway up, nowhere near silent
+        }
+
+        juce::AudioBuffer<float> postBuffer (2, blockSize);
+        postBuffer.clear();
+        {
+            juce::dsp::AudioBlock<float> block (postBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 0); // legato retarget, note 60 still held
+            legatoModule.process (block, midi, modMatrix);
+        }
+
+        const double midRms = rms (midBuffer, 0);
+        const double postRms = rms (postBuffer, 0);
+
+        expect (postRms > midRms * 0.5,
+                "3xOsc Mono/Legato's legato retarget does not retrigger the amp envelope -- amplitude right "
+                "after the legato note-on (RMS " + juce::String (postRms, 4) + ") stays close to where the "
+                "still-mid-attack envelope already was (RMS " + juce::String (midRms, 4)
+                    + "), rather than resetting near zero like a fresh trigger would");
+    }
+
+    // --- 3xOsc Mono/Legato: releasing one note of an overlapping run falls back to the other held
+    // note rather than cutting to silence ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::monoLegato))->store (1.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::glide))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm1to2))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm2to3))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::output))->store (0.0f);
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        ThreeOscModule fallbackModule (apvts, 0);
+        fallbackModule.prepare (spec);
+
+        const int totalChunks = 10;
+        juce::AudioBuffer<float> buffer (2, blockSize * totalChunks);
+        buffer.clear();
+        for (int chunk = 0; chunk < totalChunks; ++chunk)
+        {
+            juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), 2, chunk * blockSize, blockSize);
+            juce::dsp::AudioBlock<float> block (sub);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0); // middle C, held throughout
+            if (chunk == 2)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 0); // legato retarget on top
+            if (chunk == 5)
+                midi.addEvent (juce::MidiMessage::noteOff (1, 64), 0); // release the newer note -- 60 is still held
+            fallbackModule.process (block, midi, modMatrix);
+        }
+
+        const int settle = blockSize * 8; // well after the fallback retarget's instant snap
+        juce::AudioBuffer<float> tail (1, buffer.getNumSamples() - settle);
+        tail.copyFrom (0, 0, buffer, 0, settle, tail.getNumSamples());
+
+        const double tailRms = rms (tail, 0);
+        const double magFallback = goertzelMagnitude (tail, 0, 261.63, sampleRate); // middle C
+
+        expect (tailRms > 0.05,
+                "3xOsc Mono/Legato keeps sounding after releasing one note of an overlapping run, as long as "
+                "another note is still held (tail RMS " + juce::String (tailRms, 4) + ")");
+        expect (magFallback > 0.1,
+                "3xOsc Mono/Legato falls back to the still-held note's own pitch after the newer note releases "
+                "(middle-C magnitude " + juce::String (magFallback, 3) + ")");
+    }
+
+    // --- 3xOsc Mono/Legato: Glide ramps pitch smoothly over Glide Time, unlike Glide off which
+    // snaps to the new pitch immediately on retarget ---
+    {
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::monoLegato))->store (1.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::release))->store (0.05f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm1to2))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::fm2to3))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::output))->store (0.0f);
+        apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::glideTimeMs))->store (300.0f);
+        for (int osc = 0; osc < kNumThreeOscOscillators; ++osc)
+        {
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::waveform))->store (0.0f); // Sine
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (threeOscOscParamId (0, osc, ThreeOscOscParam::level))->store (osc == 0 ? 100.0f : 0.0f);
+        }
+
+        const int retargetChunk = 4;
+        const int soonChunk = retargetChunk + 5;   // ~58ms into the 300ms glide -- still transitioning
+        const int lateChunk = retargetChunk + 40;  // ~464ms in -- well past the 300ms glide, settled
+        const int totalChunks = lateChunk + 2;
+
+        auto runGlideTest = [&] (bool glideOn) -> juce::AudioBuffer<float>
+        {
+            apvts.getRawParameterValue (threeOscParamId (0, ThreeOscParam::glide))->store (glideOn ? 1.0f : 0.0f);
+
+            ThreeOscModule glideModule (apvts, 0);
+            glideModule.prepare (spec);
+
+            juce::AudioBuffer<float> buffer (2, blockSize * totalChunks);
+            buffer.clear();
+            for (int chunk = 0; chunk < totalChunks; ++chunk)
+            {
+                juce::AudioBuffer<float> sub (buffer.getArrayOfWritePointers(), 2, chunk * blockSize, blockSize);
+                juce::dsp::AudioBlock<float> block (sub);
+                juce::MidiBuffer midi;
+                if (chunk == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0); // middle C, ~261.63Hz
+                if (chunk == retargetChunk)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 72, (juce::uint8) 100), 0); // one octave up, ~523.25Hz, legato retarget
+                glideModule.process (block, midi, modMatrix);
+            }
+            return buffer;
+        };
+
+        auto extractRange = [&] (const juce::AudioBuffer<float>& buffer, int startChunk, int numChunksToTake) -> juce::AudioBuffer<float>
+        {
+            juce::AudioBuffer<float> out (1, blockSize * numChunksToTake);
+            out.copyFrom (0, 0, buffer, 0, startChunk * blockSize, out.getNumSamples());
+            return out;
+        };
+
+        auto withGlide = runGlideTest (true);
+        auto withoutGlide = runGlideTest (false);
+
+        const double targetFreq = 523.25, baseFreq = 261.63;
+
+        auto soonWithGlide = extractRange (withGlide, soonChunk, 2);
+        auto soonWithoutGlide = extractRange (withoutGlide, soonChunk, 2);
+        auto lateWithGlide = extractRange (withGlide, lateChunk, 2);
+
+        const double magTargetSoonGlide = goertzelMagnitude (soonWithGlide, 0, targetFreq, sampleRate);
+        const double magTargetSoonNoGlide = goertzelMagnitude (soonWithoutGlide, 0, targetFreq, sampleRate);
+        const double magTargetLateGlide = goertzelMagnitude (lateWithGlide, 0, targetFreq, sampleRate);
+        const double magBaseLateGlide = goertzelMagnitude (lateWithGlide, 0, baseFreq, sampleRate);
+
+        expect (magTargetSoonNoGlide > 0.1 && magTargetSoonNoGlide > magTargetSoonGlide * 2.0,
+                "3xOsc Glide off snaps straight to the new note's pitch on legato retarget, while Glide on "
+                "is still partway through its ramp at that same point in time (target-freq magnitude, no "
+                "glide: " + juce::String (magTargetSoonNoGlide, 3) + ", with glide: " + juce::String (magTargetSoonGlide, 3) + ")");
+
+        expect (magTargetLateGlide > magBaseLateGlide * 3.0,
+                "3xOsc Glide eventually reaches the target pitch once Glide Time has fully elapsed (target-freq "
+                "magnitude " + juce::String (magTargetLateGlide, 3) + " vs base-freq " + juce::String (magBaseLateGlide, 3) + ")");
     }
 
     // --- ADSR: sustains while a note is held, releases only once it's released ---

@@ -107,9 +107,9 @@ modulation, convolution, and more), wire them together however you like, and sha
   shift -- it moves every partial by the same Hz amount rather than the same ratio, so harmonic
   content becomes inharmonic (the classic Bode/Moog "shifter" sound), via a zero-latency
   cascaded-allpass Hilbert transformer rather than an FFT/convolution approach.
-- **LFO** -- Sine/Triangle/Square/Saw/Sample & Hold shapes, Free (Hz) or host-tempo-Synced rate
-  (same note-division table as Delay's sync), and a Depth knob that scales its output across every
-  cable it drives. Not an audio node -- see Modulation cables above.
+- **LFO** -- Sine/Triangle/Square/Saw/Sample & Hold/Ramp Up/Ramp Down shapes, Free (Hz) or
+  host-tempo-Synced rate (same note-division table as Delay's sync), and a Depth knob that scales
+  its output across every cable it drives. Not an audio node -- see Modulation cables above.
 - **Envelope** -- a freeform-breakpoint modulation source: click empty canvas space on the editor
   to add a point, drag a point to move it, right-click to delete it (the first/last points are
   pinned at the start/end and can't be deleted, so the drawn shape always spans the full Length).
@@ -148,9 +148,14 @@ modulation, convolution, and more), wire them together however you like, and sha
   (Waveform, Coarse/Fine tune, Pan, Level), each phase-modulating the next (FM 1>2, FM 2>3) for
   DX7-ish timbres, shaped by a shared Attack/Decay/Sustain/Release amp envelope, plus Output. Saw/
   Square are PolyBLEP-corrected against audio-rate aliasing. Voice-stealing kicks in past 16
-  simultaneous notes (oldest triggered first). Lives in its own "Generators" category in the add-
-  node menu; wire it straight to an Output node (or anywhere else) -- no Input node needed
-  upstream, since it doesn't use one.
+  simultaneous notes (oldest triggered first). Mono/Legato collapses it down to a single voice --
+  a new note while another's held retargets that one voice's pitch instead of triggering fresh (no
+  envelope retrigger, no phase reset), last-note priority when you release one note out of an
+  overlapping run. Glide (with an ms Glide Time knob underneath) makes that retargeting a smooth
+  portamento slide in semitone space instead of an instant snap; it's off by default and only
+  affects Mono/Legato's retargeting -- polyphonic voices always start directly at their own note's
+  pitch. Lives in its own "Generators" category in the add-node menu; wire it straight to an
+  Output node (or anywhere else) -- no Input node needed upstream, since it doesn't use one.
 - **MIDI Mod Matrix** -- its own tab (next to Rack), separate from the canvas: 6 routes, each
   Source (Note Pitch/Velocity/Mod Wheel/2 CC lanes) -> Destination (any slot's Filter Frequency/
   Feedback, Delay Time/Feedback, Waveshaper Drive, or Convolution Mix) -> bipolar Depth.

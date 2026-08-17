@@ -22,6 +22,15 @@ namespace GGrid
     // (osc 1 -> osc 2 -> osc 3, via the FM 1>2/FM 2>3 depth knobs) and shaped by a shared
     // juce::ADSR amp envelope. Voice allocation is oldest-triggered-first stealing once all 16
     // are busy -- simple and predictable rather than an elaborate priority scheme.
+    //
+    // Mono/Legato collapses everything down to voices[0] alone: a new note-on while another is
+    // already held retargets that one voice's pitch (via monoNoteNumberSmoothed, in semitone/
+    // note-number space so equal steps sound like equal pitch steps) rather than triggering fresh
+    // -- no envelope retrigger, no phase reset. heldNoteStack tracks press order so releasing one
+    // note out of an overlapping run falls back to whichever other held note was pressed most
+    // recently (last-note priority), not silence, as long as one remains held. Glide only affects
+    // this retargeting -- poly voices (Mono/Legato off) always start directly at their own note's
+    // pitch, no glide.
     class ThreeOscModule : public RackModule
     {
     public:
@@ -54,12 +63,21 @@ namespace GGrid
             std::array<float, kNumThreeOscOscillators> freqMultiplier {}; // from coarse + fine
             std::array<float, kNumThreeOscOscillators> pan {};
             std::array<float, kNumThreeOscOscillators> level {};
+            bool monoLegato = false;
+            bool glide = false;
+            float glideTimeMs = 50.0f;
         };
 
         ResolvedParams resolveParams (const ModulationMatrix& modMatrix) const;
         int findVoiceForNoteOn();
         void handleMidiEvent (const juce::MidiMessage& message, const ResolvedParams& resolved);
+        void handleMonoNoteOn (int note, float velocity, const ResolvedParams& resolved);
+        void handleMonoNoteOff (int note, const ResolvedParams& resolved);
         void renderRange (juce::dsp::AudioBlock<float>& block, int startSample, int endSample, const ResolvedParams& resolved);
+
+        // Fractional-note-number-to-Hz -- juce::MidiMessage::getMidiNoteInHertz only accepts an
+        // int, but glide needs a continuously-sliding note number.
+        static float noteNumberToHz (float fractionalNoteNumber);
 
         // waveform: 0=Sine, 1=Triangle, 2=Saw, 3=Square (see getThreeOscWaveformChoices).
         // modOffset is added to phase before generating (osc N-1's current sample, scaled by the
@@ -76,6 +94,9 @@ namespace GGrid
         std::atomic<float>* fm1to2Param;
         std::atomic<float>* fm2to3Param;
         std::atomic<float>* outputParam;
+        std::atomic<float>* monoLegatoParam;
+        std::atomic<float>* glideParam;
+        std::atomic<float>* glideTimeMsParam;
 
         std::array<std::atomic<float>*, kNumThreeOscOscillators> waveformParams {};
         std::array<std::atomic<float>*, kNumThreeOscOscillators> coarseParams {};
@@ -86,6 +107,13 @@ namespace GGrid
         std::array<Voice, kMaxThreeOscVoices> voices;
         juce::int64 nextTriggerOrder = 0;
         double sampleRate = 44100.0;
+
+        // Mono/Legato state -- only voices[0] is used when active. heldNoteStack is press-order
+        // (last element = most recently pressed still-held note); monoNoteNumberSmoothed is the
+        // continuously-gliding pitch, in note-number/semitone space.
+        std::array<int, kMaxThreeOscVoices> heldNoteStack {};
+        int heldNoteStackSize = 0;
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> monoNoteNumberSmoothed;
 
         // How many full phase cycles' worth of shift 100% FM depth injects -- chosen empirically
         // for a clearly audible, DX7-ish timbral range without needing a separate "index" knob.

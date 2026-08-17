@@ -49,6 +49,13 @@ namespace GGrid
                     // only re-rolled on phase wrap); this branch shouldn't normally be reached.
                 return sampleHoldValue;
 
+            case 5: // Ramp Up -- identical math to Saw, kept as a separate named entry (see
+                    // getLfoShapeChoices' own comment)
+                return 2.0f * phase01 - 1.0f;
+
+            case 6: // Ramp Down -- the mirror image of Ramp Up/Saw
+                return 1.0f - 2.0f * phase01;
+
             default:
                 return 0.0f;
         }
