@@ -625,6 +625,52 @@ namespace GGrid
         }
     }
 
+    static void addAdsrParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { adsrParamId (slotIndex, AdsrParam::attack), 1 },
+            "Slot " + String (slotIndex + 1) + " ADSR Attack",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.005f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { adsrParamId (slotIndex, AdsrParam::decay), 1 },
+            "Slot " + String (slotIndex + 1) + " ADSR Decay",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.1f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { adsrParamId (slotIndex, AdsrParam::sustain), 1 },
+            "Slot " + String (slotIndex + 1) + " ADSR Sustain",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 80.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { adsrParamId (slotIndex, AdsrParam::release), 1 },
+            "Slot " + String (slotIndex + 1) + " ADSR Release",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.2f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+    }
+
+    static void addEnvelopeParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { envelopeParamId (slotIndex, EnvelopeParam::length), 1 },
+            "Slot " + String (slotIndex + 1) + " Envelope Length",
+            skewedRange (0.01f, 10.0f, 1.0f), 0.5f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { envelopeParamId (slotIndex, EnvelopeParam::depth), 1 },
+            "Slot " + String (slotIndex + 1) + " Envelope Depth",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -657,6 +703,8 @@ namespace GGrid
             addEq3Params (layout, slot);
             addMultibandConvolutionParams (layout, slot);
             addThreeOscParams (layout, slot);
+            addAdsrParams (layout, slot);
+            addEnvelopeParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

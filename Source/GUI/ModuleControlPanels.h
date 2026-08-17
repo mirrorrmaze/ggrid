@@ -6,6 +6,7 @@
 #include "../Rack/RackSlot.h"
 #include "IRWaveformComponent.h"
 #include "CrossoverSplitBar.h"
+#include "EnvelopeBreakpointEditor.h"
 #include <vector>
 #include <array>
 
@@ -247,7 +248,7 @@ namespace GGrid
     // LFO controls: Rate/Depth knobs, a Shape dropdown, and the same Sync toggle + Division
     // dropdown pattern DelayControlsPanel uses (Division only matters while Sync is on, but stays
     // visible either way for consistency with how Delay already does this). No getModTarget* --
-    // LFO is a modulation SOURCE, not a destination (see NodeComponent::isLfoType).
+    // LFO is a modulation SOURCE, not a destination (see NodeComponent::isModulationSourceType).
     class LfoControlsPanel : public juce::Component
     {
     public:
@@ -266,6 +267,49 @@ namespace GGrid
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoControlsPanel)
+    };
+
+    // ADSR controls: Attack/Decay/Sustain/Release knobs -- see AdsrModule for the sustain-while-
+    // held/release-on-note-off behaviour these drive. No getModTarget* -- ADSR is a modulation
+    // SOURCE, not a destination (see NodeComponent::isModulationSourceType), same reasoning as
+    // LfoControlsPanel above.
+    class AdsrControlsPanel : public juce::Component
+    {
+    public:
+        AdsrControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+    private:
+        juce::Label attackLabel { {}, "Attack" }, decayLabel { {}, "Decay" }, sustainLabel { {}, "Sustain" }, releaseLabel { {}, "Release" };
+        juce::Slider attackSlider, decaySlider, sustainSlider, releaseSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            attackAttachment, decayAttachment, sustainAttachment, releaseAttachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AdsrControlsPanel)
+    };
+
+    // Envelope controls: the freeform breakpoint editor (EnvelopeBreakpointEditor) plus Length/
+    // Depth knobs -- see EnvelopeModule for the one-shot-per-note-on playback these drive. No
+    // getModTarget* -- Envelope is a modulation SOURCE, not a destination, same reasoning as
+    // LfoControlsPanel above.
+    class EnvelopeControlsPanel : public juce::Component
+    {
+    public:
+        EnvelopeControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot);
+
+        void resized() override;
+
+    private:
+        EnvelopeBreakpointEditor editor;
+
+        juce::Label lengthLabel { {}, "Length" }, depthLabel { {}, "Depth" };
+        juce::Slider lengthSlider, depthSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> lengthAttachment, depthAttachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EnvelopeControlsPanel)
     };
 
     // Lossy controls: Bits/Rate/Jitter/Mix/Output -- see LossyModule for the full spectral

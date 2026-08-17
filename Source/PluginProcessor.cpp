@@ -1,7 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Params/ParameterLayout.h"
-#include "Modules/LFOModule.h"
 
 namespace GGrid
 {
@@ -125,30 +124,34 @@ namespace GGrid
         for (int i = 0; i < kMaxSlots; ++i)
         {
             const auto type = slots[(size_t) i]->getActiveType();
-            // LFO slots are excluded from the audio graph entirely -- they're modulation
-            // sources, not audio processors (see LFOModule's class comment).
-            active[(size_t) i] = (type != ModuleType::none) && (type != ModuleType::lfo);
+            // Modulation-source slots (LFO/Envelope/ADSR) are excluded from the audio graph
+            // entirely -- see isModulationSourceType()'s own comment in Identifiers.h.
+            active[(size_t) i] = (type != ModuleType::none) && ! isModulationSourceType (type);
             isInputRole[(size_t) i] = (type == ModuleType::input);
             isOutputRole[(size_t) i] = (type == ModuleType::output);
             isSourceRole[(size_t) i] = isInputRole[(size_t) i] || (type == ModuleType::threeOsc);
         }
 
-        // Tick every active LFO slot once per block, before the graph below runs, so every
-        // modulation destination reads a fresh value this block regardless of where an LFO would
-        // otherwise fall in audio topological order (which has nothing to do with modulation
-        // routing). RackSlot::process() is still what actually advances LFOModule's phase and
-        // handles type-swap/prepare timing, so it's called normally here -- just against a
-        // scratch buffer whose content LFOModule ignores entirely, rather than a real graph node.
+        // Tick every active modulation-source slot (LFO/Envelope/ADSR) once per block, before the
+        // graph below runs, so every modulation destination reads a fresh value this block
+        // regardless of where a source would otherwise fall in audio topological order (which has
+        // nothing to do with modulation routing). RackSlot::process() is still what actually
+        // advances the module's internal state and handles type-swap/prepare timing, so it's
+        // called normally here -- just against a scratch buffer whose content a source module
+        // ignores entirely, rather than a real graph node. Generic over module type via
+        // RackModule::isModulationSource()/getCurrentModulationValue() -- see that class's own
+        // comment -- rather than a dynamic_cast per source type.
         for (int i = 0; i < kMaxSlots; ++i)
         {
-            if (slots[(size_t) i]->getActiveType() != ModuleType::lfo) continue;
+            if (! isModulationSourceType (slots[(size_t) i]->getActiveType())) continue;
 
             lfoScratchBuffer.setSize (numChannels, numSamples, false, false, true);
             juce::dsp::AudioBlock<float> lfoBlock (lfoScratchBuffer);
             slots[(size_t) i]->process (lfoBlock, midiMessages, modulationMatrix);
 
-            if (auto* lfo = dynamic_cast<LFOModule*> (slots[(size_t) i]->getCurrentModule()))
-                modulationMatrix.setLfoValue (i, lfo->getCurrentValue());
+            if (auto* module = slots[(size_t) i]->getCurrentModule())
+                if (module->isModulationSource())
+                    modulationMatrix.setLfoValue (i, module->getCurrentModulationValue());
         }
 
         {
@@ -266,6 +269,18 @@ namespace GGrid
         }
         xml.setAttribute ("nodePositions", positionTokens.joinIntoString (","));
 
+        // Non-parameter per-module state -- currently only EnvelopeModule's breakpoints -- see
+        // RackModule::writeExtraState's own comment. Cheap/no-op for every other module type.
+        auto* extraStateParent = xml.createNewChildElement ("ModuleExtraState");
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            if (auto* module = slots[(size_t) i]->getCurrentModule())
+            {
+                auto* slotXml = extraStateParent->createNewChildElement ("Slot" + juce::String (i));
+                module->writeExtraState (*slotXml);
+            }
+        }
+
         copyXmlToBinary (xml, destData);
     }
 
@@ -308,6 +323,18 @@ namespace GGrid
         if (positionTokens.size() == kMaxSlots * 2)
             for (int i = 0; i < kMaxSlots; ++i)
                 nodePositions[(size_t) i] = { positionTokens[i * 2].getFloatValue(), positionTokens[i * 2 + 1].getFloatValue() };
+
+        // Stashed for RackSlot to consume once a matching module instance actually exists (which
+        // may not be true yet at this exact point -- see SharedServices.h's own comment). Cleared
+        // first so a save with no extra state (or an old save from before this existed) doesn't
+        // leave a previous load's stale entries lying around.
+        for (int i = 0; i < kMaxSlots; ++i)
+            pendingModuleExtraState[(size_t) i].reset();
+
+        if (auto* extraStateParent = xml->getChildByName ("ModuleExtraState"))
+            for (int i = 0; i < kMaxSlots; ++i)
+                if (auto* slotXml = extraStateParent->getChildByName ("Slot" + juce::String (i)))
+                    pendingModuleExtraState[(size_t) i] = std::make_unique<juce::XmlElement> (*slotXml);
     }
 }
 

@@ -40,6 +40,11 @@ namespace GGrid
     private:
         std::unique_ptr<RackModule> createModuleForType (ModuleType type) const;
 
+        // Consumes services.pendingModuleExtraState[slotIndex] into a freshly (re)created
+        // currentModule, if any is waiting -- see SharedServices.h's own comment on why this
+        // can't just happen synchronously inside GGridAudioProcessor::setStateInformation.
+        void applyPendingExtraState();
+
         juce::AudioProcessorValueTreeState& apvts;
         SharedServices& services;
         int slotIndex;

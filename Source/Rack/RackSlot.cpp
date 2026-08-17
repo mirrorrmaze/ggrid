@@ -13,6 +13,8 @@
 #include "../Modules/Eq3Module.h"
 #include "../Modules/MultibandConvolutionModule.h"
 #include "../Modules/ThreeOscModule.h"
+#include "../Modules/AdsrModule.h"
+#include "../Modules/EnvelopeModule.h"
 
 namespace GGrid
 {
@@ -73,6 +75,15 @@ namespace GGrid
             case ModuleType::threeOsc:
                 return std::make_unique<ThreeOscModule> (apvts, slotIndex);
 
+            // LFO/Envelope/ADSR are modulation SOURCE roles (see isModulationSourceType() in
+            // Identifiers.h) -- excluded from the audio ConnectionGraph entirely, but (like
+            // ThreeOsc) they ARE real DSP processors that need an actual instance here.
+            case ModuleType::adsr:
+                return std::make_unique<AdsrModule> (apvts, slotIndex);
+
+            case ModuleType::envelope:
+                return std::make_unique<EnvelopeModule> (apvts, slotIndex);
+
             // Input/Output are structural graph roles, not DSP processors -- process() is never
             // called on a slot playing either role (see GGridAudioProcessor::processBlock's
             // isRoot/isSink handling), so there's no RackModule to construct for them.
@@ -81,6 +92,16 @@ namespace GGrid
             case ModuleType::none:
             default:
                 return nullptr;
+        }
+    }
+
+    void RackSlot::applyPendingExtraState()
+    {
+        auto& pending = services.pendingModuleExtraState[(size_t) slotIndex];
+        if (currentModule != nullptr && pending != nullptr)
+        {
+            currentModule->readExtraState (*pending);
+            pending.reset();
         }
     }
 
@@ -94,6 +115,8 @@ namespace GGrid
 
         if (currentModule != nullptr)
             currentModule->prepare (lastSpec);
+
+        applyPendingExtraState();
     }
 
     void RackSlot::reset()
@@ -113,6 +136,8 @@ namespace GGrid
 
             if (currentModule != nullptr && hasSpec)
                 currentModule->prepare (lastSpec);
+
+            applyPendingExtraState();
         }
 
         if (currentModule == nullptr)

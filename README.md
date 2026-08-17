@@ -7,8 +7,8 @@ modulation, convolution, and more), wire them together however you like, and sha
 ## Features
 
 - **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
-  Delay/Dynamics/Convolution/Multiband Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/
-  EQ 3/3xOsc, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
+  Delay/Dynamics/Convolution/Multiband Convolution/Utility/Ring Mod/LFO/Envelope/ADSR/Lossy/EQ 8/
+  Chorus-Flanger/EQ 3/3xOsc, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
   output to another node's input to connect them. Up to 24 modules at once, including duplicates
   of the same type. Input and Output are ordinary addable/deletable node types like any other --
   a small compact box (rather than the wider boxes every other module gets) showing a live
@@ -44,17 +44,17 @@ modulation, convolution, and more), wire them together however you like, and sha
   *between* the copied nodes (not connections to anything outside the selection), so duplicating a
   whole wired sub-chain keeps it intact -- pasted/duplicated nodes land unpatched to everything
   else, offset from the originals, ready to wire in wherever you want.
-- **Modulation cables** -- LFO nodes have no audio ports at all (they're modulation sources, not
-  audio processors) -- just a single violet output nub, dragged onto a matching violet
-  modulation-destination dot on **any** continuous knob any other node exposes (essentially every
-  knob in the rack, not a fixed handful -- e.g. every Waveshaper knob, not just Drive). A
+- **Modulation cables** -- LFO/Envelope/ADSR nodes have no audio ports at all (they're modulation
+  sources, not audio processors) -- just a single violet output nub, dragged onto a matching
+  violet modulation-destination dot on **any** continuous knob any other node exposes (essentially
+  every knob in the rack, not a fixed handful -- e.g. every Waveshaper knob, not just Drive). A
   genuinely separate cable graph from the orange audio connections, rendered in violet so the two
   are never ambiguous at a glance; grab an existing mod cable to rewire/disconnect it exactly like
-  an audio one. A glowing pulse rides along each mod cable, positioned by the source LFO's live
-  output rather than a free-running clock, so its back-and-forth motion visibly tracks that LFO's
-  actual Rate and Shape (a Square LFO's pulse snaps between the two ends; a Sine's eases) as it
-  travels toward the module it's modulating. Modulation is additive on top of the knob position,
-  never overwrites it. This generic per-knob system is separate from (and additive with) the fixed
+  an audio one. A glowing pulse rides along each mod cable, positioned by the source's live output
+  rather than a free-running clock, so its motion visibly tracks what that source is actually
+  doing (an LFO's Rate and Shape; an Envelope/ADSR's current playback position) as it travels
+  toward the module it's modulating. Modulation is additive on top of the knob position, never
+  overwrites it. This generic per-knob system is separate from (and additive with) the fixed
   6-destination MIDI Mod Matrix below -- a knob that's a MIDI Mod Matrix destination can be nudged
   by both at once.
 - **Waveshaper/Wavefolder** -- Hard Clip, Soft Clip (tanh/cubic), Foldback Wavefolder, Sine Fold,
@@ -110,6 +110,18 @@ modulation, convolution, and more), wire them together however you like, and sha
 - **LFO** -- Sine/Triangle/Square/Saw/Sample & Hold shapes, Free (Hz) or host-tempo-Synced rate
   (same note-division table as Delay's sync), and a Depth knob that scales its output across every
   cable it drives. Not an audio node -- see Modulation cables above.
+- **Envelope** -- a freeform-breakpoint modulation source: click empty canvas space on the editor
+  to add a point, drag a point to move it, right-click to delete it (the first/last points are
+  pinned at the start/end and can't be deleted, so the drawn shape always spans the full Length).
+  Plays the shape once per MIDI note-on, linearly interpolating between points over the Length
+  knob's duration, then holds at the final point's value regardless of how long the note's held or
+  released -- note-off is ignored entirely, unlike ADSR below. Depth scales the output. Not an
+  audio node -- see Modulation cables above.
+- **ADSR** -- a standalone Attack/Decay/Sustain/Release envelope, usable as a modulation source
+  for any knob in the rack (not just baked into an instrument) -- sustains while a note is held
+  and releases on note-off, the classic synth-envelope behaviour Envelope above deliberately
+  doesn't have. Mono: releasing one note out of a held chord doesn't cut it short as long as
+  another note is still held. Not an audio node -- see Modulation cables above.
 - **Lossy** -- a spectral, "codec-style" lo-fi degradation effect ported from
   [SPANDEX](../RepitchDeck)'s Lossy processor (itself modeled after Goodhertz's Lossy), not a
   time-domain bitcrusher: a streaming STFT quantizes the magnitude spectrum to Bits discrete

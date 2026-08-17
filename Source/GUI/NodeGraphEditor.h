@@ -34,7 +34,8 @@ namespace GGrid
     // collapses the selection to just that node; a drag preserves the group). Delete/Backspace
     // removes every selected node.
     //
-    // Modulation cables: LFO nodes have no audio ports (see NodeComponent::isLfoType) -- instead
+    // Modulation cables: LFO/Envelope/ADSR nodes have no audio ports (see
+    // NodeComponent::isModulationSourceType) -- instead
     // a single violet modulation-output nub, dragged onto a violet modulation-destination dot on
     // any continuous knob any other node exposes (see each panel's modTargets in
     // ModuleControlPanels.h -- essentially every knob now, not a fixed few). These

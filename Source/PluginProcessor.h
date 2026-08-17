@@ -201,12 +201,16 @@ namespace GGrid
     private:
         // Declared before `slots` (constructed first) since RackSlot construction needs
         // sharedServices to already exist -- see SharedServices.h. convolutionMessageQueue,
-        // irReshapeWorker, and currentBpm must in turn precede sharedServices, which only holds
-        // references to them.
+        // irReshapeWorker, currentBpm, and pendingModuleExtraState must in turn precede
+        // sharedServices, which only holds references to them.
         juce::dsp::ConvolutionMessageQueue convolutionMessageQueue;
         IRReshapeWorker irReshapeWorker;
         std::atomic<double> currentBpm { 120.0 }; // updated from the host playhead each block
-        SharedServices sharedServices { convolutionMessageQueue, irReshapeWorker, currentBpm };
+        // See SharedServices.h's own comment -- a just-loaded save's per-slot RackModule extra
+        // state (currently only EnvelopeModule's breakpoints), waiting to be applied once a
+        // matching module instance actually exists.
+        std::array<std::unique_ptr<juce::XmlElement>, kMaxSlots> pendingModuleExtraState;
+        SharedServices sharedServices { convolutionMessageQueue, irReshapeWorker, currentBpm, pendingModuleExtraState };
 
         std::array<std::unique_ptr<RackSlot>, kMaxSlots> slots;
         std::array<std::unique_ptr<juce::AudioVisualiserComponent>, kMaxSlots> nodeScopes;

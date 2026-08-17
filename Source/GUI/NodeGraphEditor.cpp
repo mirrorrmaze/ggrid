@@ -382,6 +382,8 @@ namespace GGrid
         modulationMenu.addItem (11, "Chorus/Flanger");
         modulationMenu.addItem (7, "Ring Mod");
         modulationMenu.addItem (8, "LFO");
+        modulationMenu.addItem ((int) ModuleType::envelope, "Envelope");
+        modulationMenu.addItem ((int) ModuleType::adsr, "ADSR");
 
         juce::PopupMenu timeSpaceMenu;
         timeSpaceMenu.addItem (3, "Delay");
@@ -464,10 +466,11 @@ namespace GGrid
 
             refreshLayout();
 
-            // LFOs, and Input/Output themselves, are never auto-wired here -- LFOs have no audio
-            // ports at all (see LFOModule); wiring "the new Input to itself" wouldn't mean
-            // anything.
-            if (! anyRegularModuleExists && type != ModuleType::lfo && type != ModuleType::input && type != ModuleType::output)
+            // Modulation sources (LFO/Envelope/ADSR), and Input/Output themselves, are never
+            // auto-wired here -- modulation sources have no audio ports at all (see
+            // isModulationSourceType() in Identifiers.h); wiring "the new Input to itself"
+            // wouldn't mean anything.
+            if (! anyRegularModuleExists && ! isModulationSourceType (type) && type != ModuleType::input && type != ModuleType::output)
             {
                 const int outputSlot = findFirstSlotOfType (ModuleType::output);
 
@@ -516,10 +519,11 @@ namespace GGrid
 
     void NodeGraphEditor::pruneStaleConnectionsForSlot (int slotIndex, ModuleType newType)
     {
-        // LFO has no audio ports at all -- any audio edge touching it (either direction) is
-        // stale the moment a slot becomes one, whether that happened via Add Node's auto-chain
-        // or by picking "LFO" directly on an existing node's own type dropdown.
-        if (newType == ModuleType::lfo)
+        // Modulation sources (LFO/Envelope/ADSR) have no audio ports at all -- any audio edge
+        // touching one (either direction) is stale the moment a slot becomes one, whether that
+        // happened via Add Node's auto-chain or by picking a source type directly on an existing
+        // node's own type dropdown.
+        if (isModulationSourceType (newType))
             processor.removeAllConnectionsForSlot (slotIndex);
 
         // Input/ThreeOsc have no input ports (only their outgoing edges are still valid); Output
@@ -856,7 +860,7 @@ namespace GGrid
     void NodeGraphEditor::handleOutputDragStart (int slotIndex, const juce::MouseEvent& e)
     {
         isDraggingCable = true;
-        isDraggingModCable = nodes[(size_t) slotIndex]->isLfoType();
+        isDraggingModCable = nodes[(size_t) slotIndex]->isModulationSourceType();
         cableDragSourceSlot = slotIndex;
         cableDragCurrentPos = e.getEventRelativeTo (this).position;
         repaint();
@@ -898,11 +902,12 @@ namespace GGrid
         for (int i = 0; i < kMaxSlots; ++i)
         {
             auto* candidate = nodes[(size_t) i].get();
-            // LFO, Input, and ThreeOsc nodes have no input ports at all -- LFO isn't part of the
-            // audio graph (see LFOModule), Input/ThreeOsc are sources only (see
+            // Modulation-source (LFO/Envelope/ADSR), Input, and ThreeOsc nodes have no input ports
+            // at all -- modulation sources aren't part of the audio graph (see
+            // isModulationSourceType() in Identifiers.h), Input/ThreeOsc are sources only (see
             // hasNoInputPorts()). Output nodes DO have input ports (that's their entire purpose)
             // so aren't excluded here.
-            if (i == excludeSlot || ! candidate->isVisible() || candidate->isLfoType() || candidate->hasNoInputPorts())
+            if (i == excludeSlot || ! candidate->isVisible() || candidate->isModulationSourceType() || candidate->hasNoInputPorts())
                 continue;
 
             for (int port = 0; port < kMaxPortsPerSide; ++port)

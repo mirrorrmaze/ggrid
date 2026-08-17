@@ -14,6 +14,8 @@
 #include "Modules/Eq3Module.h"
 #include "Modules/ChorusModule.h"
 #include "Modules/ThreeOscModule.h"
+#include "Modules/AdsrModule.h"
+#include "Modules/EnvelopeModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
@@ -156,7 +158,8 @@ int main()
     juce::dsp::ConvolutionMessageQueue convolutionQueue;
     IRReshapeWorker irReshapeWorker;
     std::atomic<double> testBpm { 120.0 };
-    SharedServices sharedServices { convolutionQueue, irReshapeWorker, testBpm };
+    std::array<std::unique_ptr<juce::XmlElement>, kMaxSlots> testPendingModuleExtraState;
+    SharedServices sharedServices { convolutionQueue, irReshapeWorker, testBpm, testPendingModuleExtraState };
 
     const double sampleRate = 44100.0;
     const int blockSize = 512;
@@ -1981,6 +1984,400 @@ int main()
         expect (isFiniteAndBounded (buffer, 300.0f),
                 "3xOsc stays finite/bounded at extreme FM depth/output/tuning with more simultaneous "
                 "notes than voices (forces voice stealing)");
+    }
+
+    // --- ADSR: sustains while a note is held, releases only once it's released ---
+    {
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::sustain))->store (70.0f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::release))->store (0.05f);
+
+        AdsrModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            module.process (block, midi, modMatrix);
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        const float sustainValue = module.getCurrentModulationValue();
+        expect (std::abs (sustainValue - 0.70f) < 0.05f,
+                "ADSR reaches its Sustain level while a note is held (value " + juce::String (sustainValue, 4) + ")");
+
+        for (int i = 0; i < 20; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+        expect (std::abs (module.getCurrentModulationValue() - sustainValue) < 0.02f,
+                "ADSR stays at Sustain indefinitely while the note is held, not a fixed-length one-shot");
+
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+            module.process (block, midi, modMatrix);
+        }
+        const int blocksForRelease = (int) std::ceil ((0.05 * sampleRate * 4.0) / blockSize) + 1;
+        for (int i = 0; i < blocksForRelease; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+        expect (module.getCurrentModulationValue() < 0.05f,
+                "ADSR releases to near-zero well after note-off's release tail completes");
+    }
+
+    // --- ADSR: releasing one note out of a held chord doesn't cut the envelope -- only releasing
+    // the LAST held note starts the release stage (mono, last-note-wins is too aggressive here) ---
+    {
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::sustain))->store (80.0f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::release))->store (0.05f);
+
+        AdsrModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            midi.addEvent (juce::MidiMessage::noteOn (1, 64, (juce::uint8) 100), 0);
+            module.process (block, midi, modMatrix);
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+        const float heldValue = module.getCurrentModulationValue();
+
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+            module.process (block, midi, modMatrix);
+        }
+        for (int i = 0; i < 10; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+        expect (std::abs (module.getCurrentModulationValue() - heldValue) < 0.02f,
+                "ADSR keeps sustaining after releasing one note out of a held chord, as long as another is still held");
+
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOff (1, 64), 0);
+            module.process (block, midi, modMatrix);
+        }
+        const int blocksForRelease = (int) std::ceil ((0.05 * sampleRate * 4.0) / blockSize) + 1;
+        for (int i = 0; i < blocksForRelease; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+        expect (module.getCurrentModulationValue() < 0.05f,
+                "ADSR only releases once the LAST held note of a chord is released");
+    }
+
+    // --- Modulation cable: an ADSR routed to Filter Frequency actually moves the cutoff once it
+    // reaches Sustain ---
+    {
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::release))->store (0.05f);
+
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::type))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::frequency))->store (300.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::resonance))->store (0.707f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::feedback))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
+
+        ModulationMatrix cableMatrix (apvts);
+        const bool added = cableMatrix.addModConnection (0, 1, filterParamId (1, FilterParam::frequency));
+        expect (added, "a modulation cable from an ADSR slot to Filter Frequency is accepted");
+
+        AdsrModule adsr (apvts, 0);
+        adsr.prepare (spec);
+        FilterModule filter (apvts, 1);
+        filter.prepare (spec);
+
+        cableMatrix.setLfoValue (0, adsr.getCurrentModulationValue());
+        auto closedBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (closedBuffer);
+            juce::MidiBuffer midi;
+            filter.process (block, midi, cableMatrix);
+        }
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            adsr.process (block, midi, modMatrix);
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            adsr.process (block, midi, modMatrix);
+        }
+        cableMatrix.setLfoValue (0, adsr.getCurrentModulationValue());
+
+        auto openBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (openBuffer);
+            juce::MidiBuffer midi;
+            filter.process (block, midi, cableMatrix);
+        }
+
+        const double closedRms = rms (closedBuffer, 0);
+        const double openRms = rms (openBuffer, 0);
+        expect (openRms > closedRms * 1.5,
+                "an ADSR modulation cable into Filter Frequency opens the cutoff once the envelope reaches "
+                "Sustain (closed RMS " + juce::String (closedRms, 4) + ", open RMS " + juce::String (openRms, 4) + ")");
+    }
+
+    // --- ADSR: stays finite/bounded [0,1] under rapid alternating note-on/note-off ---
+    {
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (adsrParamId (0, AdsrParam::release))->store (0.001f);
+
+        AdsrModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int block = 0; block < 30; ++block)
+        {
+            juce::dsp::AudioBlock<float> b (dummyBuffer);
+            juce::MidiBuffer midi;
+            if (block % 2 == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            else
+                midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+            module.process (b, midi, modMatrix);
+        }
+
+        const float v = module.getCurrentModulationValue();
+        expect (std::isfinite (v) && v >= 0.0f && v <= 1.01f,
+                "ADSR stays finite/bounded [0,1] under rapid alternating note-on/note-off (value "
+                    + juce::String (v, 4) + ")");
+    }
+
+    // --- Envelope: one-shot playback follows the drawn shape, ignores note-off entirely, and
+    // holds at the final point's value once finished ---
+    {
+        apvts.getRawParameterValue (envelopeParamId (0, EnvelopeParam::length))->store (0.2f);
+        apvts.getRawParameterValue (envelopeParamId (0, EnvelopeParam::depth))->store (100.0f);
+
+        EnvelopeModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            midi.addEvent (juce::MidiMessage::noteOff (1, 60), 1); // immediate release -- must be ignored
+            module.process (block, midi, modMatrix);
+        }
+
+        const int blocksToHalfway = juce::jmax (1, (int) std::round ((0.1 * sampleRate) / blockSize));
+        for (int i = 0; i < blocksToHalfway; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        const float midValue = module.getCurrentModulationValue();
+        expect (midValue > 0.25f && midValue < 0.75f,
+                "Envelope's one-shot playback follows the drawn shape over time (default linear ramp, "
+                "value partway through Length is roughly mid-range: " + juce::String (midValue, 4) + ")");
+        expect (module.isPlaying(), "Envelope keeps playing through a note-off -- note-off is ignored entirely");
+
+        const int blocksToFinish = (int) std::round ((0.3 * sampleRate) / blockSize) + 2;
+        for (int i = 0; i < blocksToFinish; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+        expect (! module.isPlaying() && module.getCurrentModulationValue() > 0.95f,
+                "Envelope holds at the final point's value once the one-shot finishes, rather than resetting to 0");
+
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            module.process (block, midi, modMatrix);
+        }
+        expect (module.isPlaying() && module.getCurrentModulationValue() < 0.1f,
+                "A new note-on retriggers the one-shot from the beginning, even mid-hold-at-end");
+    }
+
+    // --- Envelope: breakpoint editing API (add/move/remove), including the pinned-endpoint and
+    // minimum-gap rules ---
+    {
+        EnvelopeModule module (apvts, 0);
+        module.prepare (spec);
+
+        expect (module.getNumPoints() == 2, "Envelope starts with exactly 2 points (the pinned endpoints)");
+
+        const int newIndex = module.addPoint ({ 0.5f, 0.2f });
+        expect (newIndex == 1 && module.getNumPoints() == 3, "addPoint() inserts a new interior point in sorted order");
+
+        module.movePoint (newIndex, { 0.5f, 0.8f });
+        expect (std::abs (module.getPoint (newIndex).y - 0.8f) < 1.0e-4f, "movePoint() updates an interior point's value");
+
+        module.movePoint (0, { 0.3f, 0.5f });
+        expect (std::abs (module.getPoint (0).x) < 1.0e-4f, "movePoint() forces the first point's x to stay pinned at 0");
+
+        const int rejected = module.addPoint ({ 0.0f, 0.9f });
+        expect (rejected == -1, "addPoint() rejects a point too close to an existing one (here, the pinned start point)");
+
+        module.removePoint (newIndex);
+        expect (module.getNumPoints() == 2, "removePoint() removes an interior point");
+
+        module.removePoint (0);
+        expect (module.getNumPoints() == 2, "removePoint() refuses to delete the first (pinned) point");
+    }
+
+    // --- Envelope: breakpoints round-trip correctly through writeExtraState/readExtraState (the
+    // non-APVTS persistence mechanism a variable-length point list needs) ---
+    {
+        EnvelopeModule sourceModule (apvts, 0);
+        sourceModule.prepare (spec);
+        sourceModule.addPoint ({ 0.25f, 0.9f });
+        sourceModule.addPoint ({ 0.75f, 0.1f });
+
+        juce::XmlElement stateXml ("Test");
+        sourceModule.writeExtraState (stateXml);
+
+        EnvelopeModule destModule (apvts, 0);
+        destModule.prepare (spec);
+        destModule.readExtraState (stateXml);
+
+        bool matches = destModule.getNumPoints() == sourceModule.getNumPoints();
+        for (int i = 0; matches && i < sourceModule.getNumPoints(); ++i)
+        {
+            const auto a = sourceModule.getPoint (i);
+            const auto b = destModule.getPoint (i);
+            if (std::abs (a.x - b.x) > 1.0e-4f || std::abs (a.y - b.y) > 1.0e-4f)
+                matches = false;
+        }
+        expect (matches, "Envelope's breakpoints round-trip correctly through writeExtraState/readExtraState");
+    }
+
+    // --- Modulation cable: an Envelope routed to Filter Frequency actually moves the cutoff once
+    // the drawn shape reaches its final value ---
+    {
+        apvts.getRawParameterValue (envelopeParamId (0, EnvelopeParam::length))->store (0.05f);
+        apvts.getRawParameterValue (envelopeParamId (0, EnvelopeParam::depth))->store (100.0f);
+
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::type))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::frequency))->store (300.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::resonance))->store (0.707f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::feedback))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
+
+        ModulationMatrix cableMatrix (apvts);
+        const bool added = cableMatrix.addModConnection (0, 1, filterParamId (1, FilterParam::frequency));
+        expect (added, "a modulation cable from an Envelope slot to Filter Frequency is accepted");
+
+        EnvelopeModule envelope (apvts, 0);
+        envelope.prepare (spec);
+        FilterModule filter (apvts, 1);
+        filter.prepare (spec);
+
+        cableMatrix.setLfoValue (0, envelope.getCurrentModulationValue());
+        auto closedBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (closedBuffer);
+            juce::MidiBuffer midi;
+            filter.process (block, midi, cableMatrix);
+        }
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            envelope.process (block, midi, modMatrix);
+        }
+        const int blocksToFinish = (int) std::round ((0.1 * sampleRate) / blockSize) + 2;
+        for (int i = 0; i < blocksToFinish; ++i)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            envelope.process (block, midi, modMatrix);
+        }
+        cableMatrix.setLfoValue (0, envelope.getCurrentModulationValue());
+
+        auto openBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (openBuffer);
+            juce::MidiBuffer midi;
+            filter.process (block, midi, cableMatrix);
+        }
+
+        const double closedRms = rms (closedBuffer, 0);
+        const double openRms = rms (openBuffer, 0);
+        expect (openRms > closedRms * 1.5,
+                "an Envelope modulation cable into Filter Frequency opens the cutoff once the drawn shape "
+                "reaches its final value (closed RMS " + juce::String (closedRms, 4) + ", open RMS "
+                    + juce::String (openRms, 4) + ")");
+    }
+
+    // --- Envelope: stays finite/bounded [0,1] with a dense, rapidly-retriggered shape ---
+    {
+        apvts.getRawParameterValue (envelopeParamId (0, EnvelopeParam::length))->store (0.01f);
+        apvts.getRawParameterValue (envelopeParamId (0, EnvelopeParam::depth))->store (100.0f);
+
+        EnvelopeModule module (apvts, 0);
+        module.prepare (spec);
+        for (int i = 0; i < 30; ++i)
+            module.addPoint ({ (float) i / 30.0f + 0.005f, (i % 2 == 0) ? 1.0f : 0.0f });
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int block = 0; block < 10; ++block)
+        {
+            juce::dsp::AudioBlock<float> b (dummyBuffer);
+            juce::MidiBuffer midi;
+            if (block % 3 == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            module.process (b, midi, modMatrix);
+        }
+
+        const float v = module.getCurrentModulationValue();
+        expect (std::isfinite (v) && v >= 0.0f && v <= 1.01f,
+                "Envelope stays finite/bounded [0,1] with a dense, rapidly-retriggered shape (value "
+                    + juce::String (v, 4) + ")");
     }
 
     std::cout << std::endl;

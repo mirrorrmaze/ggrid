@@ -33,6 +33,9 @@ namespace GGrid
         // audio-processing call chain within a block).
         float getCurrentValue() const { return currentValue.load(); }
 
+        bool isModulationSource() const override { return true; }
+        float getCurrentModulationValue() const override { return getCurrentValue(); }
+
     private:
         float computeShapeValue (float phase01) const;
 

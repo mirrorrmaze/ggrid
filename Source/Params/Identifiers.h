@@ -34,12 +34,25 @@ namespace GGrid
         output = 14,
         multibandConvolution = 15,
         threeOsc = 16,
+        envelope = 17,
+        adsr = 18,
     };
+
+    // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
+    // aren't part of the audio ConnectionGraph (see GGridAudioProcessor::processBlock's active[]
+    // exclusion); each produces a per-block scalar fed into ModulationMatrix via
+    // RackModule::getCurrentModulationValue(), and shows a single mod-output nub in the GUI
+    // instead of the normal 4 audio-output nubs (see NodeComponent::isModulationSourceType()).
+    inline bool isModulationSourceType (ModuleType type)
+    {
+        return type == ModuleType::lfo || type == ModuleType::envelope || type == ModuleType::adsr;
+    }
 
     inline juce::StringArray getModuleTypeChoices()
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
-                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc" };
+                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
+                 "Envelope", "ADSR" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -400,6 +413,46 @@ namespace GGrid
         static const juce::String fine     = "fine";   // cents
         static const juce::String pan      = "pan";
         static const juce::String level    = "level";
+    }
+
+    // A standalone ADSR modulation source: sustains while a note is held, releases on note-off --
+    // the classic synth-envelope behaviour, as opposed to Envelope's fixed-length one-shot (see
+    // that module's own comment for why the two are split rather than one configurable module).
+    // Mono (last-note-wins, matching ModulationMatrix's own existing note-tracking convention),
+    // reports a unipolar 0-1 value via RackModule::getCurrentModulationValue().
+    inline juce::String adsrParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_adsr_" + paramName;
+    }
+
+    namespace AdsrParam
+    {
+        static const juce::String attack  = "attack";
+        static const juce::String decay   = "decay";
+        static const juce::String sustain = "sustain";
+        static const juce::String release = "release";
+    }
+
+    // A freeform-breakpoint modulation source: draw an arbitrary shape (click empty space to add
+    // a point, drag to move one, right-click to delete -- see EnvelopeBreakpointEditor), which
+    // plays once per MIDI note-on over the Length knob's fixed duration and then holds at the
+    // final point's value, regardless of how long the note is held or when it's released --
+    // deliberately NOT sustain/release like Adsr (see AdsrParam's own comment); the two modules
+    // are kept distinct rather than folding sustain-hold behaviour into one configurable module.
+    // Breakpoints are NOT APVTS parameters (a variable-length point list can't be represented as
+    // a fixed set of automatable scalars) -- see RackModule::writeExtraState/readExtraState and
+    // EnvelopeModule's own comment for how they're persisted instead.
+    constexpr int kMaxEnvelopePoints = 64;
+
+    inline juce::String envelopeParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_envelope_" + paramName;
+    }
+
+    namespace EnvelopeParam
+    {
+        static const juce::String length = "length"; // total playback duration, note-on to finish
+        static const juce::String depth  = "depth";  // scales the drawn shape's 0-1 output
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

@@ -45,17 +45,18 @@ namespace GGrid
         // Each node has up to kMaxPortsPerSide (4) input dots and 4 output nubs, evenly spaced
         // down each edge -- not functionally distinct ports; which physical dot a given cable
         // lands on is purely which ordinal connection it is (see NodeGraphEditor's port-counting
-        // when drawing/hit-testing), not something the engine cares about. LFO nodes don't
-        // participate in the audio graph at all (see LFOModule's class comment) and hide these
-        // entirely, showing a single modulation-output nub instead -- see isLfoType()/
-        // getModOutputPosition(). Input/Output nodes are one-sided -- see isInputType()/
-        // isOutputType() -- an Input node hides its input dots (it has none), an Output node
-        // hides its output nubs (it has none).
+        // when drawing/hit-testing), not something the engine cares about. Modulation-source
+        // nodes (LFO/Envelope/ADSR) don't participate in the audio graph at all (see
+        // isModulationSourceType() in Identifiers.h) and hide these entirely, showing a single
+        // modulation-output nub instead -- see isModulationSourceType()/getModOutputPosition().
+        // Input/Output nodes are one-sided -- see isInputType()/isOutputType() -- an Input node
+        // hides its input dots (it has none), an Output node hides its output nubs (it has none).
         juce::Point<int> getInputConnectorPosition (int portIndex) const;
         juce::Point<int> getOutputConnectorPosition (int portIndex) const;
 
-        // True for LFO nodes -- no audio ports, one modulation-output nub instead.
-        bool isLfoType() const;
+        // True for LFO/Envelope/ADSR nodes -- no audio ports, one modulation-output nub instead
+        // (see isModulationSourceType() in Identifiers.h).
+        bool isModulationSourceType() const;
 
         // True for Input/Output nodes -- ordinary addable/deletable module types (not fixed
         // pseudo-nodes) whose only unusual behaviour is a one-sided port set and no control
@@ -176,6 +177,8 @@ namespace GGrid
         std::unique_ptr<Eq3ControlsPanel> eq3Panel;
         std::unique_ptr<MultibandConvolutionControlsPanel> multibandConvolutionPanel;
         std::unique_ptr<ThreeOscControlsPanel> threeOscPanel;
+        std::unique_ptr<AdsrControlsPanel> adsrPanel;
+        std::unique_ptr<EnvelopeControlsPanel> envelopePanel;
 
         bool isSelectedFlag = false;
 

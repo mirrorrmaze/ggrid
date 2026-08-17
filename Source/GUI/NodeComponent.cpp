@@ -60,6 +60,8 @@ namespace GGrid
         eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
         multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex);
         threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvts, slotIndex);
+        adsrPanel        = std::make_unique<AdsrControlsPanel> (apvts, slotIndex);
+        envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvts, slotIndex, rackSlot);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);
@@ -74,6 +76,8 @@ namespace GGrid
         addAndMakeVisible (*eq3Panel);
         addAndMakeVisible (*multibandConvolutionPanel);
         addAndMakeVisible (*threeOscPanel);
+        addAndMakeVisible (*adsrPanel);
+        addAndMakeVisible (*envelopePanel);
 
         typeBox.onChange = [this] { updateVisiblePanel(); };
         updateVisiblePanel();
@@ -96,6 +100,8 @@ namespace GGrid
         eq3Panel->setVisible (type == ModuleType::eq3);
         multibandConvolutionPanel->setVisible (type == ModuleType::multibandConvolution);
         threeOscPanel->setVisible (type == ModuleType::threeOsc);
+        adsrPanel->setVisible (type == ModuleType::adsr);
+        envelopePanel->setVisible (type == ModuleType::envelope);
     }
 
     int NodeComponent::getPreferredHeight() const
@@ -123,6 +129,9 @@ namespace GGrid
                 contentHeight = 308; break; // splitBar(50)+gap(10)+irRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106) -- one shared knob set, retargeted per selected band
             case ModuleType::threeOsc:
                 contentHeight = 656; break; // 3x[waveformRow(24)+gap(6)+knobRow(106)+gap(10)] + envRow(106)+gap(6)+fmRow(106)
+            case ModuleType::adsr:        contentHeight = 106; break; // knobRow(106), no bottom row
+            case ModuleType::envelope:
+                contentHeight = 276; break; // editor(160) + gap(10) + knobRow(106)
             case ModuleType::input:
             case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:
@@ -147,9 +156,9 @@ namespace GGrid
         return { getWidth(), getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
-    bool NodeComponent::isLfoType() const
+    bool NodeComponent::isModulationSourceType() const
     {
-        return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::lfo;
+        return GGrid::isModulationSourceType (static_cast<ModuleType> (typeBox.getSelectedId() - 1));
     }
 
     bool NodeComponent::isInputType() const
@@ -265,10 +274,11 @@ namespace GGrid
         g.drawRect (bounds, isSelectedFlag ? 2.5f : 1.5f);
 
         // Input dots are a static visual only -- dragging always starts from an (separately
-        // interactive) output nub, never from here. LFO nodes have no audio ports at all (they
-        // aren't part of the audio graph -- see LFOModule); Input/ThreeOsc nodes have no input
-        // ports at all (they're both sources, not destinations -- see hasNoInputPorts()).
-        if (! isLfoType() && ! hasNoInputPorts())
+        // interactive) output nub, never from here. Modulation-source nodes (LFO/Envelope/ADSR)
+        // have no audio ports at all (they aren't part of the audio graph -- see
+        // isModulationSourceType()); Input/ThreeOsc nodes have no input ports at all (they're both
+        // sources, not destinations -- see hasNoInputPorts()).
+        if (! isModulationSourceType() && ! hasNoInputPorts())
         {
             g.setColour (Palette::accent);
             for (int port = 0; port < kMaxPortsPerSide; ++port)
@@ -337,19 +347,21 @@ namespace GGrid
         eq3Panel->setBounds (contentArea);
         multibandConvolutionPanel->setBounds (contentArea);
         threeOscPanel->setBounds (contentArea);
+        adsrPanel->setBounds (contentArea);
+        envelopePanel->setBounds (contentArea);
 
         scope.setBounds (contentArea);
         scope.setVisible (isIOType);
 
-        const bool lfo = isLfoType();
+        const bool modSource = isModulationSourceType();
         // Output nodes have no output ports at all -- their whole purpose is collecting incoming
         // audio into the final mix, not producing any (see isOutputType()).
-        const bool hideOutputPorts = lfo || isOutputType();
+        const bool hideOutputPorts = modSource || isOutputType();
         outputNub0.setVisible (! hideOutputPorts);
         outputNub1.setVisible (! hideOutputPorts);
         outputNub2.setVisible (! hideOutputPorts);
         outputNub3.setVisible (! hideOutputPorts);
-        modOutputNub.setVisible (lfo);
+        modOutputNub.setVisible (modSource);
 
         OutputNub* outputNubs[kMaxPortsPerSide] = { &outputNub0, &outputNub1, &outputNub2, &outputNub3 };
         for (int port = 0; port < kMaxPortsPerSide; ++port)

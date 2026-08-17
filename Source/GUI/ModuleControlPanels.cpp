@@ -728,6 +728,96 @@ namespace GGrid
         divisionBox.setBounds (bottomRow);
     }
 
+    AdsrControlsPanel::AdsrControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (attackSlider, attackLabel, "Attack");
+        setupRotary (decaySlider, decayLabel, "Decay");
+        setupRotary (sustainSlider, sustainLabel, "Sustain");
+        setupRotary (releaseSlider, releaseLabel, "Release");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        attackAttachment  = std::make_unique<SliderAttachment> (apvts, adsrParamId (slotIndex, AdsrParam::attack), attackSlider);
+        decayAttachment   = std::make_unique<SliderAttachment> (apvts, adsrParamId (slotIndex, AdsrParam::decay), decaySlider);
+        sustainAttachment = std::make_unique<SliderAttachment> (apvts, adsrParamId (slotIndex, AdsrParam::sustain), sustainSlider);
+        releaseAttachment = std::make_unique<SliderAttachment> (apvts, adsrParamId (slotIndex, AdsrParam::release), releaseSlider);
+    }
+
+    void AdsrControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 4;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), attackLabel, attackSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), decayLabel, decaySlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), sustainLabel, sustainSlider);
+        layoutKnob (knobRow, releaseLabel, releaseSlider);
+    }
+
+    EnvelopeControlsPanel::EnvelopeControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
+        : editor (rackSlot)
+    {
+        addAndMakeVisible (editor);
+
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (lengthSlider, lengthLabel, "Length");
+        setupRotary (depthSlider, depthLabel, "Depth");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        lengthAttachment = std::make_unique<SliderAttachment> (apvts, envelopeParamId (slotIndex, EnvelopeParam::length), lengthSlider);
+        depthAttachment  = std::make_unique<SliderAttachment> (apvts, envelopeParamId (slotIndex, EnvelopeParam::depth), depthSlider);
+    }
+
+    void EnvelopeControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        editor.setBounds (area.removeFromTop (160));
+        area.removeFromTop (10);
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 2;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), lengthLabel, lengthSlider);
+        layoutKnob (knobRow, depthLabel, depthSlider);
+    }
+
     LossyControlsPanel::LossyControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
     {
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
