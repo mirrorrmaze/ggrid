@@ -161,6 +161,7 @@ namespace GGrid
         std::unique_ptr<Eq8ControlsPanel> eq8Panel;
         std::unique_ptr<ChorusControlsPanel> chorusPanel;
         std::unique_ptr<Eq3ControlsPanel> eq3Panel;
+        std::unique_ptr<MultibandConvolutionControlsPanel> multibandConvolutionPanel;
 
         bool isSelectedFlag = false;
 

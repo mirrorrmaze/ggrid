@@ -7,8 +7,8 @@ modulation, convolution, and more), wire them together however you like, and sha
 ## Features
 
 - **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
-  Delay/Dynamics/Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/EQ 3, or Input/Output
-  under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
+  Delay/Dynamics/Convolution/Multiband Convolution/Utility/Ring Mod/LFO/Lossy/EQ 8/Chorus-Flanger/
+  EQ 3, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
   output to another node's input to connect them. Up to 24 modules at once, including duplicates
   of the same type. Input and Output are ordinary addable/deletable node types like any other --
   a small compact box (rather than the wider boxes every other module gets) showing a live
@@ -88,6 +88,15 @@ modulation, convolution, and more), wire them together however you like, and sha
   button opens it) to have them show up in the picker too. IR-affecting changes are debounced and
   the actual reshape (disk read, resample, fade envelope) runs on a background thread, so
   dragging Stretch or switching IRs never spikes the audio thread.
+- **Multiband Convolution** -- ported from [MultibandConvolver](../MultibandConvolver), scoped to
+  a fixed 3 bands (Low/Mid/High) so it fits the rack's node format: an LR4 (24dB/oct) crossover
+  splits the signal at 2 split points, shown as draggable markers on a frequency strip across the
+  top of the node (drag them directly rather than turning a knob -- the strip is log-frequency-
+  mapped 20Hz-20kHz, same range the split parameters themselves cover) rather than a numeric knob.
+  Each band then runs its own full independent copy of Convolution's engine -- its own IR picker,
+  Tone, Fade In, Fade Out, Stretch, Mix, Output -- and the 3 bands sum back together at the output.
+  By far the tallest node in the rack (3 full band sections stacked), but every knob still exposes
+  itself as a modulation-cable destination like any other module.
 - **Utility** -- Gain, Pan (balance, for already-stereo material), Width (mid/side stereo width,
   0-200%), Mono, and independent Phase Invert per channel. Mirrors Ableton's Utility device: pure
   gain-staging/imaging, no coloration of its own.

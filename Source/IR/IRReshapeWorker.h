@@ -7,20 +7,20 @@
 
 namespace GGrid
 {
-    class ConvolutionModule; // see ConvolutionModule.h -- only needs pointer identity here
-
     // Ported from MultibandConvolver's IRReshapeWorker (D:\Claude Projects\MultibandConvolver\
-    // Source\DSP\IRReshapeWorker.h), adapted for ConvolutionModule* identity instead of
-    // BandChain* and kMaxSlots instead of Params::maxBands.
+    // Source\DSP\IRReshapeWorker.h), adapted for a generic identity key instead of BandChain*.
     //
     // Shared background thread that does the actual IR reshaping (disk read + resample + fade
-    // envelope) for every Convolution module in the rack, so the audio thread never blocks on
+    // envelope) for every IR-driven module/voice in the rack, so the audio thread never blocks on
     // it. The audio thread only ever calls requestReshape(), which just stashes a small POD job
-    // in a per-module slot and returns -- the real work happens here instead.
+    // in a per-caller slot and returns -- the real work happens here instead.
     //
-    // One fixed slot per module (matched by ConvolutionModule pointer identity): a new request
-    // for a module that already has one pending simply overwrites it, so rapid changes (e.g.
-    // dragging Stretch) never build an unbounded backlog.
+    // One fixed slot per caller, matched by an arbitrary `const void*` identity key -- any object
+    // with a stable address for its lifetime works (a whole ConvolutionModule, or one band's
+    // sub-voice inside MultibandConvolutionModule), since the pointer is only ever compared for
+    // identity here, never dereferenced. A new request for a key that already has one pending
+    // simply overwrites it, so rapid changes (e.g. dragging Stretch) never build an unbounded
+    // backlog.
     class IRReshapeWorker : private juce::Thread
     {
     public:
@@ -49,20 +49,20 @@ namespace GGrid
         };
 
         // Audio thread. Cheap: acquires a spin lock just long enough to copy a few POD fields.
-        void requestReshape (ConvolutionModule& targetModule, const Job& job)
+        void requestReshape (const void* identity, const Job& job)
         {
             {
                 const juce::SpinLock::ScopedLockType lock (slotLock);
                 Slot* freeSlot = nullptr;
                 for (auto& slot : slots)
                 {
-                    if (slot.module == &targetModule) { slot.job = job; slot.pending = true; notify(); return; }
-                    if (freeSlot == nullptr && slot.module == nullptr)
+                    if (slot.identity == identity) { slot.job = job; slot.pending = true; notify(); return; }
+                    if (freeSlot == nullptr && slot.identity == nullptr)
                         freeSlot = &slot;
                 }
                 if (freeSlot != nullptr)
                 {
-                    freeSlot->module = &targetModule;
+                    freeSlot->identity = identity;
                     freeSlot->job = job;
                     freeSlot->pending = true;
                 }
@@ -70,19 +70,19 @@ namespace GGrid
             notify();
         }
 
-        // Audio thread only. If the background thread has finished shaping an IR for
-        // `targetModule`, moves it into outBuffer/outSampleRate and returns true (consuming it).
+        // Audio thread only. If the background thread has finished shaping an IR for `identity`,
+        // moves it into outBuffer/outSampleRate and returns true (consuming it).
         // outPreFadeOutLength is outBuffer's length before Fade Out's truncation, and
         // outFadeRampSamples is the length of the declick ramp actually applied at the cut point
         // (0 if none) -- see IRProcessor::buildShapedIR's comment for why callers displaying the
         // waveform need both.
-        bool tryTakeResult (ConvolutionModule& targetModule, juce::AudioBuffer<float>& outBuffer, double& outSampleRate,
+        bool tryTakeResult (const void* identity, juce::AudioBuffer<float>& outBuffer, double& outSampleRate,
                              int& outPreFadeOutLength, int& outFadeRampSamples)
         {
             const juce::SpinLock::ScopedLockType lock (slotLock);
             for (auto& slot : slots)
             {
-                if (slot.module == &targetModule && slot.resultReady)
+                if (slot.identity == identity && slot.resultReady)
                 {
                     outBuffer = std::move (slot.result);
                     outSampleRate = slot.resultSampleRate;
@@ -98,7 +98,7 @@ namespace GGrid
     private:
         struct Slot
         {
-            ConvolutionModule* module = nullptr;
+            const void* identity = nullptr;
             Job job;
             bool pending = false;
 
@@ -108,7 +108,10 @@ namespace GGrid
             int resultFadeRampSamples = 0;
             bool resultReady = false;
         };
-        std::array<Slot, (size_t) kMaxSlots> slots;
+        // Sized beyond kMaxSlots -- a single MultibandConvolutionModule needs one slot per band
+        // (kNumConvolutionBands), not just one for the whole module, so worst-case demand is
+        // higher than "one per rack slot" now.
+        std::array<Slot, (size_t) (kMaxSlots * 4)> slots;
         juce::SpinLock slotLock;
 
         void run() override;

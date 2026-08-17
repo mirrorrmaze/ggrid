@@ -11,6 +11,7 @@
 #include "../Modules/Eq8Module.h"
 #include "../Modules/ChorusModule.h"
 #include "../Modules/Eq3Module.h"
+#include "../Modules/MultibandConvolutionModule.h"
 
 namespace GGrid
 {
@@ -60,6 +61,9 @@ namespace GGrid
 
             case ModuleType::eq3:
                 return std::make_unique<Eq3Module> (apvts, slotIndex);
+
+            case ModuleType::multibandConvolution:
+                return std::make_unique<MultibandConvolutionModule> (apvts, slotIndex, services);
 
             // Input/Output are structural graph roles, not DSP processors -- process() is never
             // called on a slot playing either role (see GGridAudioProcessor::processBlock's

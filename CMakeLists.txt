@@ -47,11 +47,13 @@ target_sources(GGrid
         Source/Modules/Eq8Module.cpp
         Source/Modules/ChorusModule.cpp
         Source/Modules/Eq3Module.cpp
+        Source/Modules/MultibandConvolutionModule.cpp
         Source/Modulation/ModulationMatrix.cpp
         Source/IR/IRLibrary.cpp
         Source/IR/IRProcessor.cpp
         Source/IR/IRReshapeWorker.cpp
         Source/GUI/ModuleControlPanels.cpp
+        Source/GUI/CrossoverSplitBar.cpp
         Source/GUI/NodeComponent.cpp
         Source/GUI/NodeGraphEditor.cpp
         Source/GUI/MasterControlsPanel.cpp
@@ -101,6 +103,7 @@ add_executable(OfflineDspTest
     Source/Modules/Eq8Module.cpp
     Source/Modules/ChorusModule.cpp
     Source/Modules/Eq3Module.cpp
+    Source/Modules/MultibandConvolutionModule.cpp
     Source/Modulation/ModulationMatrix.cpp
     Source/IR/IRLibrary.cpp
     Source/IR/IRProcessor.cpp

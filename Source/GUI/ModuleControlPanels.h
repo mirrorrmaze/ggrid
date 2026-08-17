@@ -5,7 +5,9 @@
 #include "../Params/Identifiers.h"
 #include "../Rack/RackSlot.h"
 #include "IRWaveformComponent.h"
+#include "CrossoverSplitBar.h"
 #include <vector>
+#include <array>
 
 namespace GGrid
 {
@@ -372,5 +374,44 @@ namespace GGrid
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Eq3ControlsPanel)
+    };
+
+    // Multiband Convolution controls: a CrossoverSplitBar for the 2 draggable split points (Low/
+    // Mid/High), then one section per band -- an IR dropdown and the same Tone/Fade In/Fade Out/
+    // Stretch/Mix/Output knob set ConvolutionControlsPanel uses, minus that panel's waveform
+    // display and prev/next/open-folder buttons (3 waveforms would make this by far the tallest
+    // node in the rack for little benefit -- the split bar already shows where each band sits).
+    // See the user's own scoping answers this was built from: fixed 3 bands but still draggable,
+    // and the full per-band knob set rather than an "essentials only" trim.
+    class MultibandConvolutionControlsPanel : public juce::Component
+    {
+    public:
+        MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        struct BandControls
+        {
+            juce::Label nameLabel;
+            juce::ComboBox irBox;
+            juce::Label toneLabel { {}, "Tone" }, fadeInLabel { {}, "Fade In" }, fadeOutLabel { {}, "Fade Out" },
+                        stretchLabel { {}, "Stretch" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+            juce::Slider toneSlider, fadeInSlider, fadeOutSlider, stretchSlider, mixSlider, outputSlider;
+
+            std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> irAttachment;
+            std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+                toneAttachment, fadeInAttachment, fadeOutAttachment, stretchAttachment, mixAttachment, outputAttachment;
+        };
+
+        CrossoverSplitBar splitBar;
+        std::array<BandControls, kNumConvolutionBands> bands;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MultibandConvolutionControlsPanel)
     };
 }

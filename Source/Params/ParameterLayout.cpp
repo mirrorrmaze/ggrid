@@ -478,6 +478,68 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
 
+    static void addMultibandConvolutionParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz1), 1 },
+            "Slot " + String (slotIndex + 1) + " Multiband Convolution Split 1",
+            skewedRange (20.0f, 20000.0f, 1000.0f), 300.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz2), 1 },
+            "Slot " + String (slotIndex + 1) + " Multiband Convolution Split 2",
+            skewedRange (20.0f, 20000.0f, 1000.0f), 3000.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        for (int band = 0; band < kNumConvolutionBands; ++band)
+        {
+            const auto bandLabel = getConvolutionBandLabels()[band];
+
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::irIndex), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " IR",
+                IRLibrary::getCatalogDisplayNames(), 0));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::tone), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Tone",
+                NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::fadeIn), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Fade In",
+                NormalisableRange<float> (0.0f, 500.0f, 0.01f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("ms")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::fadeOut), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Fade Out",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("%")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::stretch), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Stretch",
+                skewedRange (0.25f, 4.0f, 1.0f), 1.0f,
+                AudioParameterFloatAttributes().withLabel ("x")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::mix), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Mix",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
+                AudioParameterFloatAttributes().withLabel ("%")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multibandConvolutionBandParamId (slotIndex, band, MultibandConvolutionBandParam::output), 1 },
+                "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Output",
+                NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("dB")));
+        }
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -508,6 +570,7 @@ namespace GGrid
             addEq8Params (layout, slot);
             addChorusParams (layout, slot);
             addEq3Params (layout, slot);
+            addMultibandConvolutionParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

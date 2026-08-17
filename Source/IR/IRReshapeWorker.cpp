@@ -10,29 +10,29 @@ namespace GGrid
 
             for (auto& slot : slots)
             {
-                ConvolutionModule* module = nullptr;
+                const void* identity = nullptr;
                 Job job;
 
                 {
                     const juce::SpinLock::ScopedLockType lock (slotLock);
                     if (slot.pending)
                     {
-                        module = slot.module;
+                        identity = slot.identity;
                         job = slot.job;
                         slot.pending = false;
                     }
                 }
 
-                if (module == nullptr)
+                if (identity == nullptr)
                     continue;
 
                 didWork = true;
 
                 // The shaping itself (disk read, resample, fade envelope) is the expensive part
                 // and stays off the audio thread. The result just sits in the slot until the
-                // owning ConvolutionModule::process() picks it up and hands it to
+                // owning module/voice's process() picks it up and hands it to
                 // juce::dsp::Convolution itself -- that call has to happen on the audio thread,
-                // so we don't touch `module` here at all beyond identity matching.
+                // so we don't touch anything through `identity` here beyond identity matching.
                 juce::AudioBuffer<float> shaped;
                 int preFadeOutLength = 0;
                 int fadeRampSamples = 0;

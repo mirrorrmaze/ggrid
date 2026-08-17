@@ -386,6 +386,7 @@ namespace GGrid
         juce::PopupMenu timeSpaceMenu;
         timeSpaceMenu.addItem (3, "Delay");
         timeSpaceMenu.addItem (5, "Convolution");
+        timeSpaceMenu.addItem ((int) ModuleType::multibandConvolution, "Multiband Convolution");
 
         juce::PopupMenu utilityMenu;
         utilityMenu.addItem (6, "Utility");

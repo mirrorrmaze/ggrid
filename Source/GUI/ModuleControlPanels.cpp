@@ -987,4 +987,118 @@ namespace GGrid
         layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
         layoutKnob (knobRow, outputLabel, outputSlider);
     }
+
+    MultibandConvolutionControlsPanel::MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : splitBar (apvts, slotIndex)
+    {
+        addAndMakeVisible (splitBar);
+
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        const auto bandLabels = getConvolutionBandLabels();
+
+        for (int b = 0; b < kNumConvolutionBands; ++b)
+        {
+            auto& band = bands[(size_t) b];
+
+            band.nameLabel.setText (bandLabels[b], juce::dontSendNotification);
+            band.nameLabel.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+            band.nameLabel.setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (band.nameLabel);
+
+            int itemId = 1;
+            juce::String lastCategory;
+            for (auto& entry : IRLibrary::getCatalog())
+            {
+                if (entry.category != lastCategory)
+                {
+                    band.irBox.addSectionHeading (entry.category);
+                    lastCategory = entry.category;
+                }
+                band.irBox.addItem (entry.displayName, itemId++);
+            }
+            addAndMakeVisible (band.irBox);
+
+            setupRotary (band.toneSlider, band.toneLabel, "Tone");
+            setupRotary (band.fadeInSlider, band.fadeInLabel, "Fade In");
+            setupRotary (band.fadeOutSlider, band.fadeOutLabel, "Fade Out");
+            setupRotary (band.stretchSlider, band.stretchLabel, "Stretch");
+            setupRotary (band.mixSlider, band.mixLabel, "Mix");
+            setupRotary (band.outputSlider, band.outputLabel, "Output");
+
+            band.irAttachment = std::make_unique<ComboBoxAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::irIndex), band.irBox);
+            band.toneAttachment = std::make_unique<SliderAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::tone), band.toneSlider);
+            band.fadeInAttachment = std::make_unique<SliderAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeIn), band.fadeInSlider);
+            band.fadeOutAttachment = std::make_unique<SliderAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeOut), band.fadeOutSlider);
+            band.stretchAttachment = std::make_unique<SliderAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::stretch), band.stretchSlider);
+            band.mixAttachment = std::make_unique<SliderAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::mix), band.mixSlider);
+            band.outputAttachment = std::make_unique<SliderAttachment> (
+                apvts, multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::output), band.outputSlider);
+
+            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::tone),     bandLabels[b] + " Tone",     &band.toneSlider });
+            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeIn),   bandLabels[b] + " Fade In",  &band.fadeInSlider });
+            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::fadeOut),  bandLabels[b] + " Fade Out", &band.fadeOutSlider });
+            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::stretch),  bandLabels[b] + " Stretch",  &band.stretchSlider });
+            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::mix),      bandLabels[b] + " Mix",      &band.mixSlider });
+            modTargets.push_back ({ multibandConvolutionBandParamId (slotIndex, b, MultibandConvolutionBandParam::output),   bandLabels[b] + " Output",   &band.outputSlider });
+        }
+    }
+
+    void MultibandConvolutionControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        splitBar.setBounds (area.removeFromTop (50));
+        area.removeFromTop (10);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        for (int b = 0; b < kNumConvolutionBands; ++b)
+        {
+            auto& band = bands[(size_t) b];
+
+            auto irRow = area.removeFromTop (24);
+            band.nameLabel.setBounds (irRow.removeFromLeft (40));
+            band.irBox.setBounds (irRow);
+            area.removeFromTop (6);
+
+            auto topKnobRow = area.removeFromTop (106);
+            const int topKnobWidth = topKnobRow.getWidth() / 3;
+            layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), band.toneLabel, band.toneSlider);
+            layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), band.fadeInLabel, band.fadeInSlider);
+            layoutKnob (topKnobRow, band.fadeOutLabel, band.fadeOutSlider);
+            area.removeFromTop (6);
+
+            auto bottomKnobRow = area.removeFromTop (106);
+            const int bottomKnobWidth = bottomKnobRow.getWidth() / 3;
+            layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), band.stretchLabel, band.stretchSlider);
+            layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), band.mixLabel, band.mixSlider);
+            layoutKnob (bottomKnobRow, band.outputLabel, band.outputSlider);
+
+            if (b < kNumConvolutionBands - 1)
+                area.removeFromTop (10);
+        }
+    }
 }

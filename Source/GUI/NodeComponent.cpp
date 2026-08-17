@@ -58,6 +58,7 @@ namespace GGrid
         eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex);
         chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
         eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
+        multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);
@@ -70,6 +71,7 @@ namespace GGrid
         addAndMakeVisible (*eq8Panel);
         addAndMakeVisible (*chorusPanel);
         addAndMakeVisible (*eq3Panel);
+        addAndMakeVisible (*multibandConvolutionPanel);
 
         typeBox.onChange = [this] { updateVisiblePanel(); };
         updateVisiblePanel();
@@ -90,6 +92,7 @@ namespace GGrid
         eq8Panel->setVisible (type == ModuleType::eq8);
         chorusPanel->setVisible (type == ModuleType::chorus);
         eq3Panel->setVisible (type == ModuleType::eq3);
+        multibandConvolutionPanel->setVisible (type == ModuleType::multibandConvolution);
     }
 
     int NodeComponent::getPreferredHeight() const
@@ -113,6 +116,8 @@ namespace GGrid
             case ModuleType::eq8:         contentHeight = 330; break; // 3 knob rows(106 each) + 2 gaps(6 each)
             case ModuleType::chorus:      contentHeight = 268; break; // knobRow(106) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::eq3:         contentHeight = 106; break; // knobRow(106), no bottom row
+            case ModuleType::multibandConvolution:
+                contentHeight = 824; break; // splitBar(50)+gap(10) + 3x[irRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106)] + 2 gaps(10)
             case ModuleType::input:
             case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:
@@ -172,6 +177,7 @@ namespace GGrid
             case ModuleType::eq8:         return eq8Panel->getModTargetCount();
             case ModuleType::chorus:      return chorusPanel->getModTargetCount();
             case ModuleType::eq3:         return eq3Panel->getModTargetCount();
+            case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTargetCount();
             default:                      return 0;
         }
     }
@@ -191,6 +197,7 @@ namespace GGrid
             case ModuleType::eq8:         return eq8Panel->getModTarget (index).paramId;
             case ModuleType::chorus:      return chorusPanel->getModTarget (index).paramId;
             case ModuleType::eq3:         return eq3Panel->getModTarget (index).paramId;
+            case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTarget (index).paramId;
             default:                      return {};
         }
     }
@@ -211,6 +218,7 @@ namespace GGrid
             case ModuleType::eq8:         slider = eq8Panel->getModTarget (index).slider; break;
             case ModuleType::chorus:      slider = chorusPanel->getModTarget (index).slider; break;
             case ModuleType::eq3:         slider = eq3Panel->getModTarget (index).slider; break;
+            case ModuleType::multibandConvolution: slider = multibandConvolutionPanel->getModTarget (index).slider; break;
             default:                      break;
         }
 
@@ -314,6 +322,7 @@ namespace GGrid
         eq8Panel->setBounds (contentArea);
         chorusPanel->setBounds (contentArea);
         eq3Panel->setBounds (contentArea);
+        multibandConvolutionPanel->setBounds (contentArea);
 
         scope.setBounds (contentArea);
         scope.setVisible (isIOType);

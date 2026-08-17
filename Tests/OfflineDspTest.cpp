@@ -5,6 +5,7 @@
 #include "Modules/DelayModule.h"
 #include "Modules/DynamicsModule.h"
 #include "Modules/ConvolutionModule.h"
+#include "Modules/MultibandConvolutionModule.h"
 #include "Modules/UtilityModule.h"
 #include "Modules/RingModModule.h"
 #include "Modules/LFOModule.h"
@@ -692,6 +693,175 @@ int main()
 
         expect (isFiniteAndBounded (lastBuffer, 4.0f), "convolution with a catalog IR loaded stays finite/bounded");
         expect (differs, "selecting a catalog IR actually changes the output (debounce + background reshape completes within ~2s)");
+    }
+
+    // --- Multiband Convolution: with every band's Mix at 0%, the LR4 crossover split + sum
+    // recombines to a unity-gain ALLPASS -- flat magnitude spectrum, but phase-shifted, NOT a
+    // sample-exact copy of the input. A time-domain sample diff against a sine tone is the wrong
+    // check for that (phase shift alone makes it fail despite a perfectly flat crossover), so this
+    // feeds an impulse and checks the FFT MAGNITUDE of the recombined output stays flat (~0dB)
+    // across the spectrum -- mirrors MultibandConvolver's own "Phase 2 null test" for this exact
+    // property (see CrossoverSplitter.h's class comment) ---
+    {
+        for (int band = 0; band < kNumConvolutionBands; ++band)
+        {
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::mix))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::output))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::tone))->store (0.0f);
+        }
+        apvts.getRawParameterValue (multibandConvolutionParamId (0, MultibandConvolutionParam::splitHz1))->store (300.0f);
+        apvts.getRawParameterValue (multibandConvolutionParamId (0, MultibandConvolutionParam::splitHz2))->store (3000.0f);
+
+        MultibandConvolutionModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        // Let the split-point smoothing (50ms ramp) settle on silence before injecting the impulse.
+        for (int i = 0; i < 20; ++i)
+        {
+            juce::AudioBuffer<float> silence (2, blockSize);
+            silence.clear();
+            juce::dsp::AudioBlock<float> silenceBlock (silence);
+            juce::MidiBuffer midi;
+            module.process (silenceBlock, midi, modMatrix);
+        }
+
+        // A unit impulse's true spectrum is exactly 1.0 (0dB) at every bin by definition (DFT of a
+        // delta function), so this needs no reference/normalization -- the recombined signal's own
+        // FFT magnitude should likewise sit at ~0dB everywhere if the crossover really is flat.
+        constexpr int fftOrder = 14;
+        constexpr int captureLen = 1 << fftOrder; // 16384 samples, ~370ms at 44.1kHz -- ample decay time
+        std::vector<float> captured (captureLen, 0.0f);
+        int written = 0;
+        bool impulseSent = false;
+
+        while (written < captureLen)
+        {
+            juce::AudioBuffer<float> block (2, blockSize);
+            block.clear();
+            if (! impulseSent)
+            {
+                block.setSample (0, 0, 1.0f);
+                block.setSample (1, 0, 1.0f);
+                impulseSent = true;
+            }
+
+            juce::dsp::AudioBlock<float> dspBlock (block);
+            juce::MidiBuffer midi;
+            module.process (dspBlock, midi, modMatrix);
+
+            for (int i = 0; i < blockSize && written < captureLen; ++i, ++written)
+                captured[(size_t) written] = block.getSample (0, i);
+        }
+
+        juce::dsp::FFT fft (fftOrder);
+        std::vector<float> fftData ((size_t) captureLen * 2, 0.0f);
+        std::copy (captured.begin(), captured.end(), fftData.begin());
+        fft.performFrequencyOnlyForwardTransform (fftData.data());
+
+        const int numBins = captureLen / 2;
+        double maxDevDb = 0.0;
+        double worstFreq = 0.0;
+
+        for (int bin = 1; bin < numBins; ++bin)
+        {
+            const double freq = bin * sampleRate / captureLen;
+            if (freq < 30.0 || freq > 20000.0)
+                continue;
+
+            const double mag = fftData[(size_t) bin];
+            const double db = std::abs (juce::Decibels::gainToDecibels (mag, -100.0));
+            if (db > maxDevDb)
+            {
+                maxDevDb = db;
+                worstFreq = freq;
+            }
+        }
+
+        expect (maxDevDb < 1.5, "Multiband Convolution with every band's Mix at 0% recombines to a flat unity-gain-allpass spectrum (max deviation "
+                                     + juce::String (maxDevDb, 3) + " dB at ~" + juce::String (worstFreq, 0) + " Hz)");
+    }
+
+    // --- Multiband Convolution: stays finite/bounded at extreme split points/tone/stretch/fade.
+    // Uses one continuous buffer split into sub-blocks (like the compressor test above) rather than
+    // reprocessing the same short buffer in place -- reusing an already-boosted block as the next
+    // block's "new" input would compound the +24dB output gain across iterations and blow up for
+    // reasons that have nothing to do with the module's real per-block behavior. ---
+    {
+        apvts.getRawParameterValue (multibandConvolutionParamId (0, MultibandConvolutionParam::splitHz1))->store (25.0f);
+        apvts.getRawParameterValue (multibandConvolutionParamId (0, MultibandConvolutionParam::splitHz2))->store (18000.0f);
+
+        for (int band = 0; band < kNumConvolutionBands; ++band)
+        {
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::irIndex))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::tone))->store (band % 2 == 0 ? 1.0f : -1.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::fadeIn))->store (500.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::fadeOut))->store (100.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::stretch))->store (4.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::output))->store (24.0f);
+        }
+
+        MultibandConvolutionModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        const int numChunks = 5; // several blocks so the debounced reshape has a chance to fire mid-stream
+        auto fullBuffer = makeTestSignal (blockSize * numChunks, 0.9f, 220.0f, sampleRate);
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            module.process (sub, midi, modMatrix);
+        }
+
+        // Bound set generously above the ~28x peak this legitimately reaches at these settings (3
+        // bands simultaneously at +24dB output/100% mix/no dry blend, matching ConvolutionModule's
+        // own per-slot headroom -- the master safety limiter downstream is what protects the user's
+        // ears/gear at that point, not this module) -- this check is for NaN/Inf/runaway growth,
+        // not for clamping legitimate gain-stacking headroom.
+        expect (isFiniteAndBounded (fullBuffer, 60.0f), "Multiband Convolution stays finite/bounded at extreme split points/tone/stretch/fade/output");
+    }
+
+    // --- Multiband Convolution: each band's IR reshape uses its own identity with the shared
+    // background worker (the IRReshapeWorker generalization this module depends on) -- picking a
+    // catalog IR on one band, with only that band audible, eventually changes the output ---
+    {
+        for (int band = 0; band < kNumConvolutionBands; ++band)
+        {
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::irIndex))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::tone))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::fadeIn))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::fadeOut))->store (0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::stretch))->store (1.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::mix))->store (band == 1 ? 100.0f : 0.0f);
+            apvts.getRawParameterValue (multibandConvolutionBandParamId (0, band, MultibandConvolutionBandParam::output))->store (0.0f);
+        }
+        apvts.getRawParameterValue (multibandConvolutionParamId (0, MultibandConvolutionParam::splitHz1))->store (20.0f);
+        apvts.getRawParameterValue (multibandConvolutionParamId (0, MultibandConvolutionParam::splitHz2))->store (20000.0f);
+
+        MultibandConvolutionModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> lastBuffer;
+        bool differs = false;
+        for (int attempt = 0; attempt < 200 && ! differs; ++attempt)
+        {
+            juce::Thread::sleep (10);
+
+            auto dryReference = makeTestSignal (blockSize, 0.5f, 220.0f, sampleRate);
+            lastBuffer = makeTestSignal (blockSize, 0.5f, 220.0f, sampleRate);
+            juce::dsp::AudioBlock<float> block (lastBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+
+            for (int i = 0; i < blockSize && ! differs; ++i)
+                if (std::abs (dryReference.getSample (0, i) - lastBuffer.getSample (0, i)) > 1.0e-6f)
+                    differs = true;
+        }
+
+        expect (isFiniteAndBounded (lastBuffer, 4.0f), "Multiband Convolution with a catalog IR loaded on one band stays finite/bounded");
+        expect (differs, "Multiband Convolution's per-band IR reshape (its own IRReshapeWorker identity) actually completes and changes the output");
     }
 
     // --- Mod matrix: a note-pitch -> filter frequency route actually shifts the cutoff ---

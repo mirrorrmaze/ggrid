@@ -32,12 +32,13 @@ namespace GGrid
         eq3 = 12,
         input = 13,
         output = 14,
+        multibandConvolution = 15,
     };
 
     inline juce::StringArray getModuleTypeChoices()
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
-                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output" };
+                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -313,6 +314,47 @@ namespace GGrid
         static const juce::String high   = "high";
         static const juce::String mix    = "mix";
         static const juce::String output = "output";
+    }
+
+    // A fixed 3-band (Low/Mid/High) multiband convolution: an LR4 crossover splits the signal at
+    // 2 draggable split points, each band running its own independent copy of the Convolution
+    // module's engine (IR select -> Tone -> Fade In/Fade Out/Stretch reshape -> Mix -> Output),
+    // recombined at the output -- ported from MultibandConvolver (D:\Claude Projects\
+    // MultibandConvolver\Source\DSP\CrossoverSplitter.{h,cpp}/BandChain.{h,cpp}), scoped down
+    // from that project's up-to-8-band/12-macro-per-band desktop UI to a fixed 3 bands so it fits
+    // GGrid's compact node-panel format. See MultibandConvolutionModule.
+    constexpr int kNumConvolutionBands = 3;
+    inline juce::StringArray getConvolutionBandLabels() { return { "Low", "Mid", "High" }; }
+
+    inline juce::String multibandConvolutionParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_multibandConvolution_" + paramName;
+    }
+
+    // The 2 crossover split points (band 0/1 boundary, band 1/2 boundary) -- shared across all 3
+    // bands, not per-band, since they define where bands begin/end rather than belonging to any
+    // one of them. Dragged directly on-canvas via CrossoverSplitBar rather than a knob.
+    namespace MultibandConvolutionParam
+    {
+        static const juce::String splitHz1 = "splitHz1"; // Low/Mid boundary
+        static const juce::String splitHz2 = "splitHz2"; // Mid/High boundary
+    }
+
+    inline juce::String multibandConvolutionBandParamId (int slotIndex, int bandIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_multibandConvolution_band" + juce::String (bandIndex) + "_" + paramName;
+    }
+
+    // Mirrors ConvolutionParam exactly, one full set per band.
+    namespace MultibandConvolutionBandParam
+    {
+        static const juce::String irIndex = "irIndex";
+        static const juce::String tone    = "tone";
+        static const juce::String fadeIn  = "fadeIn";
+        static const juce::String fadeOut = "fadeOut";
+        static const juce::String stretch = "stretch";
+        static const juce::String mix     = "mix";
+        static const juce::String output  = "output";
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

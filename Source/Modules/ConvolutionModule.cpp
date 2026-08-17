@@ -92,7 +92,7 @@ namespace GGrid
             double readySr = sampleRate;
             int readyPreFadeOutLength = 0;
             int readyFadeRampSamples = 0;
-            if (services.irReshapeWorker.tryTakeResult (*this, readyIR, readySr, readyPreFadeOutLength, readyFadeRampSamples))
+            if (services.irReshapeWorker.tryTakeResult (this, readyIR, readySr, readyPreFadeOutLength, readyFadeRampSamples))
             {
                 {
                     const juce::SpinLock::ScopedLockType lock (displayLock);
@@ -175,7 +175,7 @@ namespace GGrid
                 job.fadeInMs = fadeIn;
                 job.fadeOutPercent = fadeOut;
                 job.stretch = stretch;
-                services.irReshapeWorker.requestReshape (*this, job);
+                services.irReshapeWorker.requestReshape (this, job);
             }
         }
 
