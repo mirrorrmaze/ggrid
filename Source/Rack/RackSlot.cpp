@@ -61,6 +61,11 @@ namespace GGrid
             case ModuleType::eq3:
                 return std::make_unique<Eq3Module> (apvts, slotIndex);
 
+            // Input/Output are structural graph roles, not DSP processors -- process() is never
+            // called on a slot playing either role (see GGridAudioProcessor::processBlock's
+            // isRoot/isSink handling), so there's no RackModule to construct for them.
+            case ModuleType::input:
+            case ModuleType::output:
             case ModuleType::none:
             default:
                 return nullptr;

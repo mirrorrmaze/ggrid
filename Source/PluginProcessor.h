@@ -39,17 +39,17 @@ namespace GGrid
         void getStateInformation (juce::MemoryBlock& destData) override;
         void setStateInformation (const void* data, int sizeInBytes) override;
 
-        // Routing graph: a directed edge from one graph node's output to another's input. Graph
-        // nodes are the kMaxSlots regular module slots plus two fixed pseudo-nodes, kInputNodeId
-        // and kOutputNodeId (see ConnectionGraph.h) -- Bitwig-Grid-style dedicated In/Out, always
-        // present, never deletable. Each node allows at most kMaxPortsPerSide (4) outgoing and 4
+        // Routing graph: a directed edge from one slot's output to another's input. Input and
+        // Output are ordinary, addable/deletable module types (ModuleType::input/output) rather
+        // than fixed pseudo-nodes -- any number of slots can be Input or Output type at once,
+        // every Input slot provides the plugin's raw dry signal and every Output slot's summed
+        // input contributes to the final mix, so several independent racks/parallel signal paths
+        // can coexist on one canvas. Each slot allows at most kMaxPortsPerSide (4) outgoing and 4
         // incoming edges -- enough to split a signal into several parallel chains and merge them
-        // back together without needing a general N-port graph. Input is the ONLY root (it seeds
-        // every block with the plugin's raw dry input) and Output is the ONLY sink (its summed
-        // input is what reaches the final mix) -- a regular module with no path from Input simply
-        // never runs; there's no implicit per-node dry-through the way there used to be. Cycles
-        // are rejected at connect-time (see wouldCreateCycle) since block-based processing has no
-        // notion of a same-block feedback loop.
+        // back together without needing a general N-port graph. A regular module with no path
+        // from any Input slot simply never runs -- there's no implicit per-node dry-through.
+        // Cycles are rejected at connect-time (see wouldCreateCycle) since block-based processing
+        // has no notion of a same-block feedback loop.
         //
         // Deliberately NOT AudioProcessorValueTreeState parameters -- structural/preset-level
         // config edited via canvas cable gestures, not automated mid-performance. Persisted
@@ -88,11 +88,11 @@ namespace GGrid
         }
 
         // Would adding from->to create a cycle -- i.e. can `to` already reach `from` by following
-        // existing edges forward? A plain DFS/BFS over at most kNumGraphNodes nodes.
+        // existing edges forward? A plain DFS/BFS over at most kMaxSlots nodes.
         bool wouldCreateCycle (int from, int to) const
         {
-            std::array<bool, kNumGraphNodes> visited {};
-            std::array<int, kNumGraphNodes> stack {};
+            std::array<bool, kMaxSlots> visited {};
+            std::array<int, kMaxSlots> stack {};
             int stackSize = 0;
 
             stack[(size_t) stackSize++] = to;
@@ -121,11 +121,13 @@ namespace GGrid
         bool canAddConnection (int from, int to) const
         {
             if (from < 0 || to < 0 || from == to) return false;
-            if (from >= kNumGraphNodes || to >= kNumGraphNodes) return false;
-            // Input has no input ports at all (it's the raw dry source); Output has no output
-            // ports at all (it's the final collection point) -- matches their fixed single-side
-            // port set in the GUI (see IONodeComponent).
-            if (to == kInputNodeId || from == kOutputNodeId) return false;
+            if (from >= kMaxSlots || to >= kMaxSlots) return false;
+            // Input-type slots have no input ports at all (they're a source of the raw dry
+            // signal); Output-type slots have no output ports at all (their summed input is what
+            // reaches the final mix) -- matches their one-sided port set in the GUI (see
+            // NodeComponent::isInputType/isOutputType).
+            if (slots[(size_t) to]->getActiveType() == ModuleType::input) return false;
+            if (slots[(size_t) from]->getActiveType() == ModuleType::output) return false;
             if (numConnections >= kMaxConnections) return false;
             if (getOutDegree (from) >= kMaxPortsPerSide || getInDegree (to) >= kMaxPortsPerSide) return false;
             if (hasConnection (from, to)) return false;
@@ -165,11 +167,10 @@ namespace GGrid
             numConnections = w;
         }
 
-        // Canvas position of each graph node (the kMaxSlots module slots plus the fixed Input/
-        // Output pseudo-nodes at indices kInputNodeId/kOutputNodeId) in the node-graph editor.
-        // Purely a GUI layout concern (doesn't affect audio at all) but persisted alongside APVTS
-        // so a saved project reopens with nodes where you left them instead of re-cascading.
-        std::array<juce::Point<float>, kNumGraphNodes> nodePositions;
+        // Canvas position of each slot's node in the node-graph editor. Purely a GUI layout
+        // concern (doesn't affect audio at all) but persisted alongside APVTS so a saved project
+        // reopens with nodes where you left them instead of re-cascading.
+        std::array<juce::Point<float>, kMaxSlots> nodePositions;
 
         juce::AudioProcessorValueTreeState apvts;
 
@@ -182,6 +183,14 @@ namespace GGrid
         // For GUI actions that need direct access to a slot's live module (e.g. Convolution's
         // IR waveform display polling) -- see RackSlot::getCurrentModule.
         RackSlot& getSlot (int index) { return *slots[(size_t) index]; }
+
+        // One oscilloscope per slot, owned here for the same reason outputScope is (keeps
+        // rendering correctly across editor open/close) -- only ever pushed to for slots
+        // currently playing the Input or Output role (see processBlock), but always present for
+        // every slot so NodeComponent can just take a reference at construction regardless of
+        // that slot's current type. Displayed on the node itself only when its type is Input or
+        // Output -- see NodeComponent::isInputType/isOutputType.
+        juce::AudioVisualiserComponent& getNodeScope (int index) { return *nodeScopes[(size_t) index]; }
 
         // For the node canvas's modulation-cable gestures (add/remove LFO -> destination
         // routes) -- see NodeGraphEditor.
@@ -198,14 +207,14 @@ namespace GGrid
         SharedServices sharedServices { convolutionMessageQueue, irReshapeWorker, currentBpm };
 
         std::array<std::unique_ptr<RackSlot>, kMaxSlots> slots;
+        std::array<std::unique_ptr<juce::AudioVisualiserComponent>, kMaxSlots> nodeScopes;
 
-        // Per-graph-node scratch buffers (one per module slot plus the Input/Output pseudo-nodes)
-        // -- preallocated in prepareToPlay and just resized (never reallocated, since
-        // maximumBlockSize never shrinks below what's requested) each block, so building/summing
-        // the graph never allocates on the audio thread. nodeBuffers[kInputNodeId] is seeded with
-        // the plugin's raw dry input each block; nodeBuffers[kOutputNodeId] accumulates whatever
-        // reaches Output and becomes the final mix.
-        std::array<juce::AudioBuffer<float>, kNumGraphNodes> nodeBuffers;
+        // Per-slot scratch buffers for graph processing -- preallocated in prepareToPlay and just
+        // resized (never reallocated, since maximumBlockSize never shrinks below what's
+        // requested) each block, so building/summing the graph never allocates on the audio
+        // thread. Every Input-type slot's buffer is seeded with the plugin's raw dry input each
+        // block; every Output-type slot's buffer is summed into the final mix.
+        std::array<juce::AudioBuffer<float>, kMaxSlots> nodeBuffers;
 
         // Scratch buffer LFO slots process into each block -- LFOModule ignores its content
         // entirely (see LFOModule's class comment), this just gives RackSlot::process() a

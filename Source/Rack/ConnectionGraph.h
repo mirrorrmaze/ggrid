@@ -5,25 +5,22 @@
 
 namespace GGrid
 {
-    // A directed edge from one graph node's output to another's input. Graph nodes are the
-    // kMaxSlots regular module slots (0..kMaxSlots-1) plus two fixed pseudo-nodes: kInputNodeId
-    // (the plugin's raw dry input -- output ports only, never a destination) and kOutputNodeId
-    // (the final mix -- input ports only, never a source). See GGridAudioProcessor::connections
-    // for the model these anchor: Input is the sole root, Output the sole sink, and a regular
-    // module with no path from Input simply doesn't run at all (Bitwig-Grid-style explicit
-    // patching, not an implicit per-node dry-through).
+    // A directed edge from one slot's output to another slot's input. Two module types have
+    // asymmetric ports: an Input-type slot has no input ports at all (it's a source of the
+    // plugin's raw dry signal), an Output-type slot has no output ports at all (its summed input
+    // contributes to the final mix) -- see GGridAudioProcessor::canAddConnection. Any number of
+    // slots can be Input or Output type at once (every Input slot provides the same raw dry
+    // signal; every Output slot's sum is added into the final mix), so the canvas can host
+    // several independent racks/parallel signal paths side by side rather than a single fixed
+    // entry/exit point.
     struct Connection { int from = -1; int to = -1; };
 
-    constexpr int kInputNodeId = kMaxSlots;
-    constexpr int kOutputNodeId = kMaxSlots + 1;
-    constexpr int kNumGraphNodes = kMaxSlots + 2;
-
-    // Each graph node allows up to this many outgoing and this many incoming audio edges --
-    // "4 outs / 4 ins" (matching 4 output nubs / 4 input dots each NodeComponent draws), enough
-    // for real parallel-processing patches (e.g. one node splitting into low/mid/hi bands) without
-    // a general N-port model.
+    // Each slot allows up to this many outgoing and this many incoming audio edges -- "4 outs /
+    // 4 ins" (matching 4 output nubs / 4 input dots each NodeComponent draws), enough for real
+    // parallel-processing patches (e.g. one node splitting into low/mid/hi bands) without a
+    // general N-port model.
     constexpr int kMaxPortsPerSide = 4;
-    static constexpr int kMaxConnections = kNumGraphNodes * kMaxPortsPerSide;
+    static constexpr int kMaxConnections = kMaxSlots * kMaxPortsPerSide;
 
     // Pure topology helper -- no audio/JUCE dependency beyond kMaxSlots, deliberately kept
     // separate from GGridAudioProcessor's buffer-summing loop so the graph algorithm itself
@@ -31,32 +28,33 @@ namespace GGrid
     // offline test harness without needing to construct a full AudioProcessor.
     struct ConnectionGraphResult
     {
-        std::array<int, kNumGraphNodes> order {};   // topological processing order; first orderCount entries valid
+        std::array<int, kMaxSlots> order {};   // topological processing order; first orderCount entries valid
         int orderCount = 0;
-        std::array<bool, kNumGraphNodes> isRoot {}; // only ever true for kInputNodeId -- seeded with raw input
-        std::array<bool, kNumGraphNodes> isSink {}; // only ever true for kOutputNodeId -- summed into the final mix
-        std::array<int, kNumGraphNodes> outDegree {};
-        std::array<int, kNumGraphNodes> inDegree {};
+        std::array<bool, kMaxSlots> isRoot {}; // true for every active Input-type slot
+        std::array<bool, kMaxSlots> isSink {}; // true for every active Output-type slot
+        std::array<int, kMaxSlots> outDegree {};
+        std::array<int, kMaxSlots> inDegree {};
     };
 
-    // Kahn's algorithm anchored at the Input pseudo-node as the sole root and Output as the sole
-    // sink -- a regular module with zero incoming edges is NOT an implicit root under this model;
-    // if it's genuinely unreachable from Input it never gets seeded with real signal and is
-    // excluded from the order entirely (an unpatched module produces nothing, matching Bitwig
-    // Grid). Fixed-size, no heap allocation, safe to call from the audio thread. Edges where
-    // either endpoint isn't active are ignored entirely (as if they didn't exist).
+    // Kahn's algorithm over a graph with potentially several roots (every active Input-type slot,
+    // marked via isRootRole) and several sinks (every active Output-type slot, isSinkRole) -- see
+    // GGridAudioProcessor::processBlock, which derives these role arrays from each slot's module
+    // type. A regular module with no path from any root is excluded from the order entirely (an
+    // unpatched module produces nothing, matching Bitwig Grid). Fixed-size, no heap allocation,
+    // safe to call from the audio thread.
     //
-    // Reachability from Input is computed as its own separate BFS (below), independent of the
-    // in-degree bookkeeping the topological pass uses -- this is what lets the defensive cycle
-    // fallback at the end tell apart "stuck behind a cycle downstream of Input" (include it) from
-    // "genuinely never patched into the signal path at all" (correctly exclude it), which a
-    // single in-degree-counting pass can't distinguish on its own. Cycles are rejected at
-    // connect-time (see GGridAudioProcessor::wouldCreateCycle) so one shouldn't be able to exist
-    // in practice, but the fallback keeps this function correct (no hang, no dropped reachable
-    // node) even if a malformed connections array somehow contains one anyway.
+    // Reachability from any root is computed as its own separate BFS (seeded from every root at
+    // once), independent of the in-degree bookkeeping the topological pass uses -- this is what
+    // lets the defensive cycle fallback at the end tell apart "stuck behind a cycle downstream of
+    // a root" (include it) from "genuinely never patched into the signal path at all" (correctly
+    // exclude it). Cycles are rejected at connect-time (see
+    // GGridAudioProcessor::wouldCreateCycle), so one shouldn't exist in practice, but the
+    // fallback keeps this function correct (no hang, no dropped reachable node) regardless.
     inline ConnectionGraphResult buildProcessingOrder (
         const std::array<Connection, kMaxConnections>& connections, int numConnections,
-        const std::array<bool, kNumGraphNodes>& active)
+        const std::array<bool, kMaxSlots>& active,
+        const std::array<bool, kMaxSlots>& isRootRole,
+        const std::array<bool, kMaxSlots>& isSinkRole)
     {
         ConnectionGraphResult result;
 
@@ -70,13 +68,16 @@ namespace GGrid
             }
         }
 
-        std::array<bool, kNumGraphNodes> reachable {};
-        std::array<int, kNumGraphNodes> reachQueue {};
+        std::array<bool, kMaxSlots> reachable {};
+        std::array<int, kMaxSlots> reachQueue {};
         int reachCount = 0;
-        if (active[(size_t) kInputNodeId])
+        for (int i = 0; i < kMaxSlots; ++i)
         {
-            reachable[(size_t) kInputNodeId] = true;
-            reachQueue[(size_t) reachCount++] = kInputNodeId;
+            if (active[(size_t) i] && isRootRole[(size_t) i])
+            {
+                reachable[(size_t) i] = true;
+                reachQueue[(size_t) reachCount++] = i;
+            }
         }
         for (int qi = 0; qi < reachCount; ++qi)
         {
@@ -91,12 +92,13 @@ namespace GGrid
             }
         }
 
-        std::array<int, kNumGraphNodes> remainingIn = result.inDegree;
+        std::array<int, kMaxSlots> remainingIn = result.inDegree;
 
-        if (active[(size_t) kInputNodeId])
-            result.order[(size_t) result.orderCount++] = kInputNodeId;
+        for (int i = 0; i < kMaxSlots; ++i)
+            if (active[(size_t) i] && isRootRole[(size_t) i])
+                result.order[(size_t) result.orderCount++] = i;
 
-        std::array<bool, kNumGraphNodes> processed {};
+        std::array<bool, kMaxSlots> processed {};
         int head = 0;
         while (head < result.orderCount)
         {
@@ -113,12 +115,15 @@ namespace GGrid
             }
         }
 
-        for (int i = 0; i < kNumGraphNodes; ++i)
+        for (int i = 0; i < kMaxSlots; ++i)
             if (active[(size_t) i] && reachable[(size_t) i] && ! processed[(size_t) i])
                 result.order[(size_t) result.orderCount++] = i;
 
-        result.isRoot[(size_t) kInputNodeId] = active[(size_t) kInputNodeId];
-        result.isSink[(size_t) kOutputNodeId] = active[(size_t) kOutputNodeId];
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            result.isRoot[(size_t) i] = active[(size_t) i] && isRootRole[(size_t) i];
+            result.isSink[(size_t) i] = active[(size_t) i] && isSinkRole[(size_t) i];
+        }
 
         return result;
     }

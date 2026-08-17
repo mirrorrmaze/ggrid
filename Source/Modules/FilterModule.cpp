@@ -13,8 +13,26 @@ namespace GGrid
         constexpr int typeCombFeedback = 4;
         constexpr int typeCombFeedforward = 5;
         constexpr int typeAllpassDiffusor = 6;
+        constexpr int typeLadderLowPass = 7;
+        constexpr int typeLadderHighPass = 8;
+        constexpr int typeFormant = 9;
 
         bool isBiquadType (int type) { return type <= typeNotch; }
+        bool isDelayBasedType (int type) { return type >= typeCombFeedback && type <= typeAllpassDiffusor; }
+        bool isLadderType (int type) { return type == typeLadderLowPass || type == typeLadderHighPass; }
+
+        // First three formants (F1/F2/F3, Hz) for five vowels, a standard rough table used in
+        // vowel/formant-filter sound design (not aiming for linguistic precision) -- swept
+        // through in this order (A->E->I->O->U) as the Formant type's vowel-position value goes
+        // 0..1, see updateFormantCoefficients.
+        constexpr int kNumVowels = 5;
+        constexpr float kVowelFormants[kNumVowels][3] = {
+            { 800.0f, 1150.0f, 2900.0f }, // A
+            { 400.0f, 1600.0f, 2700.0f }, // E
+            { 250.0f, 1750.0f, 2600.0f }, // I
+            { 400.0f,  750.0f, 2600.0f }, // O
+            { 325.0f,  700.0f, 2400.0f }, // U
+        };
     }
 
     FilterModule::FilterModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
@@ -48,9 +66,17 @@ namespace GGrid
         for (auto& b : biquad)
             b.prepare (monoSpec);
 
+        for (auto& channelFormants : formantBiquad)
+            for (auto& f : channelFormants)
+                f.prepare (monoSpec);
+
+        for (auto& stage : ladderStage)
+            stage.fill (0.0f);
+
         dryBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
 
         updateBiquadCoefficients (frequencyParam->load(), resonanceParam->load());
+        updateFormantCoefficients ((frequencyParam->load() - 20.0f) / 7980.0f, resonanceParam->load());
     }
 
     void FilterModule::reset()
@@ -60,6 +86,13 @@ namespace GGrid
 
         for (auto& b : biquad)
             b.reset();
+
+        for (auto& channelFormants : formantBiquad)
+            for (auto& f : channelFormants)
+                f.reset();
+
+        for (auto& stage : ladderStage)
+            stage.fill (0.0f);
     }
 
     void FilterModule::updateBiquadCoefficients (float frequency, float resonance)
@@ -83,6 +116,49 @@ namespace GGrid
 
         for (auto& b : biquad)
             *b.coefficients = *coeffs;
+    }
+
+    void FilterModule::updateFormantCoefficients (float vowelPosition, float resonance)
+    {
+        const float q = juce::jlimit (0.1f, 20.0f, resonance);
+        const float pos = juce::jlimit (0.0f, 1.0f, vowelPosition) * (float) (kNumVowels - 1);
+        const int vowelA = juce::jlimit (0, kNumVowels - 1, (int) pos);
+        const int vowelB = juce::jmin (kNumVowels - 1, vowelA + 1);
+        const float t = pos - (float) vowelA;
+
+        for (int f = 0; f < kNumFormants; ++f)
+        {
+            const float freqA = kVowelFormants[vowelA][f];
+            const float freqB = kVowelFormants[vowelB][f];
+            const float freq = juce::jlimit (20.0f, (float) (currentSampleRate * 0.45), freqA + t * (freqB - freqA));
+
+            auto coeffs = juce::dsp::IIR::Coefficients<float>::makeBandPass (currentSampleRate, freq, q);
+            for (auto& channelFormants : formantBiquad)
+                *channelFormants[(size_t) f].coefficients = *coeffs;
+        }
+    }
+
+    // 4-stage nonlinear-feedback ladder, the standard "cheap Moog ladder" recipe: each stage is
+    // a one-pole lowpass with a tanh() saturator ahead of it, and the last stage's output feeds
+    // back (scaled by resonanceAmount) into the first stage's input -- the saturation is what
+    // makes resonance sound like it's driving the filter into distortion rather than just
+    // ringing louder, and bounds the whole structure so it can't blow up numerically even as
+    // resonanceAmount approaches self-oscillation. High Pass reuses the exact same lowpass core
+    // and just taps (input - lowpass output) instead -- a standard way to get a complementary
+    // response out of one ladder rather than needing a second, differently-tuned one.
+    float FilterModule::processLadderSample (int channel, float x, bool highPass, float cutoffCoefficient, float resonanceAmount)
+    {
+        auto& stage = ladderStage[(size_t) channel];
+        const float g = cutoffCoefficient;
+        const float k = resonanceAmount;
+
+        const float fed = std::tanh (x - k * stage[3]);
+        stage[0] += g * (fed - stage[0]);
+        stage[1] += g * (std::tanh (stage[0]) - stage[1]);
+        stage[2] += g * (std::tanh (stage[1]) - stage[2]);
+        stage[3] += g * (std::tanh (stage[2]) - stage[3]);
+
+        return highPass ? (x - stage[3]) : stage[3];
     }
 
     float FilterModule::processDelayBasedSample (int channel, float x, int type, float feedback)
@@ -150,7 +226,7 @@ namespace GGrid
                     data[i] = biquad[ch].processSample (data[i]);
             }
         }
-        else
+        else if (isDelayBasedType (type))
         {
             const float freq = juce::jlimit (20.0f, (float) (currentSampleRate * 0.45), frequencyParam->load() + freqOffset);
             const float delaySamples = juce::jlimit (1.0f, (float) (currentSampleRate - 1.0), (float) (currentSampleRate / freq));
@@ -163,6 +239,47 @@ namespace GGrid
 
                 for (size_t i = 0; i < numSamples; ++i)
                     data[i] = processDelayBasedSample ((int) ch, data[i], type, feedback);
+            }
+        }
+        else if (isLadderType (type))
+        {
+            const float resonance = juce::jlimit (0.1f, 20.0f, resonanceParam->load() + resonanceOffset);
+            const float freq = juce::jlimit (20.0f, (float) (currentSampleRate * 0.45), frequencyParam->load() + freqOffset);
+
+            // One-pole coefficient per stage from cutoff frequency -- the standard stable digital
+            // one-pole approximation, accurate enough across this filter's whole useful range.
+            const float g = 1.0f - std::exp (-2.0f * juce::MathConstants<float>::pi * freq / (float) currentSampleRate);
+            // Resonance's 0.1-20 range remapped to a 0..~4.2 feedback amount -- above ~4 a 4-stage
+            // ladder starts self-oscillating, matching real ladder filter behaviour.
+            const float k = juce::jmap (resonance, 0.1f, 20.0f, 0.0f, 4.2f);
+            const bool highPass = (type == typeLadderHighPass);
+
+            for (size_t ch = 0; ch < numChannels; ++ch)
+            {
+                auto* data = block.getChannelPointer (ch);
+                for (size_t i = 0; i < numSamples; ++i)
+                    data[i] = processLadderSample ((int) ch, data[i], highPass, g, k);
+            }
+        }
+        else // typeFormant
+        {
+            const float resonance = juce::jlimit (0.1f, 20.0f, resonanceParam->load() + resonanceOffset);
+            const float vowelPosition = (juce::jlimit (20.0f, 8000.0f, frequencyParam->load() + freqOffset) - 20.0f) / 7980.0f;
+            updateFormantCoefficients (vowelPosition, resonance);
+
+            for (size_t ch = 0; ch < numChannels; ++ch)
+            {
+                auto* data = block.getChannelPointer (ch);
+                for (size_t i = 0; i < numSamples; ++i)
+                {
+                    // Three formant peaks run in parallel on the same input sample (not chained),
+                    // then averaged -- each still reads the original data[i] here since it isn't
+                    // overwritten until after all three have processed it.
+                    float sum = 0.0f;
+                    for (int f = 0; f < kNumFormants; ++f)
+                        sum += formantBiquad[ch][f].processSample (data[i]);
+                    data[i] = sum / (float) kNumFormants;
+                }
             }
         }
 

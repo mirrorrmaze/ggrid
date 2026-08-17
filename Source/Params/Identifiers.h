@@ -11,7 +11,7 @@
 // see PluginProcessor::getStateInformation.
 namespace GGrid
 {
-    constexpr int kMaxSlots = 8;
+    constexpr int kMaxSlots = 24;
 
     // Appended-only: never insert or reorder entries, only add new ones at the end, so a
     // saved slot-type choice index keeps meaning the same thing across plugin versions.
@@ -30,12 +30,14 @@ namespace GGrid
         eq8 = 10,
         chorus = 11,
         eq3 = 12,
+        input = 13,
+        output = 14,
     };
 
     inline juce::StringArray getModuleTypeChoices()
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
-                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3" };
+                 "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -77,14 +79,19 @@ namespace GGrid
         static const juce::String output     = "output";
     }
 
-    // First 4 are biquad SVF-style modes (Frequency/Resonance); last 3 are delay-line based
+    // First 4 are biquad SVF-style modes (Frequency/Resonance); next 3 are delay-line based
     // (Frequency maps to pitch via sampleRate/freq, Feedback controls their character). The
     // Allpass Diffusor is a Schroeder allpass -- the classic building block of algorithmic
     // reverb diffusion, standing in for a dedicated "reverb filter" until the convolution
-    // module lands.
+    // module lands. Last 3 (Serum-2-inspired) are their own DSP category: Ladder Low/High Pass
+    // are a saturating 4-stage nonlinear-feedback ladder (Frequency/Resonance, Resonance driving
+    // how hard the feedback path saturates rather than a clean Q), Formant repurposes Frequency
+    // as a vowel-sweep position (A->E->I->O->U) through a bank of resonant peaks rather than a
+    // literal cutoff -- see FilterModule for all three.
     inline juce::StringArray getFilterTypeChoices()
     {
-        return { "Low Pass", "High Pass", "Band Pass", "Notch", "Comb (Feedback)", "Comb (Feedforward)", "Allpass (Diffusor)" };
+        return { "Low Pass", "High Pass", "Band Pass", "Notch", "Comb (Feedback)", "Comb (Feedforward)", "Allpass (Diffusor)",
+                 "Ladder Low Pass", "Ladder High Pass", "Formant" };
     }
 
     inline juce::String delayParamId (int slotIndex, const juce::String& paramName)

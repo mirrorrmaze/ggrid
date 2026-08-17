@@ -16,13 +16,26 @@ namespace GGrid
         {
             slots[(size_t) i] = std::make_unique<RackSlot> (apvts, i, sharedServices);
             nodePositions[(size_t) i] = { 260.0f + (float) i * 30.0f, 40.0f + (float) i * 30.0f };
+
+            nodeScopes[(size_t) i] = std::make_unique<juce::AudioVisualiserComponent> (2);
+            nodeScopes[(size_t) i]->setColours (juce::Colour (0xff202022), juce::Colour (0xffbf5727));
+            nodeScopes[(size_t) i]->setRepaintRate (30);
+            nodeScopes[(size_t) i]->setBufferSize (512);
         }
 
-        // Fixed pseudo-nodes: Input sits to the left of where the module cascade starts, Output
-        // well to the right -- clear of the default module cascade above, but freely draggable
-        // like any other node afterward.
-        nodePositions[(size_t) kInputNodeId] = { 40.0f, 260.0f };
-        nodePositions[(size_t) kOutputNodeId] = { 1100.0f, 260.0f };
+        // A brand-new instance (no saved project/host state loaded yet) starts with one Input and
+        // one Output already in place -- Input/Output are ordinary addable/deletable module types
+        // (see ModuleType::input/output), not fixed pseudo-nodes, but seeding one of each here
+        // means a first real module still auto-wires straight through immediately (see
+        // NodeGraphEditor::addNode) the way it always has, rather than starting from a completely
+        // blank rack. Loading a project overwrites this via apvts.replaceState() in
+        // setStateInformation, same as every other default parameter value.
+        nodePositions[0] = { 40.0f, 260.0f };
+        nodePositions[1] = { 1100.0f, 260.0f };
+        if (auto* inputType = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (slotTypeParamId (0))))
+            *inputType = (int) ModuleType::input;
+        if (auto* outputType = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (slotTypeParamId (1))))
+            *outputType = (int) ModuleType::output;
 
         limiterEnabledParam = apvts.getRawParameterValue (masterLimiterEnabledParamId());
         limiterCeilingParam = apvts.getRawParameterValue (masterLimiterCeilingParamId());
@@ -63,6 +76,12 @@ namespace GGrid
 
         outputScope.clear();
         outputScope.setSamplesPerBlock (juce::jmax (1, samplesPerBlock));
+
+        for (auto& scope : nodeScopes)
+        {
+            scope->clear();
+            scope->setSamplesPerBlock (juce::jmax (1, samplesPerBlock));
+        }
     }
 
     void GGridAudioProcessor::releaseResources()
@@ -94,19 +113,18 @@ namespace GGrid
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
 
-        std::array<bool, kNumGraphNodes> active {};
+        std::array<bool, kMaxSlots> active {};
+        std::array<bool, kMaxSlots> isInputRole {};
+        std::array<bool, kMaxSlots> isOutputRole {};
         for (int i = 0; i < kMaxSlots; ++i)
         {
             const auto type = slots[(size_t) i]->getActiveType();
             // LFO slots are excluded from the audio graph entirely -- they're modulation
             // sources, not audio processors (see LFOModule's class comment).
             active[(size_t) i] = (type != ModuleType::none) && (type != ModuleType::lfo);
+            isInputRole[(size_t) i] = (type == ModuleType::input);
+            isOutputRole[(size_t) i] = (type == ModuleType::output);
         }
-        // Input/Output are always present -- Input is the sole root (seeded with raw dry input
-        // every block regardless of what's patched into it) and Output the sole sink. A regular
-        // module only actually runs if a path connects it to Input; nothing implicit anymore.
-        active[(size_t) kInputNodeId] = true;
-        active[(size_t) kOutputNodeId] = true;
 
         // Tick every active LFO slot once per block, before the graph below runs, so every
         // modulation destination reads a fresh value this block regardless of where an LFO would
@@ -127,9 +145,9 @@ namespace GGrid
         }
 
         {
-            const auto graph = buildProcessingOrder (connections, numConnections, active);
+            const auto graph = buildProcessingOrder (connections, numConnections, active, isInputRole, isOutputRole);
 
-            for (int i = 0; i < kNumGraphNodes; ++i)
+            for (int i = 0; i < kMaxSlots; ++i)
             {
                 if (! active[(size_t) i]) continue;
                 nodeBuffers[(size_t) i].setSize (numChannels, numSamples, false, false, true);
@@ -140,18 +158,18 @@ namespace GGrid
             {
                 const int i = graph.order[(size_t) idx];
 
-                if (i == kInputNodeId)
+                if (graph.isRoot[(size_t) i])
                 {
-                    // Input is the sole root -- seeded with the plugin's raw dry input every
-                    // block regardless of what's patched into it.
+                    // Every Input-type slot is seeded with the plugin's raw dry input every
+                    // block, regardless of what's patched into it.
                     for (int ch = 0; ch < numChannels; ++ch)
                         nodeBuffers[(size_t) i].copyFrom (ch, 0, buffer, ch, 0, numSamples);
                     continue;
                 }
 
-                // Every other node's buffer (including Output) is built purely by summing its
-                // predecessors' outputs, which the topological order guarantees have already run
-                // by the time this node's turn comes up.
+                // Every other node's buffer (including an Output-type slot) is built purely by
+                // summing its predecessors' outputs, which the topological order guarantees have
+                // already run by the time this node's turn comes up.
                 for (int c = 0; c < numConnections; ++c)
                 {
                     const auto& conn = connections[(size_t) c];
@@ -161,19 +179,29 @@ namespace GGrid
                         nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conn.from], ch, 0, numSamples);
                 }
 
-                if (i == kOutputNodeId)
-                    continue; // Output only collects -- it has no DSP module of its own to run.
+                if (graph.isSink[(size_t) i])
+                    continue; // Output-type slots only collect -- no DSP module of their own to run.
 
                 juce::dsp::AudioBlock<float> nodeBlock (nodeBuffers[(size_t) i]);
                 slots[(size_t) i]->process (nodeBlock, midiMessages, modulationMatrix);
             }
 
-            // Output is the sole sink -- whatever reached it is the final mix. If nothing's
-            // patched through to it, its buffer stays cleared above and the plugin goes silent,
-            // matching Bitwig Grid's fully-explicit-patching model.
+            // Every Output-type slot's buffer sums into the final mix. If nothing's patched
+            // through to any of them (including if there isn't one at all), the buffer stays
+            // cleared and the plugin goes silent, matching Bitwig Grid's fully-explicit-patching
+            // model.
             buffer.clear();
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.addFrom (ch, 0, nodeBuffers[(size_t) kOutputNodeId], ch, 0, numSamples);
+            for (int i = 0; i < kMaxSlots; ++i)
+                if (graph.isSink[(size_t) i])
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        buffer.addFrom (ch, 0, nodeBuffers[(size_t) i], ch, 0, numSamples);
+
+            // Feeds each Input/Output node's own on-canvas oscilloscope -- only for slots
+            // actually playing that role right now, so this costs nothing for the far more
+            // common case of a rack with no Input/Output nodes' scopes actually visible.
+            for (int i = 0; i < kMaxSlots; ++i)
+                if (isInputRole[(size_t) i] || isOutputRole[(size_t) i])
+                    nodeScopes[(size_t) i]->pushBuffer (nodeBuffers[(size_t) i]);
         }
 
         juce::dsp::AudioBlock<float> block (buffer);
@@ -222,17 +250,12 @@ namespace GGrid
         xml.setAttribute ("modConnections", modConnectionTokens.joinIntoString (","));
 
         juce::StringArray positionTokens;
-        for (int i = 0; i < kNumGraphNodes; ++i)
+        for (int i = 0; i < kMaxSlots; ++i)
         {
             positionTokens.add (juce::String (nodePositions[(size_t) i].x));
             positionTokens.add (juce::String (nodePositions[(size_t) i].y));
         }
         xml.setAttribute ("nodePositions", positionTokens.joinIntoString (","));
-
-        // Marks this save as using the dedicated Input/Output pseudo-node model -- its absence on
-        // load (see setStateInformation) identifies a save from before that model existed, so its
-        // connections can be migrated rather than silently going mute.
-        xml.setAttribute ("ioNodesVersion", 1);
 
         copyXmlToBinary (xml, destData);
     }
@@ -266,38 +289,16 @@ namespace GGrid
                 };
         }
 
+        // Note: saves from before Input/Output became ordinary addable/deletable module types
+        // (this is still unreleased/actively-iterated software, see the project README) aren't
+        // migrated -- connection endpoints referencing the old fixed pseudo-node IDs are simply
+        // out of range for the current slot array and silently dropped below, so such a save
+        // reopens with its modules in place but disconnected, needing Input/Output re-added and
+        // everything rewired.
         auto positionTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("nodePositions"), ",", "");
-        if (positionTokens.size() == kNumGraphNodes * 2)
-            for (int i = 0; i < kNumGraphNodes; ++i)
-                nodePositions[(size_t) i] = { positionTokens[i * 2].getFloatValue(), positionTokens[i * 2 + 1].getFloatValue() };
-
-        // Legacy migration: a save from before dedicated Input/Output pseudo-nodes existed has
-        // connections only among slots 0..7, under the old implicit-root/implicit-sink convention
-        // (a slot with no incoming edges got the raw input; a slot with no outgoing edges fed the
-        // master mix). Under the new model NOTHING reaches Output unless explicitly wired to it,
-        // so loading such a save as-is would go completely silent -- detected via the absence of
-        // the "ioNodesVersion" marker (see getStateInformation), synthesize the equivalent
-        // explicit Input/Output wiring once, matching what the old implicit behaviour actually did.
-        if (! xml->hasAttribute ("ioNodesVersion"))
-        {
-            const int loadedConnectionCount = numConnections;
+        if (positionTokens.size() == kMaxSlots * 2)
             for (int i = 0; i < kMaxSlots; ++i)
-            {
-                const auto type = static_cast<ModuleType> ((int) apvts.getRawParameterValue (slotTypeParamId (i))->load());
-                if (type == ModuleType::none || type == ModuleType::lfo)
-                    continue;
-
-                bool hasIncoming = false, hasOutgoing = false;
-                for (int c = 0; c < loadedConnectionCount; ++c)
-                {
-                    if (connections[(size_t) c].to == i) hasIncoming = true;
-                    if (connections[(size_t) c].from == i) hasOutgoing = true;
-                }
-
-                if (! hasIncoming) addConnection (kInputNodeId, i);
-                if (! hasOutgoing) addConnection (i, kOutputNodeId);
-            }
-        }
+                nodePositions[(size_t) i] = { positionTokens[i * 2].getFloatValue(), positionTokens[i * 2 + 1].getFloatValue() };
     }
 }
 

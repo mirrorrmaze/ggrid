@@ -21,7 +21,7 @@ juce_add_plugin(GGrid
     PLUGIN_CODE GGrd
     FORMATS VST3 Standalone
     PRODUCT_NAME "GGrid"
-    VST3_CATEGORIES Fx Distortion
+    VST3_CATEGORIES Fx
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     IS_SYNTH FALSE
@@ -53,7 +53,6 @@ target_sources(GGrid
         Source/IR/IRReshapeWorker.cpp
         Source/GUI/ModuleControlPanels.cpp
         Source/GUI/NodeComponent.cpp
-        Source/GUI/IONodeComponent.cpp
         Source/GUI/NodeGraphEditor.cpp
         Source/GUI/MasterControlsPanel.cpp
         Source/GUI/GGridLookAndFeel.cpp

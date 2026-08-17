@@ -29,7 +29,8 @@ namespace GGrid
     private:
         void setActiveTab (bool showModMatrix);
         void updateZoomLabel (float zoom);
-        void showHeaderMenu();
+        void showFileMenu();
+        void showEditMenu();
 
         // Save/load the full plugin state (every module's params, the connection graph, node
         // positions) to/from a file on disk -- independent of whatever preset mechanism the host
@@ -57,7 +58,13 @@ namespace GGrid
         UpdateChecker updateChecker;
         juce::String availableUpdateVersion;
         juce::URL availableUpdateUrl;
-        juce::TextButton menuButton { "..." };
+
+        // File (Init Patch/Save/Load/version) and Edit (Copy/Paste/Duplicate/Delete) -- a
+        // conventional menu bar rather than the single "..." catch-all button this used to be,
+        // now that there's enough here (Init Patch, copy/paste) to warrant it. Edit menu item
+        // enabled-state reflects NodeGraphEditor::hasSelection()/hasClipboardContent() each time
+        // it opens, same as any other program's Edit menu.
+        juce::TextButton fileMenuButton { "File" }, editMenuButton { "Edit" };
 
         juce::TextButton rackTabButton { "Rack" }, modMatrixTabButton { "Mod Matrix" };
         ModMatrixPanel modMatrixPanel;

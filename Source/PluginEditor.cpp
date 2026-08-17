@@ -10,8 +10,10 @@ namespace GGrid
 
         addAndMakeVisible (processorRef.outputScope);
 
-        menuButton.onClick = [this] { showHeaderMenu(); };
-        addAndMakeVisible (menuButton);
+        fileMenuButton.onClick = [this] { showFileMenu(); };
+        editMenuButton.onClick = [this] { showEditMenu(); };
+        addAndMakeVisible (fileMenuButton);
+        addAndMakeVisible (editMenuButton);
 
         rackTabButton.setClickingTogglesState (true);
         modMatrixTabButton.setClickingTogglesState (true);
@@ -64,7 +66,7 @@ namespace GGrid
                 return;
             safeThis->availableUpdateVersion = newVersion;
             safeThis->availableUpdateUrl = releaseUrl;
-            safeThis->menuButton.setColour (juce::TextButton::textColourOffId, Palette::accent);
+            safeThis->fileMenuButton.setColour (juce::TextButton::textColourOffId, Palette::accent);
         });
     }
 
@@ -83,7 +85,7 @@ namespace GGrid
         zoomLabel.setText (juce::String (juce::roundToInt (zoom * 100.0f)) + "%", juce::dontSendNotification);
     }
 
-    void GGridAudioProcessorEditor::showHeaderMenu()
+    void GGridAudioProcessorEditor::showFileMenu()
     {
         juce::PopupMenu menu;
 
@@ -96,13 +98,29 @@ namespace GGrid
             menu.addSeparator();
         }
 
+        menu.addItem ("Init Patch", [this] { nodeGraphEditor.initPatch(); });
+        menu.addSeparator();
         menu.addItem ("Save Patch...", [this] { savePatch(); });
         menu.addItem ("Load Patch...", [this] { loadPatch(); });
         menu.addSeparator();
 
         menu.addItem ("GGrid v" + juce::String (GGRID_VERSION), false, false, nullptr);
 
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (menuButton));
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (fileMenuButton));
+    }
+
+    void GGridAudioProcessorEditor::showEditMenu()
+    {
+        juce::PopupMenu menu;
+
+        const bool hasSelection = nodeGraphEditor.hasSelection();
+        menu.addItem ("Copy (Ctrl+C)", hasSelection, false, [this] { nodeGraphEditor.copySelection(); });
+        menu.addItem ("Paste (Ctrl+V)", nodeGraphEditor.hasClipboardContent(), false, [this] { nodeGraphEditor.pasteClipboard(); });
+        menu.addItem ("Duplicate (Ctrl+D)", hasSelection, false, [this] { nodeGraphEditor.duplicateSelection(); });
+        menu.addSeparator();
+        menu.addItem ("Delete (Del)", hasSelection, false, [this] { nodeGraphEditor.deleteSelectedNodes(); });
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (editMenuButton));
     }
 
     static juce::File getPatchesDirectory()
@@ -175,11 +193,12 @@ namespace GGrid
         rackTabButton.setBounds (margin, tabButtonTop, 80, tabButtonHeight);
         modMatrixTabButton.setBounds (margin + 80 + 4, tabButtonTop, 110, tabButtonHeight);
 
-        constexpr int menuButtonWidth = 28;
-        menuButton.setBounds (getWidth() - margin - menuButtonWidth, tabButtonTop, menuButtonWidth, tabButtonHeight);
+        constexpr int menuButtonWidth = 40, menuButtonGap = 2;
+        editMenuButton.setBounds (getWidth() - margin - menuButtonWidth, tabButtonTop, menuButtonWidth, tabButtonHeight);
+        fileMenuButton.setBounds (editMenuButton.getX() - menuButtonGap - menuButtonWidth, tabButtonTop, menuButtonWidth, tabButtonHeight);
 
         const int scopeLeft = margin + 80 + 4 + 110 + gap;
-        const int scopeRight = getWidth() - margin - menuButtonWidth - gap;
+        const int scopeRight = fileMenuButton.getX() - gap;
         processorRef.outputScope.setBounds (scopeLeft, margin, scopeRight - scopeLeft, headerHeight);
 
         const int contentTop = margin + headerHeight + margin;

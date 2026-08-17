@@ -308,6 +308,78 @@ int main()
                     + juce::String (lowRms, 4) + ", high RMS " + juce::String (highRms, 4) + ")");
     }
 
+    // --- Filter: Ladder Low Pass attenuates content above cutoff (saturating character, still fundamentally low-pass) ---
+    {
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::type))->store (7.0f); // Ladder Low Pass
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::frequency))->store (300.0f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::resonance))->store (0.5f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::feedback))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::output))->store (0.0f);
+
+        FilterModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto lowToneBuffer = makeTestSignal (blockSize, 0.5f, 100.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (lowToneBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        module.reset();
+
+        auto highToneBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (highToneBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        const double lowRms = rms (lowToneBuffer, 0);
+        const double highRms = rms (highToneBuffer, 0);
+
+        expect (highRms < lowRms * 0.5,
+                "Ladder Low Pass attenuates an 8kHz tone below a 100Hz tone through a 300Hz cutoff (low RMS "
+                    + juce::String (lowRms, 4) + ", high RMS " + juce::String (highRms, 4) + ")");
+    }
+
+    // --- Filter: Formant passes more energy near a vowel's formant frequency than far from any ---
+    {
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::type))->store (9.0f); // Formant
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::frequency))->store (20.0f); // vowel "A" (F1=800Hz)
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::resonance))->store (8.0f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::feedback))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (filterParamId (0, FilterParam::output))->store (0.0f);
+
+        FilterModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto onFormantBuffer = makeTestSignal (blockSize, 0.5f, 800.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (onFormantBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        module.reset();
+
+        auto offFormantBuffer = makeTestSignal (blockSize, 0.5f, 5000.0f, sampleRate);
+        {
+            juce::dsp::AudioBlock<float> block (offFormantBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        const double onRms = rms (onFormantBuffer, 0);
+        const double offRms = rms (offFormantBuffer, 0);
+
+        expect (onRms > offRms * 1.5,
+                "Formant filter (vowel A) passes more 800Hz (F1) energy through than a 5kHz tone far from any formant (on RMS "
+                    + juce::String (onRms, 4) + ", off RMS " + juce::String (offRms, 4) + ")");
+    }
+
     // --- Filter: every algorithm stays stable at extreme resonance/feedback ---
     for (int filterType = 0; filterType < getFilterTypeChoices().size(); ++filterType)
     {
@@ -326,18 +398,22 @@ int main()
         juce::MidiBuffer midi;
         module.process (block, midi, modMatrix);
 
-        if (filterType <= 3)
+        // Biquad SVF modes (0-3) and Formant (9, itself three resonant biquad peaks) can
+        // legitimately amplify a tone driven right at a resonant frequency well past unity --
+        // that's the filter doing its job, not a bug -- so only check for runaway (NaN/Inf), not
+        // a tight bound. Delay-line modes (4-6, |feedback| < 1 guarantees boundedness) and the
+        // Ladder modes (7-8, bounded by their tanh() saturation regardless of resonance) get the
+        // tighter check.
+        const bool canLegitimatelyExceedUnity = filterType <= 3 || getFilterTypeChoices()[filterType] == "Formant";
+
+        if (canLegitimatelyExceedUnity)
         {
-            // Biquad SVF modes: a sharp resonant peak can legitimately amplify a tone driven
-            // right at the resonant frequency well past unity -- that's the filter doing its
-            // job, not a bug -- so only check for runaway (NaN/Inf), not a tight bound.
             expect (isFinite (buffer),
                     "filter type " + juce::String (filterType) + " (" + getFilterTypeChoices()[filterType]
                         + ") stays finite (no NaN/Inf) at high resonance");
         }
         else
         {
-            // Delay-line based modes: |feedback| < 1 guarantees a stable, bounded result.
             expect (isFiniteAndBounded (buffer, 3.0f),
                     "filter type " + juce::String (filterType) + " (" + getFilterTypeChoices()[filterType]
                         + ") stays finite/bounded at feedback 0.95");
@@ -671,26 +747,28 @@ int main()
                     + juce::String (lowNoteRms, 4) + ", high-note RMS " + juce::String (highNoteRms, 4) + ")");
     }
 
-    // --- ConnectionGraph: Input -> 0 -> 1 -> 2 -> Output topologically orders the fixed root/sink correctly ---
+    // --- ConnectionGraph: slot 10 (root role) -> 0 -> 1 -> 2 -> slot 11 (sink role) topologically orders correctly ---
     {
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { kInputNodeId, 0 };
+        conns[0] = { 10, 0 };
         conns[1] = { 0, 1 };
         conns[2] = { 1, 2 };
-        conns[3] = { 2, kOutputNodeId };
+        conns[3] = { 2, 11 };
 
-        std::array<bool, kNumGraphNodes> active {};
-        active[0] = active[1] = active[2] = true;
-        active[(size_t) kInputNodeId] = true;
-        active[(size_t) kOutputNodeId] = true;
+        std::array<bool, kMaxSlots> active {};
+        active[0] = active[1] = active[2] = active[10] = active[11] = true;
+        std::array<bool, kMaxSlots> isRootRole {};
+        std::array<bool, kMaxSlots> isSinkRole {};
+        isRootRole[10] = true;
+        isSinkRole[11] = true;
 
-        const auto graph = buildProcessingOrder (conns, 4, active);
+        const auto graph = buildProcessingOrder (conns, 4, active, isRootRole, isSinkRole);
 
-        expect (graph.orderCount == 5, "a linear Input->0->1->2->Output chain orders all 5 active nodes");
-        expect (graph.isRoot[(size_t) kInputNodeId] && ! graph.isRoot[0] && ! graph.isRoot[1] && ! graph.isRoot[2] && ! graph.isRoot[(size_t) kOutputNodeId],
-                "only Input is ever a root, regardless of which regular slot has zero incoming edges");
-        expect (graph.isSink[(size_t) kOutputNodeId] && ! graph.isSink[0] && ! graph.isSink[1] && ! graph.isSink[2] && ! graph.isSink[(size_t) kInputNodeId],
-                "only Output is ever a sink, regardless of which regular slot has zero outgoing edges");
+        expect (graph.orderCount == 5, "a linear root->0->1->2->sink chain orders all 5 active nodes");
+        expect (graph.isRoot[10] && ! graph.isRoot[0] && ! graph.isRoot[1] && ! graph.isRoot[2] && ! graph.isRoot[11],
+                "only the slot marked root role is ever a root, regardless of which regular slot has zero incoming edges");
+        expect (graph.isSink[11] && ! graph.isSink[0] && ! graph.isSink[1] && ! graph.isSink[2] && ! graph.isSink[10],
+                "only the slot marked sink role is ever a sink, regardless of which regular slot has zero outgoing edges");
 
         auto positionOf = [&] (int node) -> int
         {
@@ -700,49 +778,53 @@ int main()
             return -1;
         };
 
-        expect (positionOf (kInputNodeId) < positionOf (0) && positionOf (0) < positionOf (1)
-                    && positionOf (1) < positionOf (2) && positionOf (2) < positionOf (kOutputNodeId),
-                "chain orders strictly Input, 0, 1, 2, Output");
+        expect (positionOf (10) < positionOf (0) && positionOf (0) < positionOf (1)
+                    && positionOf (1) < positionOf (2) && positionOf (2) < positionOf (11),
+                "chain orders strictly root(10), 0, 1, 2, sink(11)");
     }
 
-    // --- ConnectionGraph: a regular module with no path from Input is excluded from the order entirely ---
+    // --- ConnectionGraph: a regular module with no path from any root is excluded from the order entirely ---
     {
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { kInputNodeId, 0 };
-        conns[1] = { 0, kOutputNodeId };
-        // Slot 1 is active (a real module sits there) but nothing connects it to Input or
-        // Output -- a floating, unpatched node, which should simply never run.
+        conns[0] = { 10, 0 };
+        conns[1] = { 0, 11 };
+        // Slot 1 is active (a real module sits there) but nothing connects it to the root or
+        // sink -- a floating, unpatched node, which should simply never run.
 
-        std::array<bool, kNumGraphNodes> active {};
-        active[0] = active[1] = true;
-        active[(size_t) kInputNodeId] = true;
-        active[(size_t) kOutputNodeId] = true;
+        std::array<bool, kMaxSlots> active {};
+        active[0] = active[1] = active[10] = active[11] = true;
+        std::array<bool, kMaxSlots> isRootRole {};
+        std::array<bool, kMaxSlots> isSinkRole {};
+        isRootRole[10] = true;
+        isSinkRole[11] = true;
 
-        const auto graph = buildProcessingOrder (conns, 2, active);
+        const auto graph = buildProcessingOrder (conns, 2, active, isRootRole, isSinkRole);
 
         bool slot1InOrder = false;
         for (int i = 0; i < graph.orderCount; ++i)
             if (graph.order[(size_t) i] == 1)
                 slot1InOrder = true;
 
-        expect (! slot1InOrder, "a module with no path from Input is excluded from the processing order -- an unpatched node does nothing");
-        expect (graph.orderCount == 3, "only Input, 0, and Output actually run");
+        expect (! slot1InOrder, "a module with no path from any root is excluded from the processing order -- an unpatched node does nothing");
+        expect (graph.orderCount == 3, "only the root, 0, and the sink actually run");
     }
 
-    // --- ConnectionGraph: a cycle reachable from Input (defensive fallback) still includes every active node exactly once, doesn't hang ---
+    // --- ConnectionGraph: a cycle reachable from a root (defensive fallback) still includes every active node exactly once, doesn't hang ---
     {
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { kInputNodeId, 0 };
+        conns[0] = { 10, 0 };
         conns[1] = { 0, 1 };
         conns[2] = { 1, 0 }; // artificial cycle -- connect-time validation would normally reject this
 
-        std::array<bool, kNumGraphNodes> active {};
-        active[0] = active[1] = true;
-        active[(size_t) kInputNodeId] = true;
+        std::array<bool, kMaxSlots> active {};
+        active[0] = active[1] = active[10] = true;
+        std::array<bool, kMaxSlots> isRootRole {};
+        std::array<bool, kMaxSlots> isSinkRole {};
+        isRootRole[10] = true;
 
-        const auto graph = buildProcessingOrder (conns, 3, active);
+        const auto graph = buildProcessingOrder (conns, 3, active, isRootRole, isSinkRole);
 
-        expect (graph.orderCount == 3, "a cycle reachable from Input still produces an order containing Input and both cyclic nodes (defensive fallback), not a hang or a drop");
+        expect (graph.orderCount == 3, "a cycle reachable from a root still produces an order containing the root and both cyclic nodes (defensive fallback), not a hang or a drop");
     }
 
     // --- End-to-end graph: fan-out from one root into two parallel branches, summed back at the sinks ---
@@ -819,24 +901,35 @@ int main()
         slotBranchA.reset();
         slotBranchB.reset();
 
-        // Input -> 0 (root), 0 fans out to both branches, both branches feed Output (the sink) --
-        // mirrors GGridAudioProcessor::processBlock's actual Input/Output-anchored model exactly.
+        // Slot 3 (root role) -> 0, 0 fans out to both branches, both branches feed slot 4 (sink
+        // role) -- mirrors GGridAudioProcessor::processBlock's actual root/sink-anchored model
+        // exactly (see its isRoot/isSink handling).
         std::array<Connection, kMaxConnections> conns {};
-        conns[0] = { kInputNodeId, 0 };
+        conns[0] = { 3, 0 };
         conns[1] = { 0, 1 };
         conns[2] = { 0, 2 };
-        conns[3] = { 1, kOutputNodeId };
-        conns[4] = { 2, kOutputNodeId };
-        std::array<bool, kNumGraphNodes> active {};
-        active[0] = active[1] = active[2] = true;
-        active[(size_t) kInputNodeId] = true;
-        active[(size_t) kOutputNodeId] = true;
-        const auto graph = buildProcessingOrder (conns, 5, active);
+        conns[3] = { 1, 4 };
+        conns[4] = { 2, 4 };
+        std::array<bool, kMaxSlots> active {};
+        active[0] = active[1] = active[2] = active[3] = active[4] = true;
+        std::array<bool, kMaxSlots> isRootRole {};
+        std::array<bool, kMaxSlots> isSinkRole {};
+        isRootRole[3] = true;
+        isSinkRole[4] = true;
+        const auto graph = buildProcessingOrder (conns, 5, active, isRootRole, isSinkRole);
 
-        std::array<juce::AudioBuffer<float>, kNumGraphNodes> nodeBuffers;
-        for (int i = 0; i < kNumGraphNodes; ++i)
+        std::array<juce::AudioBuffer<float>, kMaxSlots> nodeBuffers;
+        for (int i = 0; i < kMaxSlots; ++i)
             if (active[(size_t) i])
+            {
+                // setSize alone doesn't zero freshly-grown memory (clearExtraSpace defaults to
+                // false) -- without an explicit clear, addFrom below accumulates onto whatever
+                // garbage happened to be in that heap memory, exactly the bug this test would
+                // otherwise fail to catch. Mirrors GGridAudioProcessor::processBlock's own
+                // setSize+clear pair exactly, see PluginProcessor.cpp.
                 nodeBuffers[(size_t) i].setSize (2, blockSize);
+                nodeBuffers[(size_t) i].clear();
+            }
 
         RackSlot* rackSlotsByIndex[3] = { &slotRoot, &slotBranchA, &slotBranchB };
 
@@ -844,7 +937,7 @@ int main()
         {
             const int i = graph.order[(size_t) idx];
 
-            if (i == kInputNodeId)
+            if (graph.isRoot[(size_t) i])
             {
                 for (int ch = 0; ch < 2; ++ch)
                     nodeBuffers[(size_t) i].copyFrom (ch, 0, dry, ch, 0, blockSize);
@@ -858,7 +951,7 @@ int main()
                     nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conns[(size_t) c].from], ch, 0, blockSize);
             }
 
-            if (i == kOutputNodeId)
+            if (graph.isSink[(size_t) i])
                 continue;
 
             juce::dsp::AudioBlock<float> nodeBlock (nodeBuffers[(size_t) i]);
@@ -869,7 +962,7 @@ int main()
         juce::AudioBuffer<float> actualSum (2, blockSize);
         actualSum.clear();
         for (int ch = 0; ch < 2; ++ch)
-            actualSum.addFrom (ch, 0, nodeBuffers[(size_t) kOutputNodeId], ch, 0, blockSize);
+            actualSum.addFrom (ch, 0, nodeBuffers[4], ch, 0, blockSize);
 
         bool matches = true;
         for (int ch = 0; ch < 2 && matches; ++ch)

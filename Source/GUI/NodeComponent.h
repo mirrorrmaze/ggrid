@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_utils/juce_audio_utils.h>
 #include "../Rack/RackSlot.h"
 #include "../Modulation/ModulationMatrix.h"
 #include "ModuleControlPanels.h"
@@ -26,14 +27,20 @@ namespace GGrid
     class NodeComponent : public juce::Component
     {
     public:
-        NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot);
+        NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot,
+                        juce::AudioVisualiserComponent& scopeIn);
 
         void resized() override;
         void paint (juce::Graphics&) override;
 
         int getSlotIndex() const { return slotIndex; }
         int getPreferredHeight() const;
-        static constexpr int preferredWidth = 380;
+
+        // Input/Output nodes are a small fixed cube -- no control panel to size around, and a
+        // compact box matching their "just a wire endpoint" role reads better on a canvas that
+        // can otherwise have many of them (see the class-level ModuleType::input/output note).
+        // Every other type keeps the wider box sized to fit its control panel comfortably.
+        int getPreferredWidth() const;
 
         // Each node has up to kMaxPortsPerSide (4) input dots and 4 output nubs, evenly spaced
         // down each edge -- not functionally distinct ports; which physical dot a given cable
@@ -41,12 +48,23 @@ namespace GGrid
         // when drawing/hit-testing), not something the engine cares about. LFO nodes don't
         // participate in the audio graph at all (see LFOModule's class comment) and hide these
         // entirely, showing a single modulation-output nub instead -- see isLfoType()/
-        // getModOutputPosition().
+        // getModOutputPosition(). Input/Output nodes are one-sided -- see isInputType()/
+        // isOutputType() -- an Input node hides its input dots (it has none), an Output node
+        // hides its output nubs (it has none).
         juce::Point<int> getInputConnectorPosition (int portIndex) const;
         juce::Point<int> getOutputConnectorPosition (int portIndex) const;
 
         // True for LFO nodes -- no audio ports, one modulation-output nub instead.
         bool isLfoType() const;
+
+        // True for Input/Output nodes -- ordinary addable/deletable module types (not fixed
+        // pseudo-nodes) whose only unusual behaviour is a one-sided port set and no control
+        // panel: an Input node is a source of the plugin's raw dry signal (output ports only,
+        // no bypass toggle since RackSlot::process() never runs for it -- see
+        // GGridAudioProcessor::processBlock), an Output node collects into the final mix (input
+        // ports only, same reasoning).
+        bool isInputType() const;
+        bool isOutputType() const;
         juce::Point<int> getModOutputPosition() const;
 
         // Every continuous knob the currently active control panel exposes is a valid cable
@@ -107,6 +125,12 @@ namespace GGrid
         };
 
         int slotIndex;
+
+        // Live waveform for Input/Output nodes only -- owned on the processor (see
+        // GGridAudioProcessor::getNodeScope) so it keeps accumulating/rendering correctly across
+        // editor open/close the same way outputScope does; this just parents it and only shows
+        // it while isInputType()/isOutputType().
+        juce::AudioVisualiserComponent& scope;
 
         TitleBar titleBar { *this };
         juce::Label titleLabel;

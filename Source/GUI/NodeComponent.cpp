@@ -10,13 +10,15 @@ namespace GGrid
         g.fillEllipse (getLocalBounds().toFloat().reduced (2.0f));
     }
 
-    NodeComponent::NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot)
-        : slotIndex (slotIndexIn)
+    NodeComponent::NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot,
+                                   juce::AudioVisualiserComponent& scopeIn)
+        : slotIndex (slotIndexIn), scope (scopeIn)
     {
         // titleBar added first (behind, in z-order) so it only receives clicks that fall through
         // the header's actual controls (added after, in front) -- clicking blank header space
         // drags the node; clicking the type box/bypass/delete hits those instead.
         addAndMakeVisible (titleBar);
+        addChildComponent (scope); // visibility toggled in resized() -- only shown for Input/Output
 
         titleLabel.setText ("Slot " + juce::String (slotIndex + 1), juce::dontSendNotification);
         titleLabel.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
@@ -111,11 +113,18 @@ namespace GGrid
             case ModuleType::eq8:         contentHeight = 330; break; // 3 knob rows(106 each) + 2 gaps(6 each)
             case ModuleType::chorus:      contentHeight = 268; break; // knobRow(106) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::eq3:         contentHeight = 106; break; // knobRow(106), no bottom row
+            case ModuleType::input:
+            case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:
             default:                      contentHeight = 0;   break;
         }
 
         return header + headerGap + contentHeight + padding;
+    }
+
+    int NodeComponent::getPreferredWidth() const
+    {
+        return (isInputType() || isOutputType()) ? 150 : 380;
     }
 
     juce::Point<int> NodeComponent::getInputConnectorPosition (int portIndex) const
@@ -131,6 +140,16 @@ namespace GGrid
     bool NodeComponent::isLfoType() const
     {
         return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::lfo;
+    }
+
+    bool NodeComponent::isInputType() const
+    {
+        return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::input;
+    }
+
+    bool NodeComponent::isOutputType() const
+    {
+        return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::output;
     }
 
     juce::Point<int> NodeComponent::getModOutputPosition() const
@@ -226,8 +245,9 @@ namespace GGrid
 
         // Input dots are a static visual only -- dragging always starts from an (separately
         // interactive) output nub, never from here. LFO nodes have no audio ports at all (they
-        // aren't part of the audio graph -- see LFOModule).
-        if (! isLfoType())
+        // aren't part of the audio graph -- see LFOModule); Input nodes have no input ports at
+        // all (they're a source, not a destination -- see isInputType()).
+        if (! isLfoType() && ! isInputType())
         {
             g.setColour (Palette::accent);
             for (int port = 0; port < kMaxPortsPerSide; ++port)
@@ -250,13 +270,29 @@ namespace GGrid
 
         titleBar.setBounds (0, 0, getWidth(), headerHeight);
 
+        const bool isIOType = isInputType() || isOutputType();
+
         auto header = getLocalBounds().removeFromTop (headerHeight).reduced (padding, 4);
-        titleLabel.setBounds (header.removeFromLeft (50));
+
+        // The compact Input/Output box has no room for a title label alongside a usable type
+        // dropdown -- every other type keeps it (matches "Slot N" everywhere else in the rack).
+        titleLabel.setVisible (! isIOType);
+        if (! isIOType)
+            titleLabel.setBounds (header.removeFromLeft (50));
 
         deleteButton.setBounds (header.removeFromRight (24));
         header.removeFromRight (4);
-        bypassButton.setBounds (header.removeFromRight (70));
-        header.removeFromRight (6);
+
+        // Bypass has no effect on Input/Output nodes -- RackSlot::process() never runs for them
+        // at all (see GGridAudioProcessor::processBlock), so showing a toggle that silently does
+        // nothing would be misleading, and reserving its space would starve the compact box's
+        // already-tight header.
+        bypassButton.setVisible (! isIOType);
+        if (! isIOType)
+        {
+            bypassButton.setBounds (header.removeFromRight (70));
+            header.removeFromRight (6);
+        }
 
         typeBox.setBounds (header);
 
@@ -279,11 +315,17 @@ namespace GGrid
         chorusPanel->setBounds (contentArea);
         eq3Panel->setBounds (contentArea);
 
+        scope.setBounds (contentArea);
+        scope.setVisible (isIOType);
+
         const bool lfo = isLfoType();
-        outputNub0.setVisible (! lfo);
-        outputNub1.setVisible (! lfo);
-        outputNub2.setVisible (! lfo);
-        outputNub3.setVisible (! lfo);
+        // Output nodes have no output ports at all -- their whole purpose is collecting incoming
+        // audio into the final mix, not producing any (see isOutputType()).
+        const bool hideOutputPorts = lfo || isOutputType();
+        outputNub0.setVisible (! hideOutputPorts);
+        outputNub1.setVisible (! hideOutputPorts);
+        outputNub2.setVisible (! hideOutputPorts);
+        outputNub3.setVisible (! hideOutputPorts);
         modOutputNub.setVisible (lfo);
 
         OutputNub* outputNubs[kMaxPortsPerSide] = { &outputNub0, &outputNub1, &outputNub2, &outputNub3 };
