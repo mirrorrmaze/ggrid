@@ -187,8 +187,17 @@ namespace GGrid
                     const auto& conn = connections[(size_t) c];
                     if (conn.to != i || ! active[(size_t) conn.from]) continue;
 
+                    // Almost always the source slot's single shared buffer -- only a multi-output-
+                    // bus module (currently just Multipass, see RackModule::getNumOutputBuses)
+                    // pinned to a specific bus via conn.fromPort reads a different buffer here.
+                    const juce::AudioBuffer<float>* sourceBuffer = &nodeBuffers[(size_t) conn.from];
+                    if (auto* sourceModule = slots[(size_t) conn.from]->getCurrentModule())
+                        if (sourceModule->getNumOutputBuses() > 1)
+                            if (auto* bus = sourceModule->getOutputBusBuffer (conn.fromPort))
+                                sourceBuffer = bus;
+
                     for (int ch = 0; ch < numChannels; ++ch)
-                        nodeBuffers[(size_t) i].addFrom (ch, 0, nodeBuffers[(size_t) conn.from], ch, 0, numSamples);
+                        nodeBuffers[(size_t) i].addFrom (ch, 0, *sourceBuffer, ch, 0, numSamples);
                 }
 
                 if (graph.isSink[(size_t) i])
@@ -245,9 +254,14 @@ namespace GGrid
         if (auto paramsXml = state.createXml())
             xml.addChildElement (paramsXml.release());
 
+        // "from-to|fromPort" -- fromPort gets its own "|"-separated field rather than folding it
+        // into the existing "-"-joined from/to pair, since fromPort can be -1 and a bare "-" as
+        // both the field separator AND part of a negative number would make "3--1" ambiguous to
+        // re-tokenize (matches modConnectionTokens' own reasoning for using "|" below).
         juce::StringArray connectionTokens;
         for (int i = 0; i < numConnections; ++i)
-            connectionTokens.add (juce::String (connections[(size_t) i].from) + "-" + juce::String (connections[(size_t) i].to));
+            connectionTokens.add (juce::String (connections[(size_t) i].from) + "-" + juce::String (connections[(size_t) i].to)
+                                   + "|" + juce::String (connections[(size_t) i].fromPort));
         xml.setAttribute ("connections", connectionTokens.joinIntoString (","));
 
         // "|" as the field separator (not "-") since destinationParamId is an arbitrary APVTS
@@ -297,9 +311,17 @@ namespace GGrid
         numConnections = 0;
         for (auto& token : connectionTokens)
         {
-            auto parts = juce::StringArray::fromTokens (token, "-", "");
+            // "|fromPort" is optional -- a save from before Connection carried a port (this is
+            // still unreleased/actively-iterated software) just has the bare "from-to" half,
+            // which defaults to fromPort -1 (unpinned), identical to how such a connection always
+            // behaved before this field existed.
+            auto fields = juce::StringArray::fromTokens (token, "|", "");
+            auto parts = juce::StringArray::fromTokens (fields[0], "-", "");
             if (parts.size() == 2 && numConnections < kMaxConnections)
-                connections[(size_t) numConnections++] = { parts[0].getIntValue(), parts[1].getIntValue() };
+            {
+                const int fromPort = fields.size() > 1 ? fields[1].getIntValue() : -1;
+                connections[(size_t) numConnections++] = { parts[0].getIntValue(), parts[1].getIntValue(), fromPort };
+            }
         }
 
         auto modConnectionTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("modConnections"), ",", "");

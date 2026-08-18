@@ -16,6 +16,7 @@
 #include "Modules/ThreeOscModule.h"
 #include "Modules/AdsrModule.h"
 #include "Modules/EnvelopeModule.h"
+#include "Modules/MultipassModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
@@ -868,6 +869,111 @@ int main()
         expect (differs, "Multiband Convolution's per-band IR reshape (its own IRReshapeWorker identity) actually completes and changes the output");
     }
 
+    // --- Multipass: splits into Low/Mid/High bands whose OWN output actually reflects the
+    // frequency content assigned to that band, not the whole mixed signal duplicated 3x --
+    // GGrid's first genuinely multi-output-bus module, this is the core contract being tested ---
+    {
+        apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz1))->store (300.0f);
+        apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz2))->store (3000.0f);
+        for (int b = 0; b < kNumMultipassBands; ++b)
+            apvts.getRawParameterValue (multipassBandParamId (0, b, MultipassBandParam::mix))->store (100.0f);
+
+        MultipassModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto lowTone = makeTestSignal (blockSize, 0.5f, 100.0f, sampleRate);
+        auto highTone = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        juce::AudioBuffer<float> mixed (2, blockSize);
+        mixed.clear();
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            mixed.addFrom (ch, 0, lowTone, 0, 0, blockSize);
+            mixed.addFrom (ch, 0, highTone, 0, 0, blockSize);
+        }
+
+        juce::dsp::AudioBlock<float> block (mixed);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const auto* lowBandBuffer = module.getOutputBusBuffer (0);
+        const auto* highBandBuffer = module.getOutputBusBuffer (2);
+
+        const double lowBandLowMag = goertzelMagnitude (*lowBandBuffer, 0, 100.0, sampleRate);
+        const double lowBandHighMag = goertzelMagnitude (*lowBandBuffer, 0, 8000.0, sampleRate);
+        const double highBandLowMag = goertzelMagnitude (*highBandBuffer, 0, 100.0, sampleRate);
+        const double highBandHighMag = goertzelMagnitude (*highBandBuffer, 0, 8000.0, sampleRate);
+
+        expect (lowBandLowMag > lowBandHighMag * 3.0,
+                "Multipass's Low band output bus is dominated by low-frequency content, not the full mixed signal (100Hz mag "
+                    + juce::String (lowBandLowMag, 3) + ", 8kHz mag " + juce::String (lowBandHighMag, 3) + ")");
+        expect (highBandHighMag > highBandLowMag * 3.0,
+                "Multipass's High band output bus is dominated by high-frequency content, not the full mixed signal (8kHz mag "
+                    + juce::String (highBandHighMag, 3) + ", 100Hz mag " + juce::String (highBandLowMag, 3) + ")");
+    }
+
+    // --- Multipass: a band's Mix knob blends toward the ORIGINAL unsplit signal, not just the
+    // isolated band -- at Mix=0%, a band's output equals the pre-split dry signal exactly ---
+    {
+        apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz1))->store (300.0f);
+        apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz2))->store (3000.0f);
+        apvts.getRawParameterValue (multipassBandParamId (0, 0, MultipassBandParam::mix))->store (0.0f); // Low band, Mix 0%
+        apvts.getRawParameterValue (multipassBandParamId (0, 1, MultipassBandParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (multipassBandParamId (0, 2, MultipassBandParam::mix))->store (100.0f);
+
+        MultipassModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto highTone = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate); // well outside the Low band
+        auto dryReference = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate); // untouched copy to diff against
+
+        juce::dsp::AudioBlock<float> block (highTone);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const auto* lowBandBuffer = module.getOutputBusBuffer (0);
+        double maxDiff = 0.0;
+        for (int i = 0; i < blockSize; ++i)
+            maxDiff = juce::jmax (maxDiff, (double) std::abs (lowBandBuffer->getSample (0, i) - dryReference.getSample (0, i)));
+
+        expect (maxDiff < 0.01,
+                "Multipass Low band at Mix=0% outputs the original unsplit dry signal (an 8kHz tone that would "
+                "otherwise be near-silent through an isolated Low band) rather than the crossover-filtered content "
+                "(max sample difference " + juce::String (maxDiff, 5) + ")");
+    }
+
+    // --- Multipass: exposes exactly 3 output buses and defensively refuses out-of-range ones ---
+    {
+        MultipassModule module (apvts, 0);
+        module.prepare (spec);
+
+        expect (module.getNumOutputBuses() == 3, "Multipass reports exactly 3 output buses (Low/Mid/High)");
+        expect (module.getOutputBusBuffer (-1) == nullptr && module.getOutputBusBuffer (3) == nullptr,
+                "Multipass::getOutputBusBuffer refuses out-of-range bus indices instead of reading out of bounds");
+    }
+
+    // --- Multipass: stays finite/bounded on every band even with split points pushed to the
+    // frequency-range edges and nearly on top of each other ---
+    {
+        apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz1))->store (20.0f);
+        apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz2))->store (20000.0f);
+        for (int b = 0; b < kNumMultipassBands; ++b)
+            apvts.getRawParameterValue (multipassBandParamId (0, b, MultipassBandParam::mix))->store (100.0f);
+
+        MultipassModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.9f, 1000.0f, sampleRate);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        bool allFinite = true;
+        for (int b = 0; b < kNumMultipassBands && allFinite; ++b)
+            allFinite = isFiniteAndBounded (*module.getOutputBusBuffer (b), 4.0f);
+
+        expect (allFinite, "Multipass stays finite/bounded on every band's output bus at extreme split-point settings");
+    }
+
     // --- Mod matrix: a note-pitch -> filter frequency route actually shifts the cutoff ---
     {
         // Route 0: Note Pitch -> Slot 0 Filter Frequency, full positive depth.
@@ -1589,6 +1695,110 @@ int main()
         expect (rms (buffer, 0) > flatRms * 1.5,
                 "EQ 8 boosting the 3.2kHz band by +12dB raises a matching 3.2kHz tone's RMS well above its flat level (RMS "
                     + juce::String (rms (buffer, 0), 4) + ", flat would be " + juce::String (flatRms, 4) + ")");
+    }
+
+    // --- EQ 8: a band's Type genuinely changes its filter shape -- High Pass removes
+    // low-frequency content instead of just boosting/cutting it like the old gain-only bands ---
+    {
+        for (int b = 0; b < kNumEq8Bands; ++b)
+        {
+            apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (b)))->store (0.0f);
+            apvts.getRawParameterValue (eq8BandEnabledParamId (0, b))->store (b == 0 ? 1.0f : 0.0f);
+        }
+        apvts.getRawParameterValue (eq8BandTypeParamId (0, 0))->store (3.0f); // High Pass
+        apvts.getRawParameterValue (eq8BandFreqParamId (0, 0))->store (1000.0f);
+        apvts.getRawParameterValue (eq8BandQParamId (0, 0))->store (0.707f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::output))->store (0.0f);
+
+        Eq8Module module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.5f, 100.0f, sampleRate); // well below the 1kHz HP cutoff
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        const double flatRms = 0.5 * std::sqrt (0.5);
+        expect (rms (buffer, 0) < flatRms * 0.3,
+                "EQ 8 High Pass Type on a band removes a 100Hz tone well below its 1kHz cutoff, unlike the old "
+                "gain-only peaking-only bands (output RMS " + juce::String (rms (buffer, 0), 4)
+                    + ", flat would be " + juce::String (flatRms, 4) + ")");
+    }
+
+    // --- EQ 8: a disabled band contributes nothing, no matter how extreme its Gain is ---
+    {
+        for (int b = 0; b < kNumEq8Bands; ++b)
+            apvts.getRawParameterValue (eq8BandEnabledParamId (0, b))->store (b == 0 ? 0.0f : 1.0f);
+        for (int b = 1; b < kNumEq8Bands; ++b)
+            apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (b)))->store (0.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (0)))->store (12.0f); // disabled band, extreme gain
+        apvts.getRawParameterValue (eq8BandFreqParamId (0, 0))->store (1000.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::output))->store (0.0f);
+
+        Eq8Module module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.5f, 1000.0f, sampleRate);
+        const double inputRms = rms (buffer, 0);
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+        const double outputRms = rms (buffer, 0);
+
+        expect (std::abs (outputRms - inputRms) < inputRms * 0.05,
+                "EQ 8 a disabled band's +12dB Gain has no audible effect (input RMS " + juce::String (inputRms, 4)
+                    + ", output RMS " + juce::String (outputRms, 4) + ")");
+    }
+
+    // --- EQ 8: a Bell band's Frequency knob genuinely moves which frequency gets boosted,
+    // unlike the old fixed-frequency-ladder scheme it replaced ---
+    {
+        for (int b = 0; b < kNumEq8Bands; ++b)
+            apvts.getRawParameterValue (eq8BandEnabledParamId (0, b))->store (b == 0 ? 1.0f : 0.0f);
+        apvts.getRawParameterValue (eq8BandTypeParamId (0, 0))->store (0.0f); // Bell
+        apvts.getRawParameterValue (eq8ParamId (0, eq8BandParam (0)))->store (12.0f);
+        apvts.getRawParameterValue (eq8BandQParamId (0, 0))->store (2.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::mix))->store (100.0f);
+        apvts.getRawParameterValue (eq8ParamId (0, Eq8Param::output))->store (0.0f);
+
+        auto runAtFreq = [&] (float freqHz) -> double
+        {
+            apvts.getRawParameterValue (eq8BandFreqParamId (0, 0))->store (freqHz);
+            Eq8Module module (apvts, 0);
+            module.prepare (spec);
+            auto buffer = makeTestSignal (blockSize, 0.5f, freqHz, sampleRate);
+            juce::dsp::AudioBlock<float> block (buffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+            return rms (buffer, 0);
+        };
+
+        const double boostAt500 = runAtFreq (500.0f);
+        const double boostAt5000 = runAtFreq (5000.0f);
+        const double flatRms = 0.5 * std::sqrt (0.5);
+
+        expect (boostAt500 > flatRms * 1.5 && boostAt5000 > flatRms * 1.5,
+                "EQ 8 Bell band boosts whichever frequency its Freq knob is currently set to, tried at both 500Hz "
+                "and 5000Hz (" + juce::String (boostAt500, 3) + ", " + juce::String (boostAt5000, 3)
+                    + " vs flat " + juce::String (flatRms, 3) + ")");
+    }
+
+    // --- EQ 8: Q narrows/widens a Bell band's affected bandwidth -- checked directly via
+    // Eq8Module::makeCoefficients' magnitude response, the same static/pure function
+    // Eq8CurveEditor's own combined-response curve reads from ---
+    {
+        auto narrowCoeffs = Eq8Module::makeCoefficients (0, sampleRate, 1000.0f, 8.0f, juce::Decibels::decibelsToGain (12.0f));
+        auto wideCoeffs = Eq8Module::makeCoefficients (0, sampleRate, 1000.0f, 0.3f, juce::Decibels::decibelsToGain (12.0f));
+
+        const double narrowMagOffFreq = narrowCoeffs->getMagnitudeForFrequency (2000.0, sampleRate);
+        const double wideMagOffFreq = wideCoeffs->getMagnitudeForFrequency (2000.0, sampleRate);
+
+        expect (narrowMagOffFreq < wideMagOffFreq,
+                "EQ 8 a narrow-Q Bell band (centred at 1kHz, boosted +12dB) affects a nearby 2kHz frequency less "
+                "than a wide-Q band does (narrow magnitude " + juce::String (narrowMagOffFreq, 4)
+                    + ", wide magnitude " + juce::String (wideMagOffFreq, 4) + ")");
     }
 
     // --- EQ 3: stays finite/bounded at extreme Low/Mid/High gains ---

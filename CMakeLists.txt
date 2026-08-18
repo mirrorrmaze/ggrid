@@ -51,12 +51,14 @@ target_sources(GGrid
         Source/Modules/ThreeOscModule.cpp
         Source/Modules/AdsrModule.cpp
         Source/Modules/EnvelopeModule.cpp
+        Source/Modules/MultipassModule.cpp
         Source/Modulation/ModulationMatrix.cpp
         Source/IR/IRLibrary.cpp
         Source/IR/IRProcessor.cpp
         Source/IR/IRReshapeWorker.cpp
         Source/GUI/ModuleControlPanels.cpp
         Source/GUI/CrossoverSplitBar.cpp
+        Source/GUI/Eq8CurveEditor.cpp
         Source/GUI/EnvelopeBreakpointEditor.cpp
         Source/GUI/NodeComponent.cpp
         Source/GUI/NodeGraphEditor.cpp
@@ -111,6 +113,7 @@ add_executable(OfflineDspTest
     Source/Modules/ThreeOscModule.cpp
     Source/Modules/AdsrModule.cpp
     Source/Modules/EnvelopeModule.cpp
+    Source/Modules/MultipassModule.cpp
     Source/Modulation/ModulationMatrix.cpp
     Source/IR/IRLibrary.cpp
     Source/IR/IRProcessor.cpp

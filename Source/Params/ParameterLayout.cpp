@@ -383,6 +383,29 @@ namespace GGrid
                 "Slot " + String (slotIndex + 1) + " EQ 8 " + bandLabels[b] + "Hz",
                 NormalisableRange<float> (-12.0f, 12.0f, 0.01f), 0.0f,
                 AudioParameterFloatAttributes().withLabel ("dB")));
+
+            // Default frequency reproduces the old fixed ladder exactly for a save with no value
+            // for this new param -- freely draggable afterward (see Eq8Param's own comment).
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { eq8BandFreqParamId (slotIndex, b), 1 },
+                "Slot " + String (slotIndex + 1) + " EQ 8 " + bandLabels[b] + " Freq",
+                skewedRange (20.0f, 20000.0f, kEq8BandFrequencies[(size_t) b]), kEq8BandFrequencies[(size_t) b],
+                AudioParameterFloatAttributes().withLabel ("Hz")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { eq8BandQParamId (slotIndex, b), 1 },
+                "Slot " + String (slotIndex + 1) + " EQ 8 " + bandLabels[b] + " Q",
+                skewedRange (0.1f, 18.0f, 1.0f), 1.0f));
+
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { eq8BandTypeParamId (slotIndex, b), 1 },
+                "Slot " + String (slotIndex + 1) + " EQ 8 " + bandLabels[b] + " Type",
+                getEq8FilterTypeChoices(), 0));
+
+            layout.add (std::make_unique<AudioParameterBool> (
+                ParameterID { eq8BandEnabledParamId (slotIndex, b), 1 },
+                "Slot " + String (slotIndex + 1) + " EQ 8 " + bandLabels[b] + " Enabled",
+                true));
         }
 
         layout.add (std::make_unique<AudioParameterFloat> (
@@ -537,6 +560,33 @@ namespace GGrid
                 "Slot " + String (slotIndex + 1) + " Multiband Convolution " + bandLabel + " Output",
                 NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
                 AudioParameterFloatAttributes().withLabel ("dB")));
+        }
+    }
+
+    static void addMultipassParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { multipassParamId (slotIndex, MultipassParam::splitHz1), 1 },
+            "Slot " + String (slotIndex + 1) + " Multipass Split 1",
+            skewedRange (20.0f, 20000.0f, 1000.0f), 300.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { multipassParamId (slotIndex, MultipassParam::splitHz2), 1 },
+            "Slot " + String (slotIndex + 1) + " Multipass Split 2",
+            skewedRange (20.0f, 20000.0f, 1000.0f), 3000.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        const auto bandLabels = getMultipassBandLabels();
+        for (int band = 0; band < kNumMultipassBands; ++band)
+        {
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { multipassBandParamId (slotIndex, band, MultipassBandParam::mix), 1 },
+                "Slot " + String (slotIndex + 1) + " Multipass " + bandLabels[band] + " Mix",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+                AudioParameterFloatAttributes().withLabel ("%")));
         }
     }
 
@@ -721,6 +771,7 @@ namespace GGrid
             addThreeOscParams (layout, slot);
             addAdsrParams (layout, slot);
             addEnvelopeParams (layout, slot);
+            addMultipassParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

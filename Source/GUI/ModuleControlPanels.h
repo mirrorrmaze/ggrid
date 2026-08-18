@@ -7,6 +7,7 @@
 #include "IRWaveformComponent.h"
 #include "CrossoverSplitBar.h"
 #include "EnvelopeBreakpointEditor.h"
+#include "Eq8CurveEditor.h"
 #include <vector>
 #include <array>
 
@@ -338,8 +339,12 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LossyControlsPanel)
     };
 
-    // EQ 8 controls: 8 fixed-frequency band gain knobs (100Hz-12.8kHz, one octave apart,
-    // see kEq8BandFrequencies) plus Mix/Output -- see Eq8Module.
+    // EQ 8 controls: Eq8CurveEditor (draggable graphic-EQ curve -- primary interaction) on top,
+    // then one shared Enable/Type/Freq/Gain/Q knob set that retargets to whichever band was just
+    // clicked on the curve (exactly like MultibandConvolutionControlsPanel's own band-select
+    // pattern -- 8 full knob columns don't fit this panel's ~380px width, so a single retargeting
+    // set stands in as the precise/numeric fallback to the curve's drag gestures), plus Mix/
+    // Output. See Eq8Module/Eq8CurveEditor.
     class Eq8ControlsPanel : public juce::Component
     {
     public:
@@ -351,13 +356,27 @@ namespace GGrid
         const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
-        std::array<juce::Label, kNumEq8Bands> bandLabels;
-        std::array<juce::Slider, kNumEq8Bands> bandSliders;
-        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumEq8Bands> bandAttachments;
+        // Rebuilds the Enable/Type/Freq/Gain/Q attachments to point at `band`'s parameters --
+        // called once at construction and again every time the curve editor's onBandSelected
+        // fires. See MultibandConvolutionControlsPanel::setActiveBand's identical reasoning.
+        void setActiveBand (int band);
 
-        juce::Label mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
-        juce::Slider mixSlider, outputSlider;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment, outputAttachment;
+        juce::AudioProcessorValueTreeState& apvtsRef;
+        int slotIndexValue;
+
+        Eq8CurveEditor curveEditor;
+
+        juce::Label bandNameLabel;
+        juce::ToggleButton enableButton { "On" };
+        juce::ComboBox typeBox;
+        juce::Label freqLabel { {}, "Freq" }, gainLabel { {}, "Gain" }, qLabel { {}, "Q" },
+                    mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+        juce::Slider freqSlider, gainSlider, qSlider, mixSlider, outputSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> enableAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            freqAttachment, gainAttachment, qAttachment, mixAttachment, outputAttachment;
 
         std::vector<ModTarget> modTargets;
 
@@ -468,6 +487,33 @@ namespace GGrid
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MultibandConvolutionControlsPanel)
+    };
+
+    // Multipass controls: a CrossoverSplitBar for the 2 draggable split points (band-select
+    // clicks are simply ignored here -- unlike Multiband Convolution there's no per-band knob set
+    // to retarget) plus all 3 bands' Mix knobs shown together, since 3 knobs comfortably fit side
+    // by side without needing a tab-selection scheme. See MultipassModule/Identifiers.h's
+    // Multipass* comment for why Mix is the only knob this module has.
+    class MultipassControlsPanel : public juce::Component
+    {
+    public:
+        MultipassControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        CrossoverSplitBar splitBar;
+
+        std::array<juce::Label, kNumMultipassBands> mixLabels;
+        std::array<juce::Slider, kNumMultipassBands> mixSliders;
+        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumMultipassBands> mixAttachments;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MultipassControlsPanel)
     };
 
     // 3xOsc controls: 3 oscillator sections (Waveform dropdown + Coarse/Fine/Pan/Level knobs

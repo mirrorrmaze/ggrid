@@ -74,6 +74,13 @@ namespace GGrid
         // endpoint) -- so it's a separate predicate from isInputType(), not folded into it.
         bool isThreeOscType() const;
 
+        // True for Multipass nodes -- the only module type with more than one output BUS (Low/
+        // Mid/High bands, see RackModule::getNumOutputBuses). Unlike every other type, its output
+        // nubs aren't interchangeable/cosmetic: only 3 of the 4 are shown (see resized()) and each
+        // one's port index is functionally pinned to a specific band, not auto-assigned ordinally
+        // -- see NodeGraphEditor::handleOutputDragStart.
+        bool isMultipassType() const;
+
         // No input ports at all: Input (a source of the raw dry signal) and ThreeOsc (a source of
         // its own MIDI-generated audio) alike -- see isInputType()/isThreeOscType(). Used to hide
         // the input-side connector dots and exclude a node from being a valid cable-drop target.
@@ -105,10 +112,13 @@ namespace GGrid
 
         // Fired as the output connector is dragged; the MouseEvent is relative to this
         // NodeComponent and the owner re-targets it to canvas coordinates via
-        // MouseEvent::getEventRelativeTo().
-        std::function<void (int slotIndex, const juce::MouseEvent&)> onOutputDragStart;
-        std::function<void (int slotIndex, const juce::MouseEvent&)> onOutputDrag;
-        std::function<void (int slotIndex, const juce::MouseEvent&)> onOutputDragEnd;
+        // MouseEvent::getEventRelativeTo(). portIndex is which of the (up to 4) output nubs was
+        // actually grabbed -- ignored by NodeGraphEditor for every ordinary single-bus module
+        // (which still auto-spreads cables across dots cosmetically, see
+        // outputPortIndexForConnection), only meaningful for a multi-bus module like Multipass.
+        std::function<void (int slotIndex, int portIndex, const juce::MouseEvent&)> onOutputDragStart;
+        std::function<void (int slotIndex, int portIndex, const juce::MouseEvent&)> onOutputDrag;
+        std::function<void (int slotIndex, int portIndex, const juce::MouseEvent&)> onOutputDragEnd;
 
     private:
         void updateVisiblePanel();
@@ -128,14 +138,15 @@ namespace GGrid
         // checking whether the source node is an LFO, not by anything this component reports.
         struct OutputNub : public juce::Component
         {
-            OutputNub (NodeComponent& ownerIn, bool isModIn) : owner (ownerIn), isMod (isModIn) {}
+            OutputNub (NodeComponent& ownerIn, bool isModIn, int portIndexIn = -1) : owner (ownerIn), isMod (isModIn), portIndex (portIndexIn) {}
             void paint (juce::Graphics&) override;
-            void mouseDown (const juce::MouseEvent& e) override { if (owner.onOutputDragStart) owner.onOutputDragStart (owner.slotIndex, e); }
-            void mouseDrag (const juce::MouseEvent& e) override { if (owner.onOutputDrag) owner.onOutputDrag (owner.slotIndex, e); }
-            void mouseUp (const juce::MouseEvent& e) override { if (owner.onOutputDragEnd) owner.onOutputDragEnd (owner.slotIndex, e); }
+            void mouseDown (const juce::MouseEvent& e) override { if (owner.onOutputDragStart) owner.onOutputDragStart (owner.slotIndex, portIndex, e); }
+            void mouseDrag (const juce::MouseEvent& e) override { if (owner.onOutputDrag) owner.onOutputDrag (owner.slotIndex, portIndex, e); }
+            void mouseUp (const juce::MouseEvent& e) override { if (owner.onOutputDragEnd) owner.onOutputDragEnd (owner.slotIndex, portIndex, e); }
 
             NodeComponent& owner;
             bool isMod;
+            int portIndex; // which of the (up to 4) output dots this is -- -1 for modOutputNub (no port concept)
         };
 
         int slotIndex;
@@ -151,8 +162,8 @@ namespace GGrid
         juce::ComboBox typeBox;
         juce::ToggleButton bypassButton { "Bypass" };
         juce::TextButton deleteButton { "X" };
-        OutputNub outputNub0 { *this, false }, outputNub1 { *this, false },
-                  outputNub2 { *this, false }, outputNub3 { *this, false };
+        OutputNub outputNub0 { *this, false, 0 }, outputNub1 { *this, false, 1 },
+                  outputNub2 { *this, false, 2 }, outputNub3 { *this, false, 3 };
         OutputNub modOutputNub { *this, true };
 
         // Top-left of wherever the active control panel is placed within this component -- lets
@@ -179,6 +190,7 @@ namespace GGrid
         std::unique_ptr<ThreeOscControlsPanel> threeOscPanel;
         std::unique_ptr<AdsrControlsPanel> adsrPanel;
         std::unique_ptr<EnvelopeControlsPanel> envelopePanel;
+        std::unique_ptr<MultipassControlsPanel> multipassPanel;
 
         bool isSelectedFlag = false;
 

@@ -13,7 +13,15 @@ namespace GGrid
     // signal; every Output slot's sum is added into the final mix), so the canvas can host
     // several independent racks/parallel signal paths side by side rather than a single fixed
     // entry/exit point.
-    struct Connection { int from = -1; int to = -1; };
+    // fromPort: -1 means "unpinned" -- the vast majority of connections (every single-output-bus
+    // module) leave this at -1, and NodeGraphEditor assigns a purely cosmetic ordinal dot for
+    // drawing/hit-testing (see outputPortIndexForConnection), same behaviour as before this field
+    // existed. A non-negative value pins the connection to a SPECIFIC output bus of a multi-bus
+    // module (see RackModule::getNumOutputBuses/getOutputBusBuffer) -- e.g. Multipass's Low/Mid/
+    // High bands -- both for which bus's buffer GGridAudioProcessor::processBlock actually reads
+    // from, and for which physical dot the cable is drawn/grabbed at (so a "Low" cable stays
+    // visually and functionally the Low band even as other cables come and go).
+    struct Connection { int from = -1; int to = -1; int fromPort = -1; };
 
     // Each slot allows up to this many outgoing and this many incoming audio edges -- "4 outs /
     // 4 ins" (matching 4 output nubs / 4 input dots each NodeComponent draws), enough for real

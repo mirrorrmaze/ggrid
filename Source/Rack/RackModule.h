@@ -40,5 +40,17 @@ namespace GGrid
         // setStateInformation. Default no-op for every module that doesn't need this.
         virtual void writeExtraState (juce::XmlElement&) const {}
         virtual void readExtraState (const juce::XmlElement&) {}
+
+        // Optional multi-output-bus support -- every module is single-bus by default (the normal
+        // case: process() transforms its one shared buffer in place, and every one of a node's 4
+        // output nubs just fans out that same content, purely cosmetic -- see Connection::fromPort
+        // in ConnectionGraph.h). A module that genuinely produces several DISTINCT signals at once
+        // (currently only Multipass, splitting into Low/Mid/High bands) overrides both: report how
+        // many buses it has, and hand back the specific buffer for a given bus index so
+        // GGridAudioProcessor::processBlock can route a downstream connection pinned to that bus
+        // instead of the module's single shared buffer. Returning nullptr (the default) tells the
+        // processor to fall back to the shared buffer, same as always.
+        virtual int getNumOutputBuses() const { return 1; }
+        virtual const juce::AudioBuffer<float>* getOutputBusBuffer (int) const { return nullptr; }
     };
 }

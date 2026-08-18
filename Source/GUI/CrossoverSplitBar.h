@@ -27,7 +27,11 @@ namespace GGrid
     class CrossoverSplitBar : public juce::Component, private juce::Timer
     {
     public:
-        CrossoverSplitBar (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        // Takes the 2 split-point parameters directly (rather than looking up a fixed paramId
+        // scheme internally) so this is reusable by any module with 2 draggable crossover split
+        // points -- currently MultibandConvolutionModule and MultipassModule, which have their
+        // own distinct parameter ID namespaces (see Identifiers.h).
+        CrossoverSplitBar (juce::RangedAudioParameter& splitParam1, juce::RangedAudioParameter& splitParam2);
         ~CrossoverSplitBar() override;
 
         void paint (juce::Graphics&) override;

@@ -62,6 +62,7 @@ namespace GGrid
         threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvts, slotIndex);
         adsrPanel        = std::make_unique<AdsrControlsPanel> (apvts, slotIndex);
         envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvts, slotIndex, rackSlot);
+        multipassPanel   = std::make_unique<MultipassControlsPanel> (apvts, slotIndex);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);
@@ -78,6 +79,7 @@ namespace GGrid
         addAndMakeVisible (*threeOscPanel);
         addAndMakeVisible (*adsrPanel);
         addAndMakeVisible (*envelopePanel);
+        addAndMakeVisible (*multipassPanel);
 
         typeBox.onChange = [this] { updateVisiblePanel(); };
         updateVisiblePanel();
@@ -102,6 +104,7 @@ namespace GGrid
         threeOscPanel->setVisible (type == ModuleType::threeOsc);
         adsrPanel->setVisible (type == ModuleType::adsr);
         envelopePanel->setVisible (type == ModuleType::envelope);
+        multipassPanel->setVisible (type == ModuleType::multipass);
     }
 
     int NodeComponent::getPreferredHeight() const
@@ -122,7 +125,8 @@ namespace GGrid
             case ModuleType::ringMod:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::lfo:         contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::lossy:       contentHeight = 106; break; // knobRow(106), no bottom row
-            case ModuleType::eq8:         contentHeight = 330; break; // 3 knob rows(106 each) + 2 gaps(6 each)
+            case ModuleType::eq8:
+                contentHeight = 394; break; // curveEditor(140)+gap(6)+selectRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106)
             case ModuleType::chorus:      contentHeight = 268; break; // knobRow(106) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::eq3:         contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::multibandConvolution:
@@ -133,6 +137,8 @@ namespace GGrid
             case ModuleType::adsr:        contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::envelope:
                 contentHeight = 276; break; // editor(160) + gap(10) + knobRow(106)
+            case ModuleType::multipass:
+                contentHeight = 166; break; // splitBar(50) + gap(10) + knobRow(106)
             case ModuleType::input:
             case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:
@@ -177,6 +183,11 @@ namespace GGrid
         return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::threeOsc;
     }
 
+    bool NodeComponent::isMultipassType() const
+    {
+        return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::multipass;
+    }
+
     juce::Point<int> NodeComponent::getModOutputPosition() const
     {
         return { getWidth(), getHeight() / 2 };
@@ -199,6 +210,7 @@ namespace GGrid
             case ModuleType::eq3:         return eq3Panel->getModTargetCount();
             case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTargetCount();
             case ModuleType::threeOsc:    return threeOscPanel->getModTargetCount();
+            case ModuleType::multipass:   return multipassPanel->getModTargetCount();
             default:                      return 0;
         }
     }
@@ -220,6 +232,7 @@ namespace GGrid
             case ModuleType::eq3:         return eq3Panel->getModTarget (index).paramId;
             case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTarget (index).paramId;
             case ModuleType::threeOsc:    return threeOscPanel->getModTarget (index).paramId;
+            case ModuleType::multipass:   return multipassPanel->getModTarget (index).paramId;
             default:                      return {};
         }
     }
@@ -242,6 +255,7 @@ namespace GGrid
             case ModuleType::eq3:         slider = eq3Panel->getModTarget (index).slider; break;
             case ModuleType::multibandConvolution: slider = multibandConvolutionPanel->getModTarget (index).slider; break;
             case ModuleType::threeOsc:    slider = threeOscPanel->getModTarget (index).slider; break;
+            case ModuleType::multipass:   slider = multipassPanel->getModTarget (index).slider; break;
             default:                      break;
         }
 
@@ -350,6 +364,7 @@ namespace GGrid
         threeOscPanel->setBounds (contentArea);
         adsrPanel->setBounds (contentArea);
         envelopePanel->setBounds (contentArea);
+        multipassPanel->setBounds (contentArea);
 
         scope.setBounds (contentArea);
         scope.setVisible (isIOType);
@@ -358,10 +373,14 @@ namespace GGrid
         // Output nodes have no output ports at all -- their whole purpose is collecting incoming
         // audio into the final mix, not producing any (see isOutputType()).
         const bool hideOutputPorts = modSource || isOutputType();
+        // Multipass has exactly 3 meaningful output buses (Low/Mid/High) -- the 4th dot would be
+        // silence if wired (see RackModule::getOutputBusBuffer's out-of-range nullptr fallback),
+        // so it's hidden entirely rather than left as a footgun.
+        const bool hideFourthOutputPort = isMultipassType();
         outputNub0.setVisible (! hideOutputPorts);
         outputNub1.setVisible (! hideOutputPorts);
         outputNub2.setVisible (! hideOutputPorts);
-        outputNub3.setVisible (! hideOutputPorts);
+        outputNub3.setVisible (! hideOutputPorts && ! hideFourthOutputPort);
         modOutputNub.setVisible (modSource);
 
         OutputNub* outputNubs[kMaxPortsPerSide] = { &outputNub0, &outputNub1, &outputNub2, &outputNub3 };

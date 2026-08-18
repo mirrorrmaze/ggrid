@@ -875,7 +875,11 @@ namespace GGrid
     }
 
     Eq8ControlsPanel::Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : apvtsRef (apvts), slotIndexValue (slotIndex), curveEditor (apvts, slotIndex)
     {
+        addAndMakeVisible (curveEditor);
+        curveEditor.onBandSelected = [this] (int band) { setActiveBand (band); };
+
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
             s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -886,31 +890,70 @@ namespace GGrid
             addAndMakeVisible (label);
         };
 
-        auto bandLabelText = getEq8BandLabels();
-        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        bandNameLabel.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
+        bandNameLabel.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (bandNameLabel);
+        addAndMakeVisible (enableButton);
 
-        for (int b = 0; b < kNumEq8Bands; ++b)
-        {
-            setupRotary (bandSliders[(size_t) b], bandLabels[(size_t) b], bandLabelText[b]);
-            bandAttachments[(size_t) b] = std::make_unique<SliderAttachment> (
-                apvts, eq8ParamId (slotIndex, eq8BandParam (b)), bandSliders[(size_t) b]);
-            modTargets.push_back ({ eq8ParamId (slotIndex, eq8BandParam (b)),
-                                     bandLabelText[b] + "Hz", &bandSliders[(size_t) b] });
-        }
+        int itemId = 1;
+        for (auto& choice : getEq8FilterTypeChoices())
+            typeBox.addItem (choice, itemId++);
+        addAndMakeVisible (typeBox);
 
+        setupRotary (freqSlider, freqLabel, "Freq");
+        setupRotary (gainSlider, gainLabel, "Gain");
+        setupRotary (qSlider, qLabel, "Q");
         setupRotary (mixSlider, mixLabel, "Mix");
         setupRotary (outputSlider, outputLabel, "Output");
 
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
         mixAttachment    = std::make_unique<SliderAttachment> (apvts, eq8ParamId (slotIndex, Eq8Param::mix), mixSlider);
         outputAttachment = std::make_unique<SliderAttachment> (apvts, eq8ParamId (slotIndex, Eq8Param::output), outputSlider);
-
         modTargets.push_back ({ eq8ParamId (slotIndex, Eq8Param::mix), "Mix", &mixSlider });
         modTargets.push_back ({ eq8ParamId (slotIndex, Eq8Param::output), "Output", &outputSlider });
+
+        setActiveBand (0);
+    }
+
+    void Eq8ControlsPanel::setActiveBand (int band)
+    {
+        // Drop this band's own 3 modTargets (Freq/Gain/Q always occupy the tail of the vector,
+        // pushed after Mix/Output above and re-pushed fresh each call) before rebuilding the
+        // attachments -- mirrors MultibandConvolutionControlsPanel::setActiveBand exactly.
+        if (modTargets.size() > 2)
+            modTargets.resize (2);
+
+        const auto bandLabel = getEq8BandLabels()[band];
+        bandNameLabel.setText (bandLabel + "Hz Band", juce::dontSendNotification);
+
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        enableAttachment = std::make_unique<ButtonAttachment> (apvtsRef, eq8BandEnabledParamId (slotIndexValue, band), enableButton);
+        typeAttachment   = std::make_unique<ComboBoxAttachment> (apvtsRef, eq8BandTypeParamId (slotIndexValue, band), typeBox);
+        freqAttachment   = std::make_unique<SliderAttachment> (apvtsRef, eq8BandFreqParamId (slotIndexValue, band), freqSlider);
+        gainAttachment   = std::make_unique<SliderAttachment> (apvtsRef, eq8ParamId (slotIndexValue, eq8BandParam (band)), gainSlider);
+        qAttachment      = std::make_unique<SliderAttachment> (apvtsRef, eq8BandQParamId (slotIndexValue, band), qSlider);
+
+        modTargets.push_back ({ eq8BandFreqParamId (slotIndexValue, band), bandLabel + " Freq", &freqSlider });
+        modTargets.push_back ({ eq8ParamId (slotIndexValue, eq8BandParam (band)), bandLabel + " Gain", &gainSlider });
+        modTargets.push_back ({ eq8BandQParamId (slotIndexValue, band), bandLabel + " Q", &qSlider });
     }
 
     void Eq8ControlsPanel::resized()
     {
         auto area = getLocalBounds().reduced (4);
+
+        curveEditor.setBounds (area.removeFromTop (140));
+        area.removeFromTop (6);
+
+        auto selectRow = area.removeFromTop (24);
+        bandNameLabel.setBounds (selectRow.removeFromLeft (100));
+        enableButton.setBounds (selectRow.removeFromLeft (50));
+        selectRow.removeFromLeft (6);
+        typeBox.setBounds (selectRow);
+        area.removeFromTop (6);
 
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
@@ -919,24 +962,18 @@ namespace GGrid
             slider.setBounds (col);
         };
 
-        auto topRow = area.removeFromTop (106);
-        const int topKnobWidth = topRow.getWidth() / 4;
-        for (int b = 0; b < 4; ++b)
-            layoutKnob (topRow.removeFromLeft (topKnobWidth), bandLabels[(size_t) b], bandSliders[(size_t) b]);
+        auto bandKnobRow = area.removeFromTop (106);
+        const int bandKnobWidth = bandKnobRow.getWidth() / 3;
+        layoutKnob (bandKnobRow.removeFromLeft (bandKnobWidth), freqLabel, freqSlider);
+        layoutKnob (bandKnobRow.removeFromLeft (bandKnobWidth), gainLabel, gainSlider);
+        layoutKnob (bandKnobRow, qLabel, qSlider);
 
         area.removeFromTop (6);
 
-        auto bottomRow = area.removeFromTop (106);
-        const int bottomKnobWidth = bottomRow.getWidth() / 4;
-        for (int b = 4; b < 8; ++b)
-            layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), bandLabels[(size_t) b], bandSliders[(size_t) b]);
-
-        area.removeFromTop (6);
-
-        auto mixRow = area.removeFromTop (106);
-        const int mixKnobWidth = mixRow.getWidth() / 2;
-        layoutKnob (mixRow.removeFromLeft (mixKnobWidth), mixLabel, mixSlider);
-        layoutKnob (mixRow, outputLabel, outputSlider);
+        auto globalKnobRow = area.removeFromTop (106);
+        const int globalKnobWidth = globalKnobRow.getWidth() / 2;
+        layoutKnob (globalKnobRow.removeFromLeft (globalKnobWidth), mixLabel, mixSlider);
+        layoutKnob (globalKnobRow, outputLabel, outputSlider);
     }
 
     ChorusControlsPanel::ChorusControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
@@ -1079,7 +1116,9 @@ namespace GGrid
     }
 
     MultibandConvolutionControlsPanel::MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
-        : apvtsRef (apvts), slotIndexValue (slotIndex), splitBar (apvts, slotIndex)
+        : apvtsRef (apvts), slotIndexValue (slotIndex),
+          splitBar (*apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz1)),
+                    *apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz2)))
     {
         addAndMakeVisible (splitBar);
 
@@ -1205,6 +1244,54 @@ namespace GGrid
         layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), stretchLabel, stretchSlider);
         layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
         layoutKnob (bottomKnobRow, outputLabel, outputSlider);
+    }
+
+    MultipassControlsPanel::MultipassControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : splitBar (*apvts.getParameter (multipassParamId (slotIndex, MultipassParam::splitHz1)),
+                     *apvts.getParameter (multipassParamId (slotIndex, MultipassParam::splitHz2)))
+    {
+        addAndMakeVisible (splitBar);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        const auto bandLabels = getMultipassBandLabels();
+        for (int b = 0; b < kNumMultipassBands; ++b)
+        {
+            auto& slider = mixSliders[(size_t) b];
+            auto& label = mixLabels[(size_t) b];
+
+            slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (bandLabels[b] + " Mix", juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (slider);
+            addAndMakeVisible (label);
+
+            mixAttachments[(size_t) b] = std::make_unique<SliderAttachment> (
+                apvts, multipassBandParamId (slotIndex, b, MultipassBandParam::mix), slider);
+
+            modTargets.push_back ({ multipassBandParamId (slotIndex, b, MultipassBandParam::mix), bandLabels[b] + " Mix", &slider });
+        }
+    }
+
+    void MultipassControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        splitBar.setBounds (area.removeFromTop (50));
+        area.removeFromTop (10);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / kNumMultipassBands;
+        for (int b = 0; b < kNumMultipassBands; ++b)
+            layoutKnob (b == kNumMultipassBands - 1 ? knobRow : knobRow.removeFromLeft (knobWidth), mixLabels[(size_t) b], mixSliders[(size_t) b]);
     }
 
     ThreeOscControlsPanel::ThreeOscControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)

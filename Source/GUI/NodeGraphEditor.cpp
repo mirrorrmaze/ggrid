@@ -17,9 +17,9 @@ namespace GGrid
             node->onNodeDragged = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeDragged (slotIndex, e); };
             node->onNodeReleased = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeReleased (slotIndex, e); };
             node->onDeleteRequested = [this] (int slotIndex) { deleteNode (slotIndex); };
-            node->onOutputDragStart = [this] (int slotIndex, const juce::MouseEvent& e) { handleOutputDragStart (slotIndex, e); };
-            node->onOutputDrag = [this] (int slotIndex, const juce::MouseEvent& e) { handleOutputDrag (slotIndex, e); };
-            node->onOutputDragEnd = [this] (int slotIndex, const juce::MouseEvent& e) { handleOutputDragEnd (slotIndex, e); };
+            node->onOutputDragStart = [this] (int slotIndex, int portIndex, const juce::MouseEvent& e) { handleOutputDragStart (slotIndex, portIndex, e); };
+            node->onOutputDrag = [this] (int slotIndex, int portIndex, const juce::MouseEvent& e) { handleOutputDrag (slotIndex, portIndex, e); };
+            node->onOutputDragEnd = [this] (int slotIndex, int portIndex, const juce::MouseEvent& e) { handleOutputDragEnd (slotIndex, portIndex, e); };
 
             addAndMakeVisible (*node);
             nodes[(size_t) i] = std::move (node);
@@ -107,16 +107,20 @@ namespace GGrid
             return;
         }
 
-        int grabFrom = -1, grabTo = -1;
-        if (hitTestCable (e.position, grabFrom, grabTo))
+        int grabFrom = -1, grabTo = -1, grabFromPort = -1;
+        if (hitTestCable (e.position, grabFrom, grabTo, grabFromPort))
         {
             // Detach immediately -- the cable is now "held" by the drag and will only reappear
             // if it lands on a valid target at mouseUp. This also frees up the capacity it was
-            // using, so dropping it right back where it came from just works.
-            processor.removeConnection (grabFrom, grabTo);
+            // using, so dropping it right back where it came from just works. Passing the exact
+            // grabbed fromPort matters once a multi-bus module can have several edges to the same
+            // target (Low->X and Mid->X) -- without it, detaching one could ambiguously remove
+            // whichever matches first.
+            processor.removeConnection (grabFrom, grabTo, grabFromPort);
             isDraggingCable = true;
             isDraggingModCable = false;
             cableDragSourceSlot = grabFrom;
+            cableDragSourcePort = grabFromPort;
             cableDragCurrentPos = e.position;
             repaint();
             return;
@@ -240,6 +244,7 @@ namespace GGrid
             isDraggingCable = false;
             isDraggingModCable = false;
             cableDragSourceSlot = -1;
+            cableDragSourcePort = -1;
             repaint();
             return;
         }
@@ -252,10 +257,11 @@ namespace GGrid
             // target was found at all -- if it was a rewire, the old edge is already gone (see
             // mouseDown), so "no valid target" just means "stays disconnected."
             if (targetSlot >= 0)
-                processor.addConnection (cableDragSourceSlot, targetSlot);
+                processor.addConnection (cableDragSourceSlot, targetSlot, cableDragSourcePort);
 
             isDraggingCable = false;
             cableDragSourceSlot = -1;
+            cableDragSourcePort = -1;
             repaint();
             return;
         }
@@ -374,6 +380,7 @@ namespace GGrid
         filterEqMenu.addItem (2, "Filter");
         filterEqMenu.addItem (10, "EQ 8");
         filterEqMenu.addItem (12, "EQ 3");
+        filterEqMenu.addItem ((int) ModuleType::multipass, "Multipass");
 
         juce::PopupMenu dynamicsMenu;
         dynamicsMenu.addItem (4, "Dynamics");
@@ -534,13 +541,13 @@ namespace GGrid
         {
             for (int c = processor.numConnections - 1; c >= 0; --c)
                 if (processor.connections[(size_t) c].to == slotIndex)
-                    processor.removeConnection (processor.connections[(size_t) c].from, slotIndex);
+                    processor.removeConnection (processor.connections[(size_t) c].from, slotIndex, processor.connections[(size_t) c].fromPort);
         }
         else if (newType == ModuleType::output)
         {
             for (int c = processor.numConnections - 1; c >= 0; --c)
                 if (processor.connections[(size_t) c].from == slotIndex)
-                    processor.removeConnection (slotIndex, processor.connections[(size_t) c].to);
+                    processor.removeConnection (slotIndex, processor.connections[(size_t) c].to, processor.connections[(size_t) c].fromPort);
         }
 
         // Modulation connections are pruned unconditionally on ANY type change (not just
@@ -671,7 +678,7 @@ namespace GGrid
             const int fromIdx = clipboardIndexForSlot[(size_t) conn.from];
             const int toIdx = clipboardIndexForSlot[(size_t) conn.to];
             if (fromIdx >= 0 && toIdx >= 0 && clipboard.numAudioConnections < (int) clipboard.audioConnections.size())
-                clipboard.audioConnections[(size_t) clipboard.numAudioConnections++] = { fromIdx, toIdx };
+                clipboard.audioConnections[(size_t) clipboard.numAudioConnections++] = { fromIdx, toIdx, conn.fromPort };
         }
 
         const auto& modMatrix = processor.getModulationMatrix();
@@ -741,7 +748,7 @@ namespace GGrid
         {
             const auto& conn = clipboard.audioConnections[(size_t) c];
             if (targetSlot[(size_t) conn.fromIndex] >= 0 && targetSlot[(size_t) conn.toIndex] >= 0)
-                processor.addConnection (targetSlot[(size_t) conn.fromIndex], targetSlot[(size_t) conn.toIndex]);
+                processor.addConnection (targetSlot[(size_t) conn.fromIndex], targetSlot[(size_t) conn.toIndex], conn.fromPort);
         }
 
         for (int c = 0; c < clipboard.numModConnections; ++c)
@@ -857,22 +864,26 @@ namespace GGrid
         nodeDragMode = NodeDragMode::none;
     }
 
-    void NodeGraphEditor::handleOutputDragStart (int slotIndex, const juce::MouseEvent& e)
+    void NodeGraphEditor::handleOutputDragStart (int slotIndex, int portIndex, const juce::MouseEvent& e)
     {
         isDraggingCable = true;
         isDraggingModCable = nodes[(size_t) slotIndex]->isModulationSourceType();
         cableDragSourceSlot = slotIndex;
+        // Pin to the exact nub grabbed only for a multi-bus module (Multipass) -- every ordinary
+        // single-bus module keeps the cosmetic auto-spread (see outputPortIndexForConnection), so
+        // dragging from whichever dot happens to be easiest to grab doesn't change anything.
+        cableDragSourcePort = nodes[(size_t) slotIndex]->isMultipassType() ? portIndex : -1;
         cableDragCurrentPos = e.getEventRelativeTo (this).position;
         repaint();
     }
 
-    void NodeGraphEditor::handleOutputDrag (int, const juce::MouseEvent& e)
+    void NodeGraphEditor::handleOutputDrag (int, int, const juce::MouseEvent& e)
     {
         cableDragCurrentPos = e.getEventRelativeTo (this).position;
         repaint();
     }
 
-    void NodeGraphEditor::handleOutputDragEnd (int slotIndex, const juce::MouseEvent& e)
+    void NodeGraphEditor::handleOutputDragEnd (int slotIndex, int, const juce::MouseEvent& e)
     {
         const auto dropPos = e.getEventRelativeTo (this).position;
 
@@ -887,13 +898,14 @@ namespace GGrid
         {
             const int targetSlot = findInputConnectorNear (dropPos, slotIndex);
             if (targetSlot >= 0)
-                processor.addConnection (slotIndex, targetSlot);
+                processor.addConnection (slotIndex, targetSlot, cableDragSourcePort);
         }
         // Dropped on blank space, or the target's already full/would cycle -- just cancel.
 
         isDraggingCable = false;
         isDraggingModCable = false;
         cableDragSourceSlot = -1;
+        cableDragSourcePort = -1;
         repaint();
     }
 
@@ -985,10 +997,15 @@ namespace GGrid
 
     int NodeGraphEditor::outputPortIndexForConnection (int connectionIndex) const
     {
-        const int fromSlot = processor.connections[(size_t) connectionIndex].from;
+        const auto& conn = processor.connections[(size_t) connectionIndex];
+        // A pinned port (multi-bus module, e.g. Multipass) always draws/hit-tests at its own
+        // specific dot -- never the cosmetic ordinal auto-spread below.
+        if (conn.fromPort >= 0)
+            return juce::jmin (conn.fromPort, kMaxPortsPerSide - 1);
+
         int ordinal = 0;
         for (int i = 0; i < connectionIndex; ++i)
-            if (processor.connections[(size_t) i].from == fromSlot)
+            if (processor.connections[(size_t) i].from == conn.from && processor.connections[(size_t) i].fromPort < 0)
                 ++ordinal;
         return juce::jmin (ordinal, kMaxPortsPerSide - 1);
     }
@@ -1003,7 +1020,7 @@ namespace GGrid
         return juce::jmin (ordinal, kMaxPortsPerSide - 1);
     }
 
-    bool NodeGraphEditor::hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot) const
+    bool NodeGraphEditor::hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, int& outFromPort) const
     {
         for (int c = 0; c < processor.numConnections; ++c)
         {
@@ -1024,6 +1041,7 @@ namespace GGrid
             {
                 outFromSlot = conn.from;
                 outToSlot = conn.to;
+                outFromPort = conn.fromPort;
                 return true;
             }
         }
@@ -1119,9 +1137,12 @@ namespace GGrid
         if (isDraggingCable && cableDragSourceSlot >= 0)
         {
             auto* fromNode = nodes[(size_t) cableDragSourceSlot].get();
+            const int previewPort = cableDragSourcePort >= 0
+                ? cableDragSourcePort
+                : juce::jmin (processor.getOutDegree (cableDragSourceSlot), kMaxPortsPerSide - 1);
             const auto start = isDraggingModCable
                 ? (fromNode->getPosition() + fromNode->getModOutputPosition()).toFloat()
-                : (fromNode->getPosition() + fromNode->getOutputConnectorPosition (juce::jmin (processor.getOutDegree (cableDragSourceSlot), kMaxPortsPerSide - 1))).toFloat();
+                : (fromNode->getPosition() + fromNode->getOutputConnectorPosition (previewPort)).toFloat();
 
             g.setColour (isDraggingModCable ? Palette::modAccent : Palette::bright);
             g.strokePath (buildCablePath (start, cableDragCurrentPos), juce::PathStrokeType (1.5f));

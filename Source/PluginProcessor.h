@@ -79,10 +79,16 @@ namespace GGrid
             return n;
         }
 
-        bool hasConnection (int from, int to) const
+        // fromPort defaults to -1 (unpinned), matching every single-bus module's connections --
+        // an exact (from, to, fromPort) triple match, so a multi-bus module (e.g. Multipass) can
+        // legitimately have several simultaneous edges to the very same downstream slot as long as
+        // they're pinned to different buses (Low->X and Mid->X are distinct edges), while an
+        // ordinary single-bus module still can't have a literal duplicate edge to the same target.
+        bool hasConnection (int from, int to, int fromPort = -1) const
         {
             for (int i = 0; i < numConnections; ++i)
-                if (connections[(size_t) i].from == from && connections[(size_t) i].to == to)
+                if (connections[(size_t) i].from == from && connections[(size_t) i].to == to
+                    && connections[(size_t) i].fromPort == fromPort)
                     return true;
             return false;
         }
@@ -118,7 +124,7 @@ namespace GGrid
             return false;
         }
 
-        bool canAddConnection (int from, int to) const
+        bool canAddConnection (int from, int to, int fromPort = -1) const
         {
             if (from < 0 || to < 0 || from == to) return false;
             if (from >= kMaxSlots || to >= kMaxSlots) return false;
@@ -132,25 +138,31 @@ namespace GGrid
             if (slots[(size_t) from]->getActiveType() == ModuleType::output) return false;
             if (numConnections >= kMaxConnections) return false;
             if (getOutDegree (from) >= kMaxPortsPerSide || getInDegree (to) >= kMaxPortsPerSide) return false;
-            if (hasConnection (from, to)) return false;
+            if (hasConnection (from, to, fromPort)) return false;
             if (wouldCreateCycle (from, to)) return false;
             return true;
         }
 
         // Silently no-ops if the connection is invalid (capacity/cycle/duplicate) -- matches the
         // rest of the plugin's philosophy of never blocking a canvas gesture with a modal.
-        bool addConnection (int from, int to)
+        bool addConnection (int from, int to, int fromPort = -1)
         {
-            if (! canAddConnection (from, to)) return false;
-            connections[(size_t) numConnections++] = { from, to };
+            if (! canAddConnection (from, to, fromPort)) return false;
+            connections[(size_t) numConnections++] = { from, to, fromPort };
             return true;
         }
 
-        void removeConnection (int from, int to)
+        // fromPort must match exactly (default -1, i.e. the common unpinned case) -- with a
+        // multi-bus module's connections now possibly sharing the same (from, to) pair across
+        // several different pinned ports (see hasConnection's own comment), matching on the full
+        // triple is what lets detaching/rewiring one specific band's cable leave its siblings
+        // (Low->X vs Mid->X to the same target) untouched.
+        void removeConnection (int from, int to, int fromPort = -1)
         {
             for (int i = 0; i < numConnections; ++i)
             {
-                if (connections[(size_t) i].from == from && connections[(size_t) i].to == to)
+                if (connections[(size_t) i].from == from && connections[(size_t) i].to == to
+                    && connections[(size_t) i].fromPort == fromPort)
                 {
                     for (int j = i; j + 1 < numConnections; ++j)
                         connections[(size_t) j] = connections[(size_t) j + 1];

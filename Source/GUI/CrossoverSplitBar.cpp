@@ -4,10 +4,10 @@
 
 namespace GGrid
 {
-    CrossoverSplitBar::CrossoverSplitBar (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    CrossoverSplitBar::CrossoverSplitBar (juce::RangedAudioParameter& splitParam1, juce::RangedAudioParameter& splitParam2)
     {
-        splitParams[0] = apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz1));
-        splitParams[1] = apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz2));
+        splitParams[0] = &splitParam1;
+        splitParams[1] = &splitParam2;
 
         setInterceptsMouseClicks (true, false);
         startTimerHz (15);

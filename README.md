@@ -7,8 +7,8 @@ modulation, convolution, and more), wire them together however you like, and sha
 ## Features
 
 - **Node-based patch bay** -- right-click blank canvas space to add a node (Waveshaper/Filter/
-  Delay/Dynamics/Convolution/Multiband Convolution/Utility/Ring Mod/LFO/Envelope/ADSR/Lossy/EQ 8/
-  Chorus-Flanger/EQ 3/3xOsc, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
+  Delay/Dynamics/Convolution/Multiband Convolution/Multipass/Utility/Ring Mod/LFO/Envelope/ADSR/
+  Lossy/EQ 8/Chorus-Flanger/EQ 3/3xOsc, or Input/Output under their own "I/O" category), drag its title bar to reposition, drag a cable from a node's
   output to another node's input to connect them. Up to 24 modules at once, including duplicates
   of the same type. Input and Output are ordinary addable/deletable node types like any other --
   a small compact box (rather than the wider boxes every other module gets) showing a live
@@ -16,8 +16,12 @@ modulation, convolution, and more), wire them together however you like, and sha
   to configure. Any number of Input/Output nodes can exist at once: every Input provides the same
   raw dry signal, every Output's incoming signal sums into the final mix, so several independent
   racks or parallel signal paths can share one canvas. Each audio node has 4 output nubs and 4
-  input dots -- enough to split a signal into several parallel chains and sum them back together
-  (e.g. three outs into Low/Mid/Hi EQ bands processed individually), not just a single-file chain.
+  input dots -- enough to split a signal into several parallel chains and sum them back together,
+  not just a single-file chain. For every module except Multipass below, all 4 output nubs carry
+  the exact same signal (purely a wiring convenience, so cables fan out to visually distinct dots
+  instead of stacking); Multipass is the one exception, where each of its 3 active nubs genuinely
+  carries different content (its own frequency band) -- GGrid's first module with real independent
+  outputs rather than one signal duplicated across ports.
   A fresh project starts with one Input and one Output already in place, and only the very first
   regular module you add is auto-wired straight through between them so it's audible immediately
   -- every module added after that (including any extra Input/Output nodes) arrives fully
@@ -99,6 +103,15 @@ modulation, convolution, and more), wire them together however you like, and sha
   tabbed layout rather than showing all 3 bands' controls at once. Each band still runs its own
   full independent copy of Convolution's engine internally and they sum back together at the
   output -- only the on-screen controls are shared, not the underlying processing.
+- **Multipass** -- a 3-band (Low/Mid/High) crossover splitter with no per-band effect of its own
+  and, unlike Multiband Convolution above, no recombining at the end: each band exits through its
+  own dedicated output nub instead, so you can route Low/Mid/High to three completely different
+  downstream chains and process each individually -- the whole point of the module. Same
+  draggable-split-point frequency strip as Multiband Convolution (drag the 2 markers directly,
+  log-frequency-mapped), plus one Mix knob per band blending that band's isolated crossover-
+  filtered content against the original pre-split full-spectrum signal. Only 3 of its 4 output
+  nubs are shown/active, one per band -- see the Node-based patch bay note above on why this is
+  the one module whose ports genuinely differ rather than all carrying the same signal.
 - **Utility** -- Gain, Pan (balance, for already-stereo material), Width (mid/side stereo width,
   0-200%), Mono, and independent Phase Invert per channel. Mirrors Ableton's Utility device: pure
   gain-staging/imaging, no coloration of its own.
@@ -129,9 +142,15 @@ modulation, convolution, and more), wire them together however you like, and sha
   times/second -- low Rate holds old spectral content for a smeared, underwater texture, high Rate
   refreshes almost every hop for a garbled, glitchy one. Mix blends in the spectral domain (not a
   sample-level dry path -- see the module's own comment for why), plus Output.
-- **EQ 8** -- a classic 8-band graphic EQ, one octave apart (100Hz-12.8kHz), each a fixed-
-  frequency peaking band with just a gain knob (no per-band frequency/Q, unlike a parametric EQ),
-  plus Mix/Output.
+- **EQ 8** -- a draggable graphic EQ (Ableton EQ Eight / SPANDEX EQ style): 8 always-on band nodes
+  plotted on a log-frequency x / linear-dB y curve, each independently Enabled/Type (Bell, Low
+  Shelf, High Shelf, High Pass, Low Pass, Notch, Band Pass)/Frequency/Gain/Q. Drag a node to move
+  its Frequency (always) and Gain (only for the 3 gain-shaped types -- Bell/Low Shelf/High Shelf;
+  the other 4 have no meaningful gain, so dragging those only moves Frequency), scroll while
+  hovering a node to adjust its Q, click a node to select it -- a knob strip below shows the
+  selected band's exact Enable/Type/Freq/Gain/Q values and retargets whenever you pick a different
+  band, the numeric fallback to the curve's drag gestures. A stroked curve shows the combined
+  response of every enabled band. Plus Mix/Output.
 - **Chorus/Flanger** -- one module, two related characters via a Mode dropdown: Chorus (lush,
   doubling, no feedback) or Flanger (resonant, "jet plane" comb sweep, feedback path active) --
   a real difference in the signal path, not just a label. Rate/Depth/Delay drive a modulated delay

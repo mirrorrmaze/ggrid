@@ -15,6 +15,7 @@
 #include "../Modules/ThreeOscModule.h"
 #include "../Modules/AdsrModule.h"
 #include "../Modules/EnvelopeModule.h"
+#include "../Modules/MultipassModule.h"
 
 namespace GGrid
 {
@@ -83,6 +84,9 @@ namespace GGrid
 
             case ModuleType::envelope:
                 return std::make_unique<EnvelopeModule> (apvts, slotIndex);
+
+            case ModuleType::multipass:
+                return std::make_unique<MultipassModule> (apvts, slotIndex);
 
             // Input/Output are structural graph roles, not DSP processors -- process() is never
             // called on a slot playing either role (see GGridAudioProcessor::processBlock's

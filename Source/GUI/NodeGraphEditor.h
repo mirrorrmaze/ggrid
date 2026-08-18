@@ -154,12 +154,12 @@ namespace GGrid
         int outputPortIndexForConnection (int connectionIndex) const;
         int inputPortIndexForConnection (int connectionIndex) const;
 
-        void handleOutputDragStart (int slotIndex, const juce::MouseEvent&);
-        void handleOutputDrag (int slotIndex, const juce::MouseEvent&);
-        void handleOutputDragEnd (int slotIndex, const juce::MouseEvent&);
+        void handleOutputDragStart (int slotIndex, int portIndex, const juce::MouseEvent&);
+        void handleOutputDrag (int slotIndex, int portIndex, const juce::MouseEvent&);
+        void handleOutputDragEnd (int slotIndex, int portIndex, const juce::MouseEvent&);
 
         juce::Path buildCablePath (juce::Point<float> start, juce::Point<float> end) const;
-        bool hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot) const;
+        bool hitTestCable (juce::Point<float> canvasPoint, int& outFromSlot, int& outToSlot, int& outFromPort) const;
         int findInputConnectorNear (juce::Point<float> canvasPoint, int excludeSlot) const;
 
         // Modulation-cable counterparts of the audio-cable methods just above. A destination is
@@ -204,7 +204,7 @@ namespace GGrid
             juce::Point<float> relativePosition;
             juce::Array<std::pair<juce::String, float>> paramValues;
         };
-        struct ClipboardAudioConnection { int fromIndex = -1, toIndex = -1; };
+        struct ClipboardAudioConnection { int fromIndex = -1, toIndex = -1, fromPort = -1; };
         struct ClipboardModConnection { int fromIndex = -1, toIndex = -1; juce::String destinationSuffix; };
         struct Clipboard
         {
@@ -229,6 +229,11 @@ namespace GGrid
         bool isDraggingCable = false;
         bool isDraggingModCable = false;
         int cableDragSourceSlot = -1;
+        // Which output bus the current audio-cable drag is pinned to -- -1 (unpinned) for every
+        // ordinary single-bus module, matching outputPortIndexForConnection's own ordinal
+        // auto-assignment; only ever non-negative when dragging from/regrabbing a multi-bus
+        // module's (Multipass) specific labeled band nub. See handleOutputDragStart.
+        int cableDragSourcePort = -1;
         // Only meaningful mid-drag when isDraggingModCable and the drag started by regrabbing an
         // existing mod cable (not a fresh drag from an LFO's output nub) -- lets mouseUp know
         // which destination param the grabbed cable belonged to, in case it needs to reattach to

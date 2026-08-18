@@ -36,6 +36,7 @@ namespace GGrid
         threeOsc = 16,
         envelope = 17,
         adsr = 18,
+        multipass = 19,
     };
 
     // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
@@ -52,7 +53,7 @@ namespace GGrid
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
-                 "Envelope", "ADSR" };
+                 "Envelope", "ADSR", "Multipass" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -259,24 +260,32 @@ namespace GGrid
         return "slot" + juce::String (slotIndex) + "_eq8_" + paramName;
     }
 
-    // 8 fixed-frequency peaking bands, one octave apart -- a classic graphic-EQ frequency ladder
-    // (100Hz-12.8kHz), not a parametric EQ (no per-band frequency/Q controls). See
-    // kEq8BandFrequencies for the actual Hz values these knobs correspond to.
+    // A draggable graphic EQ, Ableton EQ Eight / SPANDEX-style: 8 always-present bands, each with
+    // its own Frequency/Q/Type/Enabled alongside the original Gain -- click-and-drag a band's dot
+    // on Eq8CurveEditor to move Frequency (always) and Gain (only for gain-shaped types --
+    // Bell/Low Shelf/High Shelf, see bandTypeHasGain in Eq8CurveEditor.cpp), scroll while
+    // hovering to adjust Q. Frequency/Q/Type/Enabled are all NEW parameters added alongside the
+    // original fixed-frequency-ladder gain-only scheme (band1..band8, kept exactly as before for
+    // backward compatibility -- an old save with no value for the new params just gets their
+    // defaults, see addEq8Params, which reproduce the old fixed-ladder/always-on/Bell-shaped
+    // behaviour exactly).
     namespace Eq8Param
     {
-        static const juce::String band1  = "band1";  // 100 Hz
-        static const juce::String band2  = "band2";  // 200 Hz
-        static const juce::String band3  = "band3";  // 400 Hz
-        static const juce::String band4  = "band4";  // 800 Hz
-        static const juce::String band5  = "band5";  // 1.6 kHz
-        static const juce::String band6  = "band6";  // 3.2 kHz
-        static const juce::String band7  = "band7";  // 6.4 kHz
-        static const juce::String band8  = "band8";  // 12.8 kHz
+        static const juce::String band1  = "band1";  // Gain, dB
+        static const juce::String band2  = "band2";
+        static const juce::String band3  = "band3";
+        static const juce::String band4  = "band4";
+        static const juce::String band5  = "band5";
+        static const juce::String band6  = "band6";
+        static const juce::String band7  = "band7";
+        static const juce::String band8  = "band8";
         static const juce::String mix    = "mix";
         static const juce::String output = "output";
     }
 
     constexpr int kNumEq8Bands = 8;
+    // Only used as each band's DEFAULT frequency now (old saves' bands land exactly where the
+    // fixed ladder always put them) -- freely draggable afterward, unlike before this existed.
     constexpr std::array<float, kNumEq8Bands> kEq8BandFrequencies {
         100.0f, 200.0f, 400.0f, 800.0f, 1600.0f, 3200.0f, 6400.0f, 12800.0f
     };
@@ -291,6 +300,32 @@ namespace GGrid
             Eq8Param::band5, Eq8Param::band6, Eq8Param::band7, Eq8Param::band8
         };
         return bandParams[(size_t) juce::jlimit (0, kNumEq8Bands - 1, bandIndex)];
+    }
+
+    // Bell is index 0 (the default Type for a band with no saved value) since a peaking filter is
+    // exactly what every band always was before Type existed -- an old save's bands sound
+    // identical to before, just now also draggable/re-typeable. High Pass/Low Pass/Notch/Band
+    // Pass ignore Gain entirely (see bandTypeHasGain).
+    inline juce::StringArray getEq8FilterTypeChoices()
+    {
+        return { "Bell", "Low Shelf", "High Shelf", "High Pass", "Low Pass", "Notch", "Band Pass" };
+    }
+
+    inline juce::String eq8BandFreqParamId (int slotIndex, int bandIndex)
+    {
+        return "slot" + juce::String (slotIndex) + "_eq8_band" + juce::String (bandIndex) + "Freq";
+    }
+    inline juce::String eq8BandQParamId (int slotIndex, int bandIndex)
+    {
+        return "slot" + juce::String (slotIndex) + "_eq8_band" + juce::String (bandIndex) + "Q";
+    }
+    inline juce::String eq8BandTypeParamId (int slotIndex, int bandIndex)
+    {
+        return "slot" + juce::String (slotIndex) + "_eq8_band" + juce::String (bandIndex) + "Type";
+    }
+    inline juce::String eq8BandEnabledParamId (int slotIndex, int bandIndex)
+    {
+        return "slot" + juce::String (slotIndex) + "_eq8_band" + juce::String (bandIndex) + "Enabled";
     }
 
     inline juce::String chorusParamId (int slotIndex, const juce::String& paramName)
@@ -469,6 +504,40 @@ namespace GGrid
     {
         static const juce::String length = "length"; // total playback duration, note-on to finish
         static const juce::String depth  = "depth";  // scales the drawn shape's 0-1 output
+    }
+
+    // A 3-band (Low/Mid/High) LR4 crossover splitter -- unlike Multiband Convolution, it has NO
+    // per-band effect of its own and does NOT recombine the bands back into one output. Instead
+    // it's GGrid's first (and so far only) multi-output-bus module: each band exits through its
+    // own dedicated output port (see RackModule::getNumOutputBuses/getOutputBusBuffer and
+    // ConnectionGraph.h's Connection::fromPort), so each can be routed to a completely different
+    // downstream chain and processed individually -- the entire point of the module. Same 2
+    // draggable split points as Multiband Convolution (reuses CrossoverSplitBar), plus one Mix
+    // knob per band blending that band's isolated crossover-filtered content (wet) against the
+    // original pre-split full-spectrum signal (dry) -- the only knob that makes sense here, since
+    // there's no internal processing step to blend around. See MultipassModule.
+    inline juce::String multipassParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_multipass_" + paramName;
+    }
+
+    namespace MultipassParam
+    {
+        static const juce::String splitHz1 = "splitHz1"; // Low/Mid boundary
+        static const juce::String splitHz2 = "splitHz2"; // Mid/High boundary
+    }
+
+    constexpr int kNumMultipassBands = 3;
+    inline juce::StringArray getMultipassBandLabels() { return { "Low", "Mid", "High" }; }
+
+    inline juce::String multipassBandParamId (int slotIndex, int bandIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_multipass_band" + juce::String (bandIndex) + "_" + paramName;
+    }
+
+    namespace MultipassBandParam
+    {
+        static const juce::String mix = "mix";
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot
