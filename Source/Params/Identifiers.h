@@ -37,6 +37,7 @@ namespace GGrid
         envelope = 17,
         adsr = 18,
         multipass = 19,
+        lfoTable = 20,
     };
 
     // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
@@ -46,14 +47,15 @@ namespace GGrid
     // instead of the normal 4 audio-output nubs (see NodeComponent::isModulationSourceType()).
     inline bool isModulationSourceType (ModuleType type)
     {
-        return type == ModuleType::lfo || type == ModuleType::envelope || type == ModuleType::adsr;
+        return type == ModuleType::lfo || type == ModuleType::envelope || type == ModuleType::adsr
+               || type == ModuleType::lfoTable;
     }
 
     inline juce::StringArray getModuleTypeChoices()
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
-                 "Envelope", "ADSR", "Multipass" };
+                 "Envelope", "ADSR", "Multipass", "LFO Table" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -236,7 +238,7 @@ namespace GGrid
     // disturbed.
     inline juce::StringArray getLfoShapeChoices()
     {
-        return { "Sine", "Triangle", "Square", "Saw", "Sample & Hold", "Ramp Up", "Ramp Down" };
+        return { "Sine", "Triangle", "Square", "Saw", "Sample & Hold", "Ramp Up", "Ramp Down", "Custom" };
     }
 
     inline juce::String lossyParamId (int slotIndex, const juce::String& paramName)
@@ -504,6 +506,30 @@ namespace GGrid
     {
         static const juce::String length = "length"; // total playback duration, note-on to finish
         static const juce::String depth  = "depth";  // scales the drawn shape's 0-1 output
+    }
+
+    // A wavetable-backed modulation source inspired by Kilohearts' LFO Table: select a table
+    // from Kilohearts' installed factory_wavetables folder (or GGrid's own Wavetables folders),
+    // choose a frame, then cycle through that frame as an LFO. Kilohearts factory tables are
+    // 256 frames x 2048 samples; the loader infers frame count from file length so compatible
+    // user tables still work if they use a smaller/larger frame count. Like LFO/Envelope/ADSR,
+    // LFO Table is a modulation source only: no audio ports, one violet output nub.
+    inline juce::String lfoTableParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_lfoTable_" + paramName;
+    }
+
+    namespace LfoTableParam
+    {
+        static const juce::String tableIndex = "table";
+        static const juce::String frame      = "frame";
+        static const juce::String smooth     = "smooth";
+        static const juce::String phase      = "phase";
+        static const juce::String rateMode   = "rateMode";
+        static const juce::String rateHz     = "rateHz";
+        static const juce::String division   = "division";
+        static const juce::String depth      = "depth";
+        static const juce::String retrigger  = "retrigger";
     }
 
     // A 3-band (Low/Mid/High) LR4 crossover splitter -- unlike Multiband Convolution, it has NO

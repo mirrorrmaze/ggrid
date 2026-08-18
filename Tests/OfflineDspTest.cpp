@@ -9,6 +9,7 @@
 #include "Modules/UtilityModule.h"
 #include "Modules/RingModModule.h"
 #include "Modules/LFOModule.h"
+#include "Modules/LfoTableModule.h"
 #include "Modules/LossyModule.h"
 #include "Modules/Eq8Module.h"
 #include "Modules/Eq3Module.h"
@@ -21,6 +22,7 @@
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
 #include "IR/IRLibrary.h"
+#include "Wavetable/WavetableLibrary.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include <iostream>
@@ -1493,6 +1495,177 @@ int main()
         expect (earlyValue > 0.7f && lateValue < -0.7f,
                 "LFO Ramp Down falls from strongly positive near phase 0 to strongly negative near phase 1 (early "
                     + juce::String (earlyValue, 3) + ", late " + juce::String (lateValue, 3) + ")");
+    }
+
+    // --- LFO: Custom drawn points evaluate, curve, and round-trip through extra state ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (7.0f); // Custom
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateMode))->store (0.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (1.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        LFOModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        const int inserted = module.addCustomPoint ({ 0.125f, -0.5f });
+        expect (inserted > 0, "LFO Custom accepts an inserted draw point");
+        module.setSegmentCurve (2, -0.75f); // hold the 0.25->0.5 falling segment high for longer
+
+        const float atStart = module.evaluateCustomAt (0.0f);
+        const float atPeak = module.evaluateCustomAt (0.25f);
+        const float curvedMid = module.evaluateCustomAt (0.375f);
+
+        expect (std::abs (atStart) < 1.0e-4f && atPeak > 0.95f,
+                "LFO Custom evaluates drawn endpoint/point values");
+        expect (curvedMid > 0.5f,
+                "LFO Custom segment curvature bends interpolation away from plain linear (mid "
+                    + juce::String (curvedMid, 3) + ")");
+
+        juce::XmlElement state ("LfoState");
+        module.writeExtraState (state);
+
+        LFOModule restored (apvts, 0, sharedServices);
+        restored.readExtraState (state);
+
+        expect (restored.getNumCustomPoints() == module.getNumCustomPoints()
+                    && std::abs (restored.evaluateCustomAt (0.375f) - curvedMid) < 1.0e-4f,
+                "LFO Custom drawn points and curve values round-trip through writeExtraState/readExtraState");
+    }
+
+    // --- LFO: Editing a preset shape keeps that base shape selected and marks it edited ---
+    {
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->store (2.0f); // Square
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateMode))->store (0.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::rateHz))->store (1.0f);
+        apvts.getRawParameterValue (lfoParamId (0, LfoParam::depth))->store (100.0f);
+
+        LFOModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+        module.seedCustomFromShape (2);
+        module.moveCustomPoint (0, { 0.0f, -1.0f });
+        module.setCustomEdited (true);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+        }
+
+        expect ((int) apvts.getRawParameterValue (lfoParamId (0, LfoParam::shape))->load() == 2
+                    && module.isCustomEdited()
+                    && module.getCurrentValue() < -0.8f,
+                "LFO edited Square keeps Square selected while using the edited curve");
+
+        juce::XmlElement state ("LfoState");
+        module.writeExtraState (state);
+
+        LFOModule restored (apvts, 0, sharedServices);
+        restored.readExtraState (state);
+        expect (restored.isCustomEdited() && restored.evaluateCustomAt (0.01f) < -0.8f,
+                "LFO edited-preset marker and points round-trip through patch extra state");
+    }
+
+    // --- LFO Table: catalog loads a valid table, using Kilohearts factory files when installed ---
+    {
+        const auto& catalog = WavetableLibrary::getCatalog();
+        expect (! catalog.empty(), "LFO Table wavetable catalog is not empty");
+
+        const auto table = WavetableLibrary::loadTable (0);
+        expect (table != nullptr && table->isValid(), "LFO Table loads a valid wavetable");
+
+        if (table != nullptr && table->displayName.startsWith ("Kilohearts/"))
+        {
+            expect (table->numFrames == 256 && table->frameSize == 2048,
+                    "Kilohearts factory LFO Table files are read as 256 frames of 2048 samples");
+        }
+
+        if (table != nullptr && table->isValid())
+        {
+            float rawEnergy = 0.0f;
+            float smoothedEnergy = 0.0f;
+            for (int i = 0; i < 64; ++i)
+            {
+                const float phase01 = (float) i / 64.0f;
+                rawEnergy += std::abs (table->sample (0.0f, phase01, 0.0f));
+                smoothedEnergy += std::abs (table->sample (0.0f, phase01, 1.0f));
+            }
+
+            expect (smoothedEnergy <= rawEnergy + 1.0e-4f,
+                    "LFO Table Smooth does not increase table amplitude (raw energy "
+                        + juce::String (rawEnergy, 3) + ", smoothed energy " + juce::String (smoothedEnergy, 3) + ")");
+        }
+    }
+
+    // --- LFO Table: free-running source stays finite/bounded and moves over time ---
+    {
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::tableIndex))->store (0.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::frame))->store (1.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::smooth))->store (0.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::phase))->store (0.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::rateMode))->store (0.0f); // Free
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::rateHz))->store (2.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::depth))->store (100.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::retrigger))->store (0.0f);
+
+        LfoTableModule module (apvts, 0, sharedServices);
+        module.prepare (spec);
+
+        float minVal = 1.0f;
+        float maxVal = -1.0f;
+        bool bounded = true;
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        for (int chunk = 0; chunk < 100; ++chunk)
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+
+            const float value = module.getCurrentModulationValue();
+            bounded = bounded && std::isfinite (value) && std::abs (value) <= 1.001f;
+            minVal = juce::jmin (minVal, value);
+            maxVal = juce::jmax (maxVal, value);
+        }
+
+        expect (bounded, "LFO Table modulation output stays finite and within [-1, 1]");
+        expect (maxVal - minVal > 0.05f,
+                "LFO Table free-running output moves over time (min "
+                    + juce::String (minVal, 3) + ", max " + juce::String (maxVal, 3) + ")");
+    }
+
+    // --- LFO Table: Depth scales the modulation output ---
+    {
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::tableIndex))->store (0.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::frame))->store (1.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::smooth))->store (0.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::phase))->store (90.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::rateMode))->store (0.0f);
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::rateHz))->store (1.0f);
+
+        juce::AudioBuffer<float> dummyBuffer (2, blockSize);
+        juce::MidiBuffer midi;
+
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::depth))->store (100.0f);
+        LfoTableModule fullDepth (apvts, 0, sharedServices);
+        fullDepth.prepare (spec);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            fullDepth.process (block, midi, modMatrix);
+        }
+
+        apvts.getRawParameterValue (lfoTableParamId (0, LfoTableParam::depth))->store (25.0f);
+        LfoTableModule quarterDepth (apvts, 0, sharedServices);
+        quarterDepth.prepare (spec);
+        {
+            juce::dsp::AudioBlock<float> block (dummyBuffer);
+            quarterDepth.process (block, midi, modMatrix);
+        }
+
+        const float fullValue = std::abs (fullDepth.getCurrentModulationValue());
+        const float quarterValue = std::abs (quarterDepth.getCurrentModulationValue());
+        expect (quarterValue <= fullValue * 0.35f + 1.0e-4f,
+                "LFO Table Depth scales modulation output (100% "
+                    + juce::String (fullValue, 3) + ", 25% " + juce::String (quarterValue, 3) + ")");
     }
 
     // --- Modulation cable: an LFO routed to Filter Frequency actually moves the cutoff ---

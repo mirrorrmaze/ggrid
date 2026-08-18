@@ -2,7 +2,9 @@
 
 #include "../Rack/RackModule.h"
 #include "../Rack/SharedServices.h"
+#include "../Params/Identifiers.h"
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
 
 namespace GGrid
 {
@@ -36,8 +38,33 @@ namespace GGrid
         bool isModulationSource() const override { return true; }
         float getCurrentModulationValue() const override { return getCurrentValue(); }
 
+        void writeExtraState (juce::XmlElement& parent) const override;
+        void readExtraState (const juce::XmlElement& parent) override;
+
+        struct CustomPoint
+        {
+            float x = 0.0f;
+            float y = 0.0f;     // bipolar [-1, 1]
+            float curve = 0.0f; // segment curve from this point to the next, [-1, 1]
+        };
+
+        int getNumCustomPoints() const;
+        CustomPoint getCustomPoint (int index) const;
+        int addCustomPoint (juce::Point<float> p);
+        void moveCustomPoint (int index, juce::Point<float> p);
+        void removeCustomPoint (int index);
+        void setSegmentCurve (int startPointIndex, float curve);
+        float evaluateCustomAt (float phase01) const;
+        float getPhasePosition() const { return (float) phase; }
+        bool isCustomEdited() const { return customEdited.load(); }
+        void setCustomEdited (bool shouldUseCustom) { customEdited.store (shouldUseCustom); }
+        void seedCustomFromShape (int shapeIndex);
+
     private:
+        static float computePresetShapeValue (int shape, float phase01, float sampleHoldFallback);
         float computeShapeValue (float phase01) const;
+        float evaluateCustomAtLocked (float phase01) const;
+        void sortAndClampCustomPoints();
 
         SharedServices& services;
 
@@ -52,6 +79,12 @@ namespace GGrid
 
         juce::Random random;
         float sampleHoldValue = 0.0f;
+
+        mutable juce::CriticalSection customPointsLock;
+        std::array<CustomPoint, kMaxEnvelopePoints> customPoints;
+        int numCustomPoints = 5;
+        std::atomic<bool> customEdited { false };
+        static constexpr float minPointGap = 0.005f;
 
         std::atomic<float> currentValue { 0.0f };
     };

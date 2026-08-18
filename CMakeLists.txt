@@ -4,6 +4,7 @@ project(GGrid VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -52,10 +53,12 @@ target_sources(GGrid
         Source/Modules/AdsrModule.cpp
         Source/Modules/EnvelopeModule.cpp
         Source/Modules/MultipassModule.cpp
+        Source/Modules/LfoTableModule.cpp
         Source/Modulation/ModulationMatrix.cpp
         Source/IR/IRLibrary.cpp
         Source/IR/IRProcessor.cpp
         Source/IR/IRReshapeWorker.cpp
+        Source/Wavetable/WavetableLibrary.cpp
         Source/GUI/ModuleControlPanels.cpp
         Source/GUI/CrossoverSplitBar.cpp
         Source/GUI/Eq8CurveEditor.cpp
@@ -114,10 +117,12 @@ add_executable(OfflineDspTest
     Source/Modules/AdsrModule.cpp
     Source/Modules/EnvelopeModule.cpp
     Source/Modules/MultipassModule.cpp
+    Source/Modules/LfoTableModule.cpp
     Source/Modulation/ModulationMatrix.cpp
     Source/IR/IRLibrary.cpp
     Source/IR/IRProcessor.cpp
     Source/IR/IRReshapeWorker.cpp
+    Source/Wavetable/WavetableLibrary.cpp
 )
 
 target_include_directories(OfflineDspTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)

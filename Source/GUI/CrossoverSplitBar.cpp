@@ -5,9 +5,20 @@
 
 namespace GGrid
 {
+    static juce::Colour multipassBandColour (int band)
+    {
+        switch (band)
+        {
+            case 0:  return juce::Colour (0xff4fc3f7);
+            case 1:  return juce::Colour (0xffffd166);
+            case 2:  return juce::Colour (0xffff6b6b);
+            default: return Palette::accent;
+        }
+    }
+
     CrossoverSplitBar::CrossoverSplitBar (juce::RangedAudioParameter& splitParam1, juce::RangedAudioParameter& splitParam2,
-                                           std::function<SpectrumAnalyzer*()> getAnalyzerIn)
-        : getAnalyzer (std::move (getAnalyzerIn))
+                                           std::function<SpectrumAnalyzer*()> getAnalyzerIn, bool useBandColoursIn)
+        : getAnalyzer (std::move (getAnalyzerIn)), useBandColours (useBandColoursIn)
     {
         splitParams[0] = &splitParam1;
         splitParams[1] = &splitParam2;
@@ -34,15 +45,36 @@ namespace GGrid
         repaint();
     }
 
-    float CrossoverSplitBar::xForParam (const juce::RangedAudioParameter& param) const
+    juce::Rectangle<float> CrossoverSplitBar::getPlotBounds() const
     {
         auto area = getLocalBounds().toFloat();
+        area.removeFromBottom (16.0f);
+        return area;
+    }
+
+    float CrossoverSplitBar::xForParam (const juce::RangedAudioParameter& param) const
+    {
+        auto area = getPlotBounds();
         return area.getX() + param.getValue() * area.getWidth();
+    }
+
+    float CrossoverSplitBar::hzForParam (const juce::RangedAudioParameter& param) const
+    {
+        return param.convertFrom0to1 (param.getValue());
+    }
+
+    juce::String CrossoverSplitBar::formatHz (float hz) const
+    {
+        if (hz >= 10000.0f)
+            return juce::String (hz / 1000.0f, 1) + " kHz";
+        if (hz >= 1000.0f)
+            return juce::String (hz / 1000.0f, 2) + " kHz";
+        return juce::String (juce::roundToInt (hz)) + " Hz";
     }
 
     float CrossoverSplitBar::hzToX (float hz) const
     {
-        auto area = getLocalBounds().toFloat();
+        auto area = getPlotBounds();
         const float logMin = std::log10 (minHz), logMax = std::log10 (maxHz);
         const float t = (std::log10 (juce::jlimit (minHz, maxHz, hz)) - logMin) / (logMax - logMin);
         return area.getX() + t * area.getWidth();
@@ -64,6 +96,13 @@ namespace GGrid
         }
 
         return best;
+    }
+
+    int CrossoverSplitBar::nearestMarker (float x) const
+    {
+        const float x1 = xForParam (*splitParams[0]);
+        const float x2 = xForParam (*splitParams[1]);
+        return std::abs (x - x1) <= std::abs (x - x2) ? 0 : 1;
     }
 
     int CrossoverSplitBar::bandForX (float x) const
@@ -99,7 +138,7 @@ namespace GGrid
         if (draggingMarker < 0)
             return;
 
-        auto area = getLocalBounds().toFloat();
+        auto area = getPlotBounds();
         const float normalisedX = juce::jlimit (0.0f, 1.0f, ((float) e.x - area.getX()) / area.getWidth());
 
         auto& movingParam = *splitParams[(size_t) draggingMarker];
@@ -118,6 +157,7 @@ namespace GGrid
 
         hz = movingParam.getNormalisableRange().snapToLegalValue (hz);
         movingParam.setValueNotifyingHost (movingParam.convertTo0to1 (hz));
+        readoutMarker = draggingMarker;
     }
 
     void CrossoverSplitBar::mouseUp (const juce::MouseEvent&)
@@ -125,6 +165,8 @@ namespace GGrid
         if (draggingMarker >= 0)
         {
             splitParams[(size_t) draggingMarker]->endChangeGesture();
+            readoutMarker = draggingMarker;
+            readoutUntilMs = juce::Time::getMillisecondCounterHiRes() + 1400.0;
             draggingMarker = -1;
         }
     }
@@ -139,18 +181,31 @@ namespace GGrid
         }
     }
 
+    void CrossoverSplitBar::mouseDoubleClick (const juce::MouseEvent& e)
+    {
+        readoutMarker = hitTestMarker ((float) e.x);
+        if (readoutMarker < 0)
+            readoutMarker = nearestMarker ((float) e.x);
+
+        readoutUntilMs = juce::Time::getMillisecondCounterHiRes() + 2400.0;
+        repaint();
+    }
+
     void CrossoverSplitBar::paint (juce::Graphics& g)
     {
         auto bounds = getLocalBounds().toFloat();
+        auto plotBounds = getPlotBounds();
+        auto labelBounds = bounds.withTop (plotBounds.getBottom());
         g.setColour (Palette::bg);
         g.fillRect (bounds);
 
         // Frequency reference gridlines, drawn first/behind everything -- log-ish-spaced, on the
         // exact same axis as the spectrum and the 2 markers (see hzToX's own comment).
-        for (float hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+        for (float hz : { 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
         {
+            const float x = hzToX (hz);
             g.setColour (Palette::dimmer.withAlpha (0.5f));
-            g.drawVerticalLine ((int) hzToX (hz), bounds.getY(), bounds.getBottom());
+            g.drawVerticalLine ((int) x, plotBounds.getY(), plotBounds.getBottom());
         }
 
         // Live spectrum of whatever's arriving at the module -- see the class comment. Ported
@@ -180,12 +235,12 @@ namespace GGrid
 
                 const float x = hzToX (freq);
                 const float db = juce::jlimit (-100.0f, 0.0f, analyzer->getMagnitudeDb (i));
-                const float y = juce::jmap (db, -100.0f, 0.0f, bounds.getBottom(), bounds.getY());
+                const float y = juce::jmap (db, -100.0f, 0.0f, plotBounds.getBottom(), plotBounds.getY());
 
                 if (! started)
                 {
                     linePath.startNewSubPath (x, y);
-                    fillPath.startNewSubPath (x, bounds.getBottom());
+                    fillPath.startNewSubPath (x, plotBounds.getBottom());
                     fillPath.lineTo (x, y);
                     started = true;
                 }
@@ -199,11 +254,11 @@ namespace GGrid
 
             if (started)
             {
-                fillPath.lineTo (lastX, bounds.getBottom());
+                fillPath.lineTo (lastX, plotBounds.getBottom());
                 fillPath.closeSubPath();
 
-                juce::ColourGradient gradient (Palette::accent.withAlpha (0.55f), 0, bounds.getY(),
-                                                Palette::accent.withAlpha (0.02f), 0, bounds.getBottom(), false);
+                juce::ColourGradient gradient (Palette::accent.withAlpha (0.55f), 0, plotBounds.getY(),
+                                                Palette::accent.withAlpha (0.02f), 0, plotBounds.getBottom(), false);
                 g.setGradientFill (gradient);
                 g.fillPath (fillPath);
 
@@ -217,9 +272,9 @@ namespace GGrid
 
         const auto labels = getConvolutionBandLabels();
         const juce::Rectangle<float> bandAreas[3] {
-            { bounds.getX(), bounds.getY(), x1 - bounds.getX(), bounds.getHeight() },
-            { x1, bounds.getY(), x2 - x1, bounds.getHeight() },
-            { x2, bounds.getY(), bounds.getRight() - x2, bounds.getHeight() }
+            { plotBounds.getX(), plotBounds.getY(), x1 - plotBounds.getX(), plotBounds.getHeight() },
+            { x1, plotBounds.getY(), x2 - x1, plotBounds.getHeight() },
+            { x2, plotBounds.getY(), plotBounds.getRight() - x2, plotBounds.getHeight() }
         };
 
         for (int b = 0; b < 3; ++b)
@@ -234,31 +289,63 @@ namespace GGrid
             // not solid blocks under it" layering. See MultibandConvolutionControlsPanel, whose
             // single shared knob set currently reflects whichever band is lit here.
             const bool active = b == selectedBand;
-            g.setColour (active ? Palette::dimmer.withAlpha (0.35f) : Palette::dimmer.withAlpha (0.12f));
+            const auto bandColour = useBandColours ? multipassBandColour (b) : Palette::dimmer;
+            g.setColour (bandColour.withAlpha (active ? 0.20f : 0.075f));
             g.fillRect (bandAreas[b]);
 
-            g.setColour (active ? Palette::bright : Palette::dim);
+            g.setColour (useBandColours ? bandColour.withAlpha (active ? 0.82f : 0.58f) : (active ? Palette::bright : Palette::dim));
             g.setFont (juce::Font (juce::FontOptions (11.0f, active ? juce::Font::bold : juce::Font::plain)));
             g.drawText (labels[b], bandAreas[b].toNearestInt(), juce::Justification::centred);
         }
 
         g.setColour (Palette::dim);
         g.drawRect (bounds, 1.0f);
+        g.setColour (Palette::dimmer);
+        g.drawHorizontalLine ((int) plotBounds.getBottom(), bounds.getX(), bounds.getRight());
+
+        g.setFont (juce::Font (juce::FontOptions (9.5f)));
+        for (float hz : { 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
+        {
+            const float x = hzToX (hz);
+            const juce::String text = hz >= 1000.0f ? juce::String (juce::roundToInt (hz / 1000.0f)) + "k"
+                                                    : juce::String (juce::roundToInt (hz));
+            const auto textArea = juce::Rectangle<float> (x - 16.0f, labelBounds.getY(), 32.0f, labelBounds.getHeight()).toNearestInt();
+            g.setColour (Palette::dim.withAlpha (0.8f));
+            g.drawText (text, textArea, juce::Justification::centred);
+        }
 
         for (int i = 0; i < 2; ++i)
         {
             const float x = i == 0 ? x1 : x2;
             const bool active = draggingMarker == i || (draggingMarker < 0 && hoveredMarker == i);
 
-            g.setColour (active ? Palette::bright : Palette::accent);
-            g.drawLine (x, bounds.getY(), x, bounds.getBottom(), active ? 2.5f : 1.5f);
+            g.setColour (active ? Palette::bright : (useBandColours ? Palette::dim : Palette::accent));
+            g.drawLine (x, plotBounds.getY(), x, plotBounds.getBottom(), active ? 2.5f : 1.5f);
 
             const float handleSize = 8.0f;
             juce::Path handle;
-            handle.addTriangle (x - handleSize * 0.5f, bounds.getY(),
-                                 x + handleSize * 0.5f, bounds.getY(),
-                                 x, bounds.getY() + handleSize);
+            handle.addTriangle (x - handleSize * 0.5f, plotBounds.getY(),
+                                 x + handleSize * 0.5f, plotBounds.getY(),
+                                 x, plotBounds.getY() + handleSize);
             g.fillPath (handle);
+        }
+
+        const bool shouldShowReadout = draggingMarker >= 0
+            || (readoutMarker >= 0 && juce::Time::getMillisecondCounterHiRes() < readoutUntilMs);
+        const int markerForReadout = draggingMarker >= 0 ? draggingMarker : readoutMarker;
+        if (shouldShowReadout && markerForReadout >= 0)
+        {
+            const float x = xForParam (*splitParams[(size_t) markerForReadout]);
+            const auto text = formatHz (hzForParam (*splitParams[(size_t) markerForReadout]));
+            auto bubble = juce::Rectangle<float> (0.0f, plotBounds.getY() + 4.0f, 68.0f, 18.0f)
+                            .withCentre ({ x, plotBounds.getY() + 13.0f });
+            bubble.setX (juce::jlimit (bounds.getX() + 4.0f, bounds.getRight() - bubble.getWidth() - 4.0f, bubble.getX()));
+
+            g.setColour (Palette::bright);
+            g.fillRect (bubble);
+            g.setColour (Palette::bg);
+            g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+            g.drawText (text, bubble.toNearestInt(), juce::Justification::centred);
         }
     }
 

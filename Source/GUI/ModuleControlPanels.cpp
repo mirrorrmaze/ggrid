@@ -4,6 +4,7 @@
 #include "../Modules/MultibandConvolutionModule.h"
 #include "../Modules/MultipassModule.h"
 #include "../Modules/Eq8Module.h"
+#include <cmath>
 
 namespace GGrid
 {
@@ -666,8 +667,340 @@ namespace GGrid
         modeBox.setBounds (left.removeFromTop (24));
     }
 
-    LfoControlsPanel::LfoControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    LfoCurveEditor::LfoCurveEditor (RackSlot& rackSlotIn, juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : rackSlot (rackSlotIn),
+          shapeParam (apvts.getRawParameterValue (lfoParamId (slotIndex, LfoParam::shape)))
     {
+        setInterceptsMouseClicks (true, false);
+        startTimerHz (30);
+    }
+
+    LfoCurveEditor::~LfoCurveEditor()
+    {
+        stopTimer();
+    }
+
+    LFOModule* LfoCurveEditor::getModule() const
+    {
+        return dynamic_cast<LFOModule*> (rackSlot.getCurrentModule());
+    }
+
+    void LfoCurveEditor::timerCallback()
+    {
+        repaint();
+    }
+
+    bool LfoCurveEditor::isCurveModifierDown (const juce::ModifierKeys& mods) const
+    {
+        return mods.isAltDown() || mods.isCommandDown();
+    }
+
+    void LfoCurveEditor::updateHoverCurveSegment (const juce::MouseEvent& e)
+    {
+        const int next = isCurveModifierDown (e.mods) ? segmentAtX (pixelToPoint (e.position).x) : -1;
+        if (next != hoverCurveSegment)
+        {
+            hoverCurveSegment = next;
+            repaint();
+        }
+    }
+
+    void LfoCurveEditor::beginEditFromCurrentShape()
+    {
+        auto* module = getModule();
+        if (module == nullptr)
+            return;
+
+        const int shape = shapeParam != nullptr ? (int) shapeParam->load() : customShapeIndex;
+        if (! module->isCustomEdited() && shape != customShapeIndex)
+            module->seedCustomFromShape (shape);
+
+        module->setCustomEdited (true);
+    }
+
+    juce::Point<float> LfoCurveEditor::pixelToPoint (juce::Point<float> pixel) const
+    {
+        auto area = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
+        const float x = area.getWidth() > 0.0f ? (pixel.x - area.getX()) / area.getWidth() : 0.0f;
+        const float y = area.getHeight() > 0.0f ? 1.0f - 2.0f * (pixel.y - area.getY()) / area.getHeight() : 0.0f;
+        return { juce::jlimit (0.0f, 1.0f, x), juce::jlimit (-1.0f, 1.0f, y) };
+    }
+
+    juce::Point<float> LfoCurveEditor::pointToPixel (juce::Point<float> point) const
+    {
+        auto area = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
+        return { area.getX() + point.x * area.getWidth(),
+                 area.getY() + (1.0f - point.y) * 0.5f * area.getHeight() };
+    }
+
+    int LfoCurveEditor::hitTestPoint (juce::Point<float> pixel) const
+    {
+        auto* module = getModule();
+        if (module == nullptr)
+            return -1;
+
+        int best = -1;
+        float bestDistSquared = grabToleranceSquaredPx;
+        const int numPoints = module->getNumCustomPoints();
+        for (int i = 0; i < numPoints; ++i)
+        {
+            const auto p = module->getCustomPoint (i);
+            const auto pixelPoint = pointToPixel ({ p.x, p.y });
+            const float d = pixelPoint.getDistanceSquaredFrom (pixel);
+            if (d <= bestDistSquared)
+            {
+                bestDistSquared = d;
+                best = i;
+            }
+        }
+
+        return best;
+    }
+
+    int LfoCurveEditor::segmentAtX (float normalisedX) const
+    {
+        auto* module = getModule();
+        if (module == nullptr)
+            return -1;
+
+        const int numPoints = module->getNumCustomPoints();
+        for (int i = 1; i < numPoints; ++i)
+            if (normalisedX <= module->getCustomPoint (i).x)
+                return i - 1;
+
+        return juce::jmax (0, numPoints - 2);
+    }
+
+    float LfoCurveEditor::previewValueAt (float phase01) const
+    {
+        const int shape = shapeParam != nullptr ? (int) shapeParam->load() : 0;
+        if (auto* module = getModule())
+            if (module->isCustomEdited() || shape == customShapeIndex)
+                return module->evaluateCustomAt (phase01);
+
+        switch (shape)
+        {
+            case 0: return (float) std::sin (juce::MathConstants<float>::twoPi * phase01);
+            case 1: return phase01 < 0.5f ? (4.0f * phase01 - 1.0f) : (3.0f - 4.0f * phase01);
+            case 2: return phase01 < 0.5f ? 1.0f : -1.0f;
+            case 3:
+            case 5: return 2.0f * phase01 - 1.0f;
+            case 4:
+            {
+                const int step = juce::jlimit (0, 15, (int) std::floor (phase01 * 16.0f));
+                return juce::Random ((juce::int64) (0x51f0 + step * 7919)).nextFloat() * 2.0f - 1.0f;
+            }
+            case 6: return 1.0f - 2.0f * phase01;
+            case customShapeIndex:
+                return 0.0f;
+            default:
+                return 0.0f;
+        }
+    }
+
+    void LfoCurveEditor::mouseDown (const juce::MouseEvent& e)
+    {
+        auto* module = getModule();
+        if (module == nullptr)
+            return;
+
+        beginEditFromCurrentShape();
+        const auto p = pixelToPoint (e.position);
+
+        if (e.mods.isRightButtonDown())
+        {
+            const int hit = hitTestPoint (e.position);
+            if (hit >= 0)
+                module->removeCustomPoint (hit);
+            repaint();
+            return;
+        }
+
+        if (isCurveModifierDown (e.mods))
+        {
+            draggingCurveSegment = segmentAtX (p.x);
+            hoverCurveSegment = draggingCurveSegment;
+            curveDragStart = e.position;
+            curveStartValue = draggingCurveSegment >= 0 ? module->getCustomPoint (draggingCurveSegment).curve : 0.0f;
+            return;
+        }
+
+        drawMode = e.mods.isCtrlDown();
+        draggingPoint = hitTestPoint (e.position);
+        if (draggingPoint < 0)
+            draggingPoint = module->addCustomPoint (p);
+        else
+            module->moveCustomPoint (draggingPoint, p);
+
+        repaint();
+    }
+
+    void LfoCurveEditor::mouseDrag (const juce::MouseEvent& e)
+    {
+        auto* module = getModule();
+        if (module == nullptr)
+            return;
+
+        const auto p = pixelToPoint (e.position);
+
+        if (draggingCurveSegment >= 0)
+        {
+            const float delta = (curveDragStart.y - e.position.y) / 70.0f;
+            module->setSegmentCurve (draggingCurveSegment, juce::jlimit (-1.0f, 1.0f, curveStartValue + delta));
+            repaint();
+            return;
+        }
+
+        if (drawMode)
+        {
+            const int newPoint = module->addCustomPoint (p);
+            if (newPoint >= 0)
+                draggingPoint = newPoint;
+            else if (draggingPoint >= 0)
+                module->moveCustomPoint (draggingPoint, p);
+            repaint();
+            return;
+        }
+
+        if (draggingPoint >= 0)
+        {
+            module->moveCustomPoint (draggingPoint, p);
+            repaint();
+        }
+    }
+
+    void LfoCurveEditor::mouseUp (const juce::MouseEvent&)
+    {
+        draggingPoint = -1;
+        draggingCurveSegment = -1;
+        drawMode = false;
+    }
+
+    void LfoCurveEditor::mouseMove (const juce::MouseEvent& e)
+    {
+        updateHoverCurveSegment (e);
+    }
+
+    void LfoCurveEditor::mouseExit (const juce::MouseEvent&)
+    {
+        if (hoverCurveSegment >= 0)
+        {
+            hoverCurveSegment = -1;
+            repaint();
+        }
+    }
+
+    void LfoCurveEditor::paint (juce::Graphics& g)
+    {
+        auto bounds = getLocalBounds().toFloat();
+        auto area = bounds.reduced (8.0f, 6.0f);
+
+        g.setColour (Palette::bg);
+        g.fillRect (bounds);
+        g.setColour (Palette::dim);
+        g.drawRect (bounds, 1.0f);
+
+        g.setColour (Palette::dimmer);
+        for (int i = 1; i < 4; ++i)
+        {
+            const float x = area.getX() + area.getWidth() * (float) i / 4.0f;
+            g.drawLine (x, area.getY(), x, area.getBottom(), 1.0f);
+        }
+        g.drawLine (area.getX(), area.getCentreY(), area.getRight(), area.getCentreY(), 1.0f);
+
+        juce::Path curvePath, fillPath;
+        const int width = juce::jmax (1, (int) area.getWidth());
+        for (int x = 0; x <= width; ++x)
+        {
+            const float phase01 = (float) x / (float) width;
+            const float value = juce::jlimit (-1.0f, 1.0f, previewValueAt (phase01));
+            const auto pixel = pointToPixel ({ phase01, value });
+            if (x == 0)
+            {
+                curvePath.startNewSubPath (pixel);
+                fillPath.startNewSubPath (area.getX(), area.getCentreY());
+                fillPath.lineTo (pixel);
+            }
+            else
+            {
+                curvePath.lineTo (pixel);
+                fillPath.lineTo (pixel);
+            }
+        }
+        fillPath.lineTo (area.getRight(), area.getCentreY());
+        fillPath.closeSubPath();
+
+        g.setColour (Palette::modAccent.withAlpha (0.20f));
+        g.fillPath (fillPath);
+        g.setColour (Palette::modAccent);
+        g.strokePath (curvePath, juce::PathStrokeType (2.0f));
+
+        auto* currentModule = getModule();
+        const bool isCustom = currentModule != nullptr
+                              && (currentModule->isCustomEdited()
+                                  || (shapeParam != nullptr && (int) shapeParam->load() == customShapeIndex));
+        if (isCustom)
+        {
+            if (auto* module = currentModule)
+            {
+                const int numPoints = module->getNumCustomPoints();
+                const int highlightedSegment = draggingCurveSegment >= 0 ? draggingCurveSegment : hoverCurveSegment;
+
+                if (highlightedSegment >= 0 && highlightedSegment < numPoints - 1)
+                {
+                    const auto a = module->getCustomPoint (highlightedSegment);
+                    const auto b = module->getCustomPoint (highlightedSegment + 1);
+                    juce::Path highlightPath;
+                    constexpr int segmentSamples = 48;
+                    for (int s = 0; s <= segmentSamples; ++s)
+                    {
+                        const float t = (float) s / (float) segmentSamples;
+                        const float x = a.x + t * (b.x - a.x);
+                        const float y = module->evaluateCustomAt (x);
+                        const auto pixel = pointToPixel ({ x, y });
+                        if (s == 0) highlightPath.startNewSubPath (pixel);
+                        else        highlightPath.lineTo (pixel);
+                    }
+
+                    g.setColour (Palette::bright);
+                    g.strokePath (highlightPath, juce::PathStrokeType (3.0f));
+                }
+
+                for (int i = 0; i < numPoints; ++i)
+                {
+                    const auto p = module->getCustomPoint (i);
+                    const auto pixel = pointToPixel ({ p.x, p.y });
+                    const bool endpoint = i == 0 || i == numPoints - 1;
+                    const float size = endpoint ? 7.0f : 8.0f;
+                    g.setColour (i == draggingPoint ? Palette::bright : Palette::accent);
+                    g.fillEllipse (juce::Rectangle<float> (size, size).withCentre (pixel));
+
+                    if (i < numPoints - 1 && std::abs (p.curve) > 0.02f)
+                    {
+                        const auto next = module->getCustomPoint (i + 1);
+                        const float midX = (p.x + next.x) * 0.5f;
+                        const float midY = module->evaluateCustomAt (midX);
+                        g.setColour (i == draggingCurveSegment ? Palette::bright : Palette::dim);
+                        g.drawEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (pointToPixel ({ midX, midY })), 1.0f);
+                    }
+                }
+            }
+        }
+
+        if (auto* module = currentModule)
+        {
+            const float phaseX = pointToPixel ({ module->getPhasePosition(), 0.0f }).x;
+            g.setColour (Palette::bright);
+            g.drawLine (phaseX, area.getY(), phaseX, area.getBottom(), 1.5f);
+        }
+    }
+
+    LfoControlsPanel::LfoControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlotIn)
+        : rackSlot (rackSlotIn),
+          curveEditor (rackSlotIn, apvts, slotIndex)
+    {
+        addAndMakeVisible (curveEditor);
+
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
             s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
@@ -685,6 +1018,7 @@ namespace GGrid
         for (auto& choice : getLfoShapeChoices())
             shapeBox.addItem (choice, itemId++);
         addAndMakeVisible (shapeBox);
+        shapeBox.addListener (this);
 
         addAndMakeVisible (syncButton);
 
@@ -701,11 +1035,69 @@ namespace GGrid
         shapeAttachment    = std::make_unique<ComboBoxAttachment> (apvts, lfoParamId (slotIndex, LfoParam::shape), shapeBox);
         divisionAttachment = std::make_unique<ComboBoxAttachment> (apvts, lfoParamId (slotIndex, LfoParam::division), divisionBox);
         syncAttachment     = std::make_unique<ButtonAttachment> (apvts, lfoParamId (slotIndex, LfoParam::rateMode), syncButton);
+
+        lastShapeIndex = shapeBox.getSelectedId() - 1;
+        startTimerHz (10);
+    }
+
+    LfoControlsPanel::~LfoControlsPanel()
+    {
+        stopTimer();
+        shapeBox.removeListener (this);
+    }
+
+    LFOModule* LfoControlsPanel::getModule() const
+    {
+        return dynamic_cast<LFOModule*> (rackSlot.getCurrentModule());
+    }
+
+    void LfoControlsPanel::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
+    {
+        if (comboBoxThatHasChanged != &shapeBox || ignoreShapeBoxChange)
+            return;
+
+        if (auto* module = getModule())
+            module->setCustomEdited (false);
+
+        lastShapeIndex = shapeBox.getSelectedId() - 1;
+        refreshShapeLabels();
+    }
+
+    void LfoControlsPanel::timerCallback()
+    {
+        const int shapeIndex = shapeBox.getSelectedId() - 1;
+        const bool edited = getModule() != nullptr && getModule()->isCustomEdited();
+
+        if (shapeIndex != lastShapeIndex || edited != lastCustomEdited)
+            refreshShapeLabels();
+    }
+
+    void LfoControlsPanel::refreshShapeLabels()
+    {
+        const int shapeIndex = shapeBox.getSelectedId() - 1;
+        const bool edited = getModule() != nullptr && getModule()->isCustomEdited();
+        const auto choices = getLfoShapeChoices();
+
+        ignoreShapeBoxChange = true;
+        for (int i = 0; i < choices.size(); ++i)
+        {
+            auto text = choices[i];
+            if (edited && i == shapeIndex && i != 7)
+                text += "*";
+            shapeBox.changeItemText (i + 1, text);
+        }
+        ignoreShapeBoxChange = false;
+
+        lastShapeIndex = shapeIndex;
+        lastCustomEdited = edited;
     }
 
     void LfoControlsPanel::resized()
     {
         auto area = getLocalBounds().reduced (4);
+
+        curveEditor.setBounds (area.removeFromTop (128));
+        area.removeFromTop (8);
 
         auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / 2;
@@ -729,6 +1121,212 @@ namespace GGrid
         syncButton.setBounds (bottomRow.removeFromLeft (60));
         bottomRow.removeFromLeft (4);
         divisionBox.setBounds (bottomRow);
+    }
+
+    LfoTablePreviewComponent::LfoTablePreviewComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : tableParam  (apvts.getRawParameterValue (lfoTableParamId (slotIndex, LfoTableParam::tableIndex))),
+          frameParam  (apvts.getRawParameterValue (lfoTableParamId (slotIndex, LfoTableParam::frame))),
+          smoothParam (apvts.getRawParameterValue (lfoTableParamId (slotIndex, LfoTableParam::smooth))),
+          phaseParam  (apvts.getRawParameterValue (lfoTableParamId (slotIndex, LfoTableParam::phase)))
+    {
+        startTimerHz (15);
+    }
+
+    LfoTablePreviewComponent::~LfoTablePreviewComponent()
+    {
+        stopTimer();
+    }
+
+    std::shared_ptr<const WavetableLibrary::Table> LfoTablePreviewComponent::getTable()
+    {
+        const int wanted = (int) tableParam->load();
+        if (wanted != loadedIndex || table == nullptr)
+        {
+            table = WavetableLibrary::loadTable (wanted);
+            loadedIndex = wanted;
+        }
+        return table;
+    }
+
+    void LfoTablePreviewComponent::timerCallback()
+    {
+        repaint();
+    }
+
+    void LfoTablePreviewComponent::paint (juce::Graphics& g)
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour (Palette::bg);
+        g.fillRect (bounds);
+        g.setColour (Palette::dim);
+        g.drawRect (bounds, 1.0f);
+
+        const auto currentTable = getTable();
+        if (currentTable == nullptr || ! currentTable->isValid())
+            return;
+
+        auto left = bounds.removeFromLeft (bounds.getWidth() * 0.46f).reduced (8.0f, 8.0f);
+        auto right = bounds.reduced (8.0f, 10.0f);
+        const float smooth = smoothParam->load() / 100.0f;
+        const float phaseOffset = phaseParam->load() / 360.0f;
+        const float frame = juce::jlimit (0.0f, (float) currentTable->numFrames - 1.0f, frameParam->load() - 1.0f);
+
+        g.setColour (Palette::dimmer);
+        g.drawLine (left.getX(), left.getCentreY(), left.getRight(), left.getCentreY(), 1.0f);
+        g.drawLine (left.getX(), left.getY(), left.getX(), left.getBottom(), 1.0f);
+
+        juce::Path framePath;
+        constexpr int points = 160;
+        for (int i = 0; i < points; ++i)
+        {
+            const float x01 = (float) i / (float) (points - 1);
+            const float y = currentTable->sample (frame, x01 + phaseOffset, smooth);
+            const auto x = juce::jmap (x01, left.getX(), left.getRight());
+            const auto py = juce::jmap (y, -1.0f, 1.0f, left.getBottom(), left.getY());
+            if (i == 0) framePath.startNewSubPath (x, py);
+            else        framePath.lineTo (x, py);
+        }
+
+        g.setColour (Palette::bright);
+        g.strokePath (framePath, juce::PathStrokeType (2.0f));
+
+        const int stackFrames = juce::jmin (18, currentTable->numFrames);
+        for (int s = stackFrames - 1; s >= 0; --s)
+        {
+            const float f01 = stackFrames > 1 ? (float) s / (float) (stackFrames - 1) : 0.0f;
+            const float tableFrame = f01 * (float) (currentTable->numFrames - 1);
+            const float xOffset = f01 * right.getWidth() * 0.24f;
+            const float yOffset = -f01 * right.getHeight() * 0.38f;
+            const float alpha = juce::jmap (f01, 0.18f, 0.55f);
+
+            juce::Path stackPath;
+            for (int i = 0; i < 52; ++i)
+            {
+                const float x01 = (float) i / 51.0f;
+                const float y = currentTable->sample (tableFrame, x01 + phaseOffset, smooth);
+                const auto x = juce::jmap (x01, right.getX(), right.getRight() - right.getWidth() * 0.24f) + xOffset;
+                const auto py = juce::jmap (y, -1.0f, 1.0f, right.getBottom(), right.getY() + right.getHeight() * 0.28f) + yOffset;
+                if (i == 0) stackPath.startNewSubPath (x, py);
+                else        stackPath.lineTo (x, py);
+            }
+
+            g.setColour (Palette::accent.withAlpha (alpha));
+            g.strokePath (stackPath, juce::PathStrokeType (1.0f));
+        }
+
+        const float frame01 = currentTable->numFrames > 1 ? frame / (float) (currentTable->numFrames - 1) : 0.0f;
+        g.setColour (Palette::modAccent);
+        const float markerX = juce::jmap (frame01, right.getX(), right.getRight());
+        g.drawLine (markerX, right.getY(), markerX, right.getBottom(), 1.0f);
+    }
+
+    LfoTableControlsPanel::LfoTableControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : preview (apvts, slotIndex),
+          tableIndexParam (dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (lfoTableParamId (slotIndex, LfoTableParam::tableIndex))))
+    {
+        addAndMakeVisible (preview);
+
+        int itemId = 1;
+        for (auto& choice : WavetableLibrary::getCatalogDisplayNames())
+            tableBox.addItem (choice, itemId++);
+        addAndMakeVisible (tableBox);
+        addAndMakeVisible (prevTableButton);
+        addAndMakeVisible (nextTableButton);
+        prevTableButton.onClick = [this] { stepTable (-1); };
+        nextTableButton.onClick = [this] { stepTable (1); };
+
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (frameSlider, frameLabel, "Frame");
+        setupRotary (smoothSlider, smoothLabel, "Smooth");
+        setupRotary (phaseSlider, phaseLabel, "Phase");
+        setupRotary (rateSlider, rateLabel, "Rate");
+        setupRotary (depthSlider, depthLabel, "Depth");
+
+        addAndMakeVisible (syncButton);
+        addAndMakeVisible (retriggerButton);
+
+        for (auto& choice : getDelayDivisionChoices())
+            divisionBox.addItem (choice, divisionBox.getNumItems() + 1);
+        addAndMakeVisible (divisionBox);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        tableAttachment     = std::make_unique<ComboBoxAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::tableIndex), tableBox);
+        frameAttachment     = std::make_unique<SliderAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::frame), frameSlider);
+        smoothAttachment    = std::make_unique<SliderAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::smooth), smoothSlider);
+        phaseAttachment     = std::make_unique<SliderAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::phase), phaseSlider);
+        rateAttachment      = std::make_unique<SliderAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::rateHz), rateSlider);
+        depthAttachment     = std::make_unique<SliderAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::depth), depthSlider);
+        syncAttachment      = std::make_unique<ButtonAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::rateMode), syncButton);
+        retriggerAttachment = std::make_unique<ButtonAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::retrigger), retriggerButton);
+        divisionAttachment  = std::make_unique<ComboBoxAttachment> (apvts, lfoTableParamId (slotIndex, LfoTableParam::division), divisionBox);
+    }
+
+    void LfoTableControlsPanel::stepTable (int direction)
+    {
+        if (tableIndexParam == nullptr)
+            return;
+
+        const int numChoices = WavetableLibrary::getCatalogDisplayNames().size();
+        if (numChoices <= 0)
+            return;
+
+        const int next = juce::jlimit (0, numChoices - 1, tableIndexParam->getIndex() + direction);
+        tableIndexParam->setValueNotifyingHost (tableIndexParam->convertTo0to1 ((float) next));
+    }
+
+    void LfoTableControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        preview.setBounds (area.removeFromTop (120));
+        area.removeFromTop (6);
+
+        auto pickerRow = area.removeFromTop (24);
+        prevTableButton.setBounds (pickerRow.removeFromLeft (24));
+        pickerRow.removeFromLeft (4);
+        nextTableButton.setBounds (pickerRow.removeFromLeft (24));
+        pickerRow.removeFromLeft (6);
+        tableBox.setBounds (pickerRow);
+
+        area.removeFromTop (8);
+        auto topKnobRow = area.removeFromTop (106);
+        const int topKnobWidth = topKnobRow.getWidth() / 3;
+        auto bottomKnobRow = area.removeFromTop (106);
+        const int bottomKnobWidth = bottomKnobRow.getWidth() / 2;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), frameLabel, frameSlider);
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), smoothLabel, smoothSlider);
+        layoutKnob (topKnobRow, phaseLabel, phaseSlider);
+
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), rateLabel, rateSlider);
+        layoutKnob (bottomKnobRow, depthLabel, depthSlider);
+
+        area.removeFromTop (4);
+        auto bottomRow = area.removeFromTop (24);
+        syncButton.setBounds (bottomRow.removeFromLeft (60));
+        bottomRow.removeFromLeft (4);
+        divisionBox.setBounds (bottomRow.removeFromLeft (96));
+        bottomRow.removeFromLeft (8);
+        retriggerButton.setBounds (bottomRow.removeFromLeft (80));
     }
 
     AdsrControlsPanel::AdsrControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
@@ -1252,7 +1850,7 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        splitBar.setBounds (area.removeFromTop (50));
+        splitBar.setBounds (area.removeFromTop (76));
         area.removeFromTop (10);
 
         auto irRow = area.removeFromTop (24);
@@ -1289,7 +1887,8 @@ namespace GGrid
                          if (auto* m = dynamic_cast<MultipassModule*> (rackSlot.getCurrentModule()))
                              return &m->getAnalyzer();
                          return nullptr;
-                     })
+                     },
+                     true)
     {
         addAndMakeVisible (splitBar);
 

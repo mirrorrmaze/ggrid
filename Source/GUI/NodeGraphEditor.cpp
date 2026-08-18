@@ -16,6 +16,10 @@ namespace GGrid
             node->onNodeGrabbed = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeGrabbed (slotIndex, e); };
             node->onNodeDragged = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeDragged (slotIndex, e); };
             node->onNodeReleased = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeReleased (slotIndex, e); };
+            node->onNodeResizeGrabbed = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeResizeGrabbed (slotIndex, e); };
+            node->onNodeResizeDragged = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeResizeDragged (slotIndex, e); };
+            node->onNodeResizeReleased = [this] (int slotIndex, const juce::MouseEvent& e) { handleNodeResizeReleased (slotIndex, e); };
+            node->onFoldToggled = [this] (int slotIndex, bool shouldBeFolded) { handleNodeFoldToggled (slotIndex, shouldBeFolded); };
             node->onDeleteRequested = [this] (int slotIndex) { deleteNode (slotIndex); };
             node->onOutputDragStart = [this] (int slotIndex, int portIndex, const juce::MouseEvent& e) { handleOutputDragStart (slotIndex, portIndex, e); };
             node->onOutputDrag = [this] (int slotIndex, int portIndex, const juce::MouseEvent& e) { handleOutputDrag (slotIndex, portIndex, e); };
@@ -64,6 +68,8 @@ namespace GGrid
             {
                 lastKnownType[(size_t) i] = type;
                 pruneStaleConnectionsForSlot (i, type);
+                processor.nodeSizes[(size_t) i] = {};
+                processor.nodeFolded[(size_t) i] = false;
             }
 
             const bool shouldBeVisible = (type != ModuleType::none);
@@ -76,9 +82,25 @@ namespace GGrid
 
             if (shouldBeVisible)
             {
+                node->setFolded (processor.nodeFolded[(size_t) i]);
+
                 const auto pos = processor.nodePositions[(size_t) i];
-                const int width = node->getPreferredWidth();
-                const int height = node->getPreferredHeight();
+                const int preferredWidth = node->getPreferredWidth();
+                const int preferredHeight = node->getPreferredHeight();
+                const int minWidth = node->getMinimumWidth();
+                const int minHeight = node->getMinimumExpandedHeight();
+                auto storedSize = processor.nodeSizes[(size_t) i];
+
+                if (storedSize.x <= 0.0f || storedSize.y <= 0.0f)
+                    storedSize = { (float) preferredWidth, (float) preferredHeight };
+
+                const int width = juce::jmax (minWidth, juce::roundToInt (storedSize.x));
+                const int expandedHeight = juce::jmax (minHeight, juce::roundToInt (storedSize.y));
+                const int height = node->isFolded() ? node->getFoldedHeight() : expandedHeight;
+
+                const juce::Point<float> clampedSize { (float) width, (float) expandedHeight };
+                if (processor.nodeSizes[(size_t) i] != clampedSize)
+                    processor.nodeSizes[(size_t) i] = clampedSize;
 
                 if (node->getPosition() != pos.toInt() || node->getWidth() != width || node->getHeight() != height)
                 {
@@ -389,6 +411,7 @@ namespace GGrid
         modulationMenu.addItem (11, "Chorus/Flanger");
         modulationMenu.addItem (7, "Ring Mod");
         modulationMenu.addItem (8, "LFO");
+        modulationMenu.addItem ((int) ModuleType::lfoTable, "LFO Table");
         modulationMenu.addItem ((int) ModuleType::envelope, "Envelope");
         modulationMenu.addItem ((int) ModuleType::adsr, "ADSR");
 
@@ -513,6 +536,8 @@ namespace GGrid
 
         processor.removeAllConnectionsForSlot (slotIndex);
         processor.getModulationMatrix().removeAllModConnectionsForSlot (slotIndex);
+        processor.nodeSizes[(size_t) slotIndex] = {};
+        processor.nodeFolded[(size_t) slotIndex] = false;
 
         if (selected[(size_t) slotIndex])
         {
@@ -656,6 +681,10 @@ namespace GGrid
             auto& mod = clipboard.modules[(size_t) clipboard.numModules];
             mod.type = type;
             mod.relativePosition = processor.nodePositions[(size_t) i] - topLeft;
+            mod.size = processor.nodeSizes[(size_t) i];
+            if (mod.size.x <= 0.0f || mod.size.y <= 0.0f)
+                mod.size = { (float) nodes[(size_t) i]->getWidth(), (float) nodes[(size_t) i]->getHeight() };
+            mod.folded = processor.nodeFolded[(size_t) i];
             mod.paramValues.clear();
 
             // Every one of this slot's parameters, whatever module type each belongs to (not
@@ -732,6 +761,8 @@ namespace GGrid
                 *choiceParam = (int) mod.type;
 
             processor.nodePositions[(size_t) found] = mod.relativePosition + juce::Point<float> (pasteOffset, pasteOffset);
+            processor.nodeSizes[(size_t) found] = mod.size;
+            processor.nodeFolded[(size_t) found] = mod.folded;
 
             const juce::String newPrefix = "slot" + juce::String (found) + "_";
             for (auto& kv : mod.paramValues)
@@ -862,6 +893,52 @@ namespace GGrid
         }
 
         nodeDragMode = NodeDragMode::none;
+    }
+
+    void NodeGraphEditor::handleNodeResizeGrabbed (int slotIndex, const juce::MouseEvent& e)
+    {
+        grabKeyboardFocus();
+        setSelectionToSingle (slotIndex);
+
+        nodeDragMode = NodeDragMode::none;
+        blankDragMode = BlankDragMode::none;
+        resizingSlot = slotIndex;
+        nodeResizeStartCanvasPos = e.getEventRelativeTo (this).position;
+
+        auto storedSize = processor.nodeSizes[(size_t) slotIndex];
+        if (storedSize.x <= 0.0f || storedSize.y <= 0.0f)
+            storedSize = { (float) nodes[(size_t) slotIndex]->getWidth(), (float) nodes[(size_t) slotIndex]->getHeight() };
+        nodeResizeStartSize = storedSize;
+
+        repaint();
+    }
+
+    void NodeGraphEditor::handleNodeResizeDragged (int slotIndex, const juce::MouseEvent& e)
+    {
+        if (resizingSlot != slotIndex)
+            return;
+
+        const auto delta = e.getEventRelativeTo (this).position - nodeResizeStartCanvasPos;
+        auto* node = nodes[(size_t) slotIndex].get();
+        const float newWidth = juce::jmax ((float) node->getMinimumWidth(), nodeResizeStartSize.x + delta.x);
+        const float newHeight = juce::jmax ((float) node->getMinimumExpandedHeight(), nodeResizeStartSize.y + delta.y);
+
+        processor.nodeSizes[(size_t) slotIndex] = { newWidth, newHeight };
+        refreshLayout();
+        repaint();
+    }
+
+    void NodeGraphEditor::handleNodeResizeReleased (int slotIndex, const juce::MouseEvent&)
+    {
+        if (resizingSlot == slotIndex)
+            resizingSlot = -1;
+    }
+
+    void NodeGraphEditor::handleNodeFoldToggled (int slotIndex, bool shouldBeFolded)
+    {
+        processor.nodeFolded[(size_t) slotIndex] = shouldBeFolded;
+        refreshLayout();
+        repaint();
     }
 
     void NodeGraphEditor::handleOutputDragStart (int slotIndex, int portIndex, const juce::MouseEvent& e)

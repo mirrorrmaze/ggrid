@@ -4,6 +4,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "../Params/Identifiers.h"
 #include "../Rack/RackSlot.h"
+#include "../Modules/LFOModule.h"
+#include "../Wavetable/WavetableLibrary.h"
 #include "IRWaveformComponent.h"
 #include "CrossoverSplitBar.h"
 #include "EnvelopeBreakpointEditor.h"
@@ -246,28 +248,130 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RingModControlsPanel)
     };
 
-    // LFO controls: Rate/Depth knobs, a Shape dropdown, and the same Sync toggle + Division
-    // dropdown pattern DelayControlsPanel uses (Division only matters while Sync is on, but stays
-    // visible either way for consistency with how Delay already does this). No getModTarget* --
-    // LFO is a modulation SOURCE, not a destination (see NodeComponent::isModulationSourceType).
-    class LfoControlsPanel : public juce::Component
+    class LfoCurveEditor : public juce::Component, private juce::Timer
     {
     public:
-        LfoControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        LfoCurveEditor (RackSlot& rackSlotIn, juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        ~LfoCurveEditor() override;
+
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+        void mouseMove (const juce::MouseEvent&) override;
+        void mouseExit (const juce::MouseEvent&) override;
+
+    private:
+        void timerCallback() override;
+        LFOModule* getModule() const;
+        void beginEditFromCurrentShape();
+        bool isCurveModifierDown (const juce::ModifierKeys& mods) const;
+        void updateHoverCurveSegment (const juce::MouseEvent& e);
+        juce::Point<float> pixelToPoint (juce::Point<float> pixel) const;
+        juce::Point<float> pointToPixel (juce::Point<float> point) const;
+        int hitTestPoint (juce::Point<float> pixel) const;
+        int segmentAtX (float normalisedX) const;
+        float previewValueAt (float phase01) const;
+
+        RackSlot& rackSlot;
+        std::atomic<float>* shapeParam = nullptr;
+        int draggingPoint = -1;
+        int draggingCurveSegment = -1;
+        int hoverCurveSegment = -1;
+        juce::Point<float> curveDragStart;
+        float curveStartValue = 0.0f;
+        bool drawMode = false;
+
+        static constexpr int customShapeIndex = 7;
+        static constexpr float grabToleranceSquaredPx = 10.0f * 10.0f;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoCurveEditor)
+    };
+
+    // LFO controls: drawable shape editor/preview, Rate/Depth knobs, a Shape dropdown, and the
+    // same Sync toggle + Division dropdown pattern DelayControlsPanel uses. No getModTarget* --
+    // LFO is a modulation SOURCE, not a destination (see NodeComponent::isModulationSourceType).
+    class LfoControlsPanel : public juce::Component, private juce::ComboBox::Listener, private juce::Timer
+    {
+    public:
+        LfoControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot);
+        ~LfoControlsPanel() override;
 
         void resized() override;
 
     private:
+        void comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged) override;
+        void timerCallback() override;
+        LFOModule* getModule() const;
+        void refreshShapeLabels();
+
+        RackSlot& rackSlot;
+        LfoCurveEditor curveEditor;
         juce::Label rateLabel { {}, "Rate" }, depthLabel { {}, "Depth" };
         juce::Slider rateSlider, depthSlider;
         juce::ComboBox shapeBox, divisionBox;
         juce::ToggleButton syncButton { "Sync" };
+        bool ignoreShapeBoxChange = false;
+        int lastShapeIndex = -1;
+        bool lastCustomEdited = false;
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rateAttachment, depthAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAttachment, divisionAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoControlsPanel)
+    };
+
+    class LfoTablePreviewComponent : public juce::Component, private juce::Timer
+    {
+    public:
+        LfoTablePreviewComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        ~LfoTablePreviewComponent() override;
+
+        void paint (juce::Graphics&) override;
+
+    private:
+        void timerCallback() override;
+        std::shared_ptr<const WavetableLibrary::Table> getTable();
+
+        std::atomic<float>* tableParam = nullptr;
+        std::atomic<float>* frameParam = nullptr;
+        std::atomic<float>* smoothParam = nullptr;
+        std::atomic<float>* phaseParam = nullptr;
+
+        int loadedIndex = -1;
+        std::shared_ptr<const WavetableLibrary::Table> table;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoTablePreviewComponent)
+    };
+
+    class LfoTableControlsPanel : public juce::Component
+    {
+    public:
+        LfoTableControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+    private:
+        void stepTable (int direction);
+
+        LfoTablePreviewComponent preview;
+
+        juce::ComboBox tableBox, divisionBox;
+        juce::TextButton prevTableButton { "<" }, nextTableButton { ">" };
+        juce::ToggleButton syncButton { "Sync" }, retriggerButton { "Retrig" };
+        juce::Label frameLabel { {}, "Frame" }, smoothLabel { {}, "Smooth" }, phaseLabel { {}, "Phase" },
+                    rateLabel { {}, "Rate" }, depthLabel { {}, "Depth" };
+        juce::Slider frameSlider, smoothSlider, phaseSlider, rateSlider, depthSlider;
+
+        juce::AudioParameterChoice* tableIndexParam = nullptr;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> tableAttachment, divisionAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment, retriggerAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            frameAttachment, smoothAttachment, phaseAttachment, rateAttachment, depthAttachment;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfoTableControlsPanel)
     };
 
     // ADSR controls: Attack/Decay/Sustain/Release knobs -- see AdsrModule for the sustain-while-

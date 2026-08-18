@@ -35,12 +35,17 @@ namespace GGrid
 
         int getSlotIndex() const { return slotIndex; }
         int getPreferredHeight() const;
+        int getFoldedHeight() const { return 28; }
+        int getMinimumExpandedHeight() const;
+        bool isFolded() const { return isFoldedFlag; }
+        void setFolded (bool shouldBeFolded);
 
         // Input/Output nodes are a small fixed cube -- no control panel to size around, and a
         // compact box matching their "just a wire endpoint" role reads better on a canvas that
         // can otherwise have many of them (see the class-level ModuleType::input/output note).
         // Every other type keeps the wider box sized to fit its control panel comfortably.
         int getPreferredWidth() const;
+        int getMinimumWidth() const;
 
         // Each node has up to kMaxPortsPerSide (4) input dots and 4 output nubs, evenly spaced
         // down each edge -- not functionally distinct ports; which physical dot a given cable
@@ -54,7 +59,7 @@ namespace GGrid
         juce::Point<int> getInputConnectorPosition (int portIndex) const;
         juce::Point<int> getOutputConnectorPosition (int portIndex) const;
 
-        // True for LFO/Envelope/ADSR nodes -- no audio ports, one modulation-output nub instead
+        // True for LFO/Envelope/ADSR/LFO Table nodes -- no audio ports, one modulation-output nub instead
         // (see isModulationSourceType() in Identifiers.h).
         bool isModulationSourceType() const;
 
@@ -104,8 +109,15 @@ namespace GGrid
         std::function<void (int slotIndex, const juce::MouseEvent&)> onNodeDragged;
         std::function<void (int slotIndex, const juce::MouseEvent&)> onNodeReleased;
 
+        // Bottom-right resize-handle gesture callbacks -- kept separate from title dragging so
+        // resizing a module cannot accidentally start moving the node or pulling a cable.
+        std::function<void (int slotIndex, const juce::MouseEvent&)> onNodeResizeGrabbed;
+        std::function<void (int slotIndex, const juce::MouseEvent&)> onNodeResizeDragged;
+        std::function<void (int slotIndex, const juce::MouseEvent&)> onNodeResizeReleased;
+
         // Fired when the delete ("X") button is clicked.
         std::function<void (int slotIndex)> onDeleteRequested;
+        std::function<void (int slotIndex, bool shouldBeFolded)> onFoldToggled;
 
         // Highlights the node's border when it's part of the current selection.
         void setSelected (bool shouldBeSelected);
@@ -122,6 +134,7 @@ namespace GGrid
 
     private:
         void updateVisiblePanel();
+        juce::Colour outputPortColour (int portIndex) const;
 
         struct TitleBar : public juce::Component
         {
@@ -149,6 +162,21 @@ namespace GGrid
             int portIndex; // which of the (up to 4) output dots this is -- -1 for modOutputNub (no port concept)
         };
 
+        struct ResizeHandle : public juce::Component
+        {
+            explicit ResizeHandle (NodeComponent& ownerIn);
+            void paint (juce::Graphics&) override;
+            void mouseEnter (const juce::MouseEvent&) override { isHovering = true; repaint(); }
+            void mouseExit (const juce::MouseEvent&) override { isHovering = false; repaint(); }
+            void mouseDown (const juce::MouseEvent& e) override;
+            void mouseDrag (const juce::MouseEvent& e) override;
+            void mouseUp (const juce::MouseEvent& e) override;
+
+            NodeComponent& owner;
+            bool isHovering = false;
+            bool isDragging = false;
+        };
+
         int slotIndex;
 
         // Live waveform for Input/Output nodes only -- owned on the processor (see
@@ -160,11 +188,13 @@ namespace GGrid
         TitleBar titleBar { *this };
         juce::Label titleLabel;
         juce::ComboBox typeBox;
+        juce::TextButton foldButton { "v" };
         juce::ToggleButton bypassButton { "Bypass" };
         juce::TextButton deleteButton { "X" };
         OutputNub outputNub0 { *this, false, 0 }, outputNub1 { *this, false, 1 },
                   outputNub2 { *this, false, 2 }, outputNub3 { *this, false, 3 };
         OutputNub modOutputNub { *this, true };
+        ResizeHandle resizeHandle { *this };
 
         // Top-left of wherever the active control panel is placed within this component -- lets
         // getModTargetPosition() translate a panel-local knob position (see ModuleControlPanels'
@@ -191,8 +221,10 @@ namespace GGrid
         std::unique_ptr<AdsrControlsPanel> adsrPanel;
         std::unique_ptr<EnvelopeControlsPanel> envelopePanel;
         std::unique_ptr<MultipassControlsPanel> multipassPanel;
+        std::unique_ptr<LfoTableControlsPanel> lfoTablePanel;
 
         bool isSelectedFlag = false;
+        bool isFoldedFlag = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NodeComponent)
     };

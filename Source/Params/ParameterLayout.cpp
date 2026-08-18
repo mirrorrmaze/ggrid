@@ -1,6 +1,7 @@
 #include "ParameterLayout.h"
 #include "Identifiers.h"
 #include "../IR/IRLibrary.h"
+#include "../Wavetable/WavetableLibrary.h"
 
 namespace GGrid
 {
@@ -737,6 +738,60 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("%")));
     }
 
+    static void addLfoTableParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::tableIndex), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table",
+            WavetableLibrary::getCatalogDisplayNames(), 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::frame), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Frame",
+            NormalisableRange<float> (1.0f, 256.0f, 0.01f), 1.0f));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::smooth), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Smooth",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::phase), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Phase",
+            NormalisableRange<float> (0.0f, 360.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("deg")));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::rateMode), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Sync",
+            false));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::rateHz), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Rate",
+            skewedRange (0.01f, 50.0f, 1.0f), 1.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::division), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Division",
+            getDelayDivisionChoices(), 2));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::depth), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Depth",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { lfoTableParamId (slotIndex, LfoTableParam::retrigger), 1 },
+            "Slot " + String (slotIndex + 1) + " LFO Table Retrigger",
+            false));
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -772,6 +827,7 @@ namespace GGrid
             addAdsrParams (layout, slot);
             addEnvelopeParams (layout, slot);
             addMultipassParams (layout, slot);
+            addLfoTableParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

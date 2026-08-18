@@ -48,7 +48,7 @@ namespace GGrid
         // own distinct parameter ID namespaces (see Identifiers.h). getAnalyzerIn may be an empty
         // std::function (no spectrum drawn) for a caller that doesn't have one wired up.
         CrossoverSplitBar (juce::RangedAudioParameter& splitParam1, juce::RangedAudioParameter& splitParam2,
-                            std::function<SpectrumAnalyzer*()> getAnalyzerIn = {});
+                            std::function<SpectrumAnalyzer*()> getAnalyzerIn = {}, bool useBandColoursIn = false);
         ~CrossoverSplitBar() override;
 
         void paint (juce::Graphics&) override;
@@ -58,6 +58,7 @@ namespace GGrid
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override;
         void mouseMove (const juce::MouseEvent&) override;
+        void mouseDoubleClick (const juce::MouseEvent&) override;
 
         int getSelectedBand() const { return selectedBand; }
 
@@ -67,11 +68,16 @@ namespace GGrid
     private:
         void timerCallback() override;
 
+        juce::Rectangle<float> getPlotBounds() const;
+
         // x position in local pixels for a param's current normalized value.
         float xForParam (const juce::RangedAudioParameter& param) const;
+        float hzForParam (const juce::RangedAudioParameter& param) const;
+        juce::String formatHz (float hz) const;
 
         // Index (0 or 1) of whichever marker is nearest the given x, if within grab range.
         int hitTestMarker (float x) const;
+        int nearestMarker (float x) const;
 
         // Which of the 3 band regions (0/1/2) a given x falls into, ignoring markers entirely.
         int bandForX (float x) const;
@@ -94,10 +100,13 @@ namespace GGrid
         juce::RangedAudioParameter* splitParams[2] = { nullptr, nullptr };
 
         std::function<SpectrumAnalyzer*()> getAnalyzer;
+        bool useBandColours = false;
         static constexpr float minHz = 20.0f, maxHz = 20000.0f;
 
         int draggingMarker = -1; // -1 = not dragging
         int hoveredMarker = -1;
+        int readoutMarker = -1;
+        double readoutUntilMs = 0.0;
         int selectedBand = 0;
 
         static constexpr float grabToleranceX = 7.0f;
