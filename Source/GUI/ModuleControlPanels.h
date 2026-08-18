@@ -348,7 +348,7 @@ namespace GGrid
     class Eq8ControlsPanel : public juce::Component
     {
     public:
-        Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot);
 
         void resized() override;
 
@@ -449,7 +449,7 @@ namespace GGrid
     class MultibandConvolutionControlsPanel : public juce::Component
     {
     public:
-        MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot);
 
         void resized() override;
 
@@ -491,13 +491,14 @@ namespace GGrid
 
     // Multipass controls: a CrossoverSplitBar for the 2 draggable split points (band-select
     // clicks are simply ignored here -- unlike Multiband Convolution there's no per-band knob set
-    // to retarget) plus all 3 bands' Mix knobs shown together, since 3 knobs comfortably fit side
+    // to retarget) plus all 3 bands' Gain knobs shown together, since 3 knobs comfortably fit side
     // by side without needing a tab-selection scheme. See MultipassModule/Identifiers.h's
-    // Multipass* comment for why Mix is the only knob this module has.
+    // Multipass* comment for why Gain (a plain dB trim, for re-levelling bands relative to each
+    // other) rather than Mix is the only knob this module has.
     class MultipassControlsPanel : public juce::Component
     {
     public:
-        MultipassControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        MultipassControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot);
 
         void resized() override;
 
@@ -507,9 +508,9 @@ namespace GGrid
     private:
         CrossoverSplitBar splitBar;
 
-        std::array<juce::Label, kNumMultipassBands> mixLabels;
-        std::array<juce::Slider, kNumMultipassBands> mixSliders;
-        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumMultipassBands> mixAttachments;
+        std::array<juce::Label, kNumMultipassBands> gainLabels;
+        std::array<juce::Slider, kNumMultipassBands> gainSliders;
+        std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, kNumMultipassBands> gainAttachments;
 
         std::vector<ModTarget> modTargets;
 

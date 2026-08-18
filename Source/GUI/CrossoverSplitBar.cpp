@@ -1,16 +1,21 @@
 #include "CrossoverSplitBar.h"
 #include "GGridLookAndFeel.h"
 #include "../Params/Identifiers.h"
+#include <cmath>
 
 namespace GGrid
 {
-    CrossoverSplitBar::CrossoverSplitBar (juce::RangedAudioParameter& splitParam1, juce::RangedAudioParameter& splitParam2)
+    CrossoverSplitBar::CrossoverSplitBar (juce::RangedAudioParameter& splitParam1, juce::RangedAudioParameter& splitParam2,
+                                           std::function<SpectrumAnalyzer*()> getAnalyzerIn)
+        : getAnalyzer (std::move (getAnalyzerIn))
     {
         splitParams[0] = &splitParam1;
         splitParams[1] = &splitParam2;
 
         setInterceptsMouseClicks (true, false);
-        startTimerHz (15);
+        // 30Hz matches MultibandConvolver's own spectrum redraw cadence -- also drives
+        // performFFTIfReady() below, not just param-change polling like the original 15Hz did.
+        startTimerHz (30);
     }
 
     CrossoverSplitBar::~CrossoverSplitBar()
@@ -20,25 +25,27 @@ namespace GGrid
 
     void CrossoverSplitBar::timerCallback()
     {
-        bool changed = false;
-        for (int i = 0; i < 2; ++i)
-        {
-            const float v = splitParams[i]->getValue();
-            if (! juce::approximatelyEqual (v, lastSeenValue[i]))
-            {
-                lastSeenValue[i] = v;
-                changed = true;
-            }
-        }
+        if (auto* analyzer = getAnalyzer ? getAnalyzer() : nullptr)
+            analyzer->performFFTIfReady();
 
-        if (changed)
-            repaint();
+        // Unconditional now (used to only repaint when a split param's value actually changed) --
+        // the spectrum animates continuously regardless of whether either marker has moved, so
+        // there's no longer a cheaper condition worth gating on.
+        repaint();
     }
 
     float CrossoverSplitBar::xForParam (const juce::RangedAudioParameter& param) const
     {
         auto area = getLocalBounds().toFloat();
         return area.getX() + param.getValue() * area.getWidth();
+    }
+
+    float CrossoverSplitBar::hzToX (float hz) const
+    {
+        auto area = getLocalBounds().toFloat();
+        const float logMin = std::log10 (minHz), logMax = std::log10 (maxHz);
+        const float t = (std::log10 (juce::jlimit (minHz, maxHz, hz)) - logMin) / (logMax - logMin);
+        return area.getX() + t * area.getWidth();
     }
 
     int CrossoverSplitBar::hitTestMarker (float x) const
@@ -138,6 +145,73 @@ namespace GGrid
         g.setColour (Palette::bg);
         g.fillRect (bounds);
 
+        // Frequency reference gridlines, drawn first/behind everything -- log-ish-spaced, on the
+        // exact same axis as the spectrum and the 2 markers (see hzToX's own comment).
+        for (float hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+        {
+            g.setColour (Palette::dimmer.withAlpha (0.5f));
+            g.drawVerticalLine ((int) hzToX (hz), bounds.getY(), bounds.getBottom());
+        }
+
+        // Live spectrum of whatever's arriving at the module -- see the class comment. Ported
+        // from MultibandConvolver's own SpectrumBandStrip::paint(): a stroked line over a
+        // vertical-gradient fill, gated on the analyzer callback actually resolving to something
+        // (nullptr before the module's first prepare(), or if this CrossoverSplitBar was
+        // constructed without one at all).
+        if (auto* analyzer = getAnalyzer ? getAnalyzer() : nullptr)
+        {
+            const double sr = analyzer->getSampleRate();
+            juce::Path linePath, fillPath;
+            bool started = false;
+            float lastX = bounds.getX();
+
+            // Starts at bin 1 (the true DC bin, index 0, is skipped) -- bin 1 alone is already
+            // close enough to minHz (~21.5Hz at 44.1kHz vs. a 20Hz floor) that the plotted curve
+            // reaches all the way to this component's true left edge, so it reads as the chart's
+            // own border rather than a stray line partway across with a dead gap before it (an
+            // earlier attempt here skipped bins 1-2 to dodge a suspected near-DC spike, but that
+            // just pushed the visible starting edge out to ~65-80Hz and left the low end blank
+            // instead -- worse, not better).
+            for (int i = 1; i < SpectrumAnalyzer::numBins; ++i)
+            {
+                const float freq = (float) (i * sr / SpectrumAnalyzer::fftSize);
+                if (freq < minHz || freq > maxHz)
+                    continue;
+
+                const float x = hzToX (freq);
+                const float db = juce::jlimit (-100.0f, 0.0f, analyzer->getMagnitudeDb (i));
+                const float y = juce::jmap (db, -100.0f, 0.0f, bounds.getBottom(), bounds.getY());
+
+                if (! started)
+                {
+                    linePath.startNewSubPath (x, y);
+                    fillPath.startNewSubPath (x, bounds.getBottom());
+                    fillPath.lineTo (x, y);
+                    started = true;
+                }
+                else
+                {
+                    linePath.lineTo (x, y);
+                    fillPath.lineTo (x, y);
+                }
+                lastX = x;
+            }
+
+            if (started)
+            {
+                fillPath.lineTo (lastX, bounds.getBottom());
+                fillPath.closeSubPath();
+
+                juce::ColourGradient gradient (Palette::accent.withAlpha (0.55f), 0, bounds.getY(),
+                                                Palette::accent.withAlpha (0.02f), 0, bounds.getBottom(), false);
+                g.setGradientFill (gradient);
+                g.fillPath (fillPath);
+
+                g.setColour (Palette::accent.withAlpha (0.85f));
+                g.strokePath (linePath, juce::PathStrokeType (1.5f));
+            }
+        }
+
         const float x1 = xForParam (*splitParams[0]);
         const float x2 = xForParam (*splitParams[1]);
 
@@ -153,12 +227,14 @@ namespace GGrid
             if (bandAreas[b].getWidth() <= 0.0f)
                 continue;
 
-            // The selected band reads as a raised/lit tab (brighter fill, bold bright text) --
-            // the other two sit back as faint, clickable-but-inactive regions. See
-            // MultibandConvolutionControlsPanel, whose single shared knob set currently reflects
-            // whichever band is lit here.
+            // The selected band reads as a raised/lit tab (brighter wash, bold bright text) --
+            // the other two sit back as faint, clickable-but-inactive regions. Both washes are
+            // low-alpha now (used to be near-opaque) so the spectrum drawn above stays visible
+            // underneath -- matches MultibandConvolver's own "colour washes over the spectrum,
+            // not solid blocks under it" layering. See MultibandConvolutionControlsPanel, whose
+            // single shared knob set currently reflects whichever band is lit here.
             const bool active = b == selectedBand;
-            g.setColour (active ? Palette::dimmer.withAlpha (0.9f) : Palette::dimmer.withAlpha (0.3f));
+            g.setColour (active ? Palette::dimmer.withAlpha (0.35f) : Palette::dimmer.withAlpha (0.12f));
             g.fillRect (bandAreas[b]);
 
             g.setColour (active ? Palette::bright : Palette::dim);

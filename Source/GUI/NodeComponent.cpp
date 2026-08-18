@@ -55,14 +55,14 @@ namespace GGrid
         ringModPanel     = std::make_unique<RingModControlsPanel> (apvts, slotIndex);
         lfoPanel         = std::make_unique<LfoControlsPanel> (apvts, slotIndex);
         lossyPanel       = std::make_unique<LossyControlsPanel> (apvts, slotIndex);
-        eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex);
+        eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex, rackSlot);
         chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
         eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
-        multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex);
+        multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex, rackSlot);
         threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvts, slotIndex);
         adsrPanel        = std::make_unique<AdsrControlsPanel> (apvts, slotIndex);
         envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvts, slotIndex, rackSlot);
-        multipassPanel   = std::make_unique<MultipassControlsPanel> (apvts, slotIndex);
+        multipassPanel   = std::make_unique<MultipassControlsPanel> (apvts, slotIndex, rackSlot);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);

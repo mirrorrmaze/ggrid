@@ -6,7 +6,9 @@
 
 namespace GGrid
 {
-    Eq8CurveEditor::Eq8CurveEditor (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    Eq8CurveEditor::Eq8CurveEditor (juce::AudioProcessorValueTreeState& apvts, int slotIndex,
+                                     std::function<SpectrumAnalyzer*()> getAnalyzerIn)
+        : getAnalyzer (std::move (getAnalyzerIn))
     {
         for (int b = 0; b < kNumEq8Bands; ++b)
         {
@@ -19,7 +21,9 @@ namespace GGrid
         }
 
         setInterceptsMouseClicks (true, false);
-        startTimerHz (20);
+        // 30Hz now (was 20) -- also drives performFFTIfReady() below, matching
+        // CrossoverSplitBar's own spectrum redraw cadence, not just param-change polling.
+        startTimerHz (30);
     }
 
     Eq8CurveEditor::~Eq8CurveEditor()
@@ -29,8 +33,12 @@ namespace GGrid
 
     void Eq8CurveEditor::timerCallback()
     {
-        // Params can move from automation/preset load, not just this component's own drags --
-        // simplest to just repaint on a timer (matches CrossoverSplitBar's own approach) rather
+        if (auto* analyzer = getAnalyzer ? getAnalyzer() : nullptr)
+            analyzer->performFFTIfReady();
+
+        // Params can move from automation/preset load, not just this component's own drags, and
+        // the spectrum (when present) animates continuously regardless -- simplest to just
+        // repaint unconditionally on a timer (matches CrossoverSplitBar's own approach) rather
         // than tracking last-seen values per band per param.
         repaint();
     }
@@ -212,6 +220,61 @@ namespace GGrid
             const float y = gainToY (d);
             g.setColour (juce::approximatelyEqual (d, 0.0f) ? Palette::dim.withAlpha (0.5f) : Palette::dimmer.withAlpha (0.4f));
             g.drawHorizontalLine ((int) y, bounds.getX(), bounds.getRight());
+        }
+
+        // Live spectrum of the incoming signal, drawn behind the response curve -- so you can see
+        // what the EQ is actually doing to the material passing through it, not just the abstract
+        // curve shape. Own independent dB scale (fixed -100..0, NOT gainToY's -12..+12 curve
+        // axis -- program material would otherwise render as an imperceptibly thin sliver hugging
+        // the bottom) mapped onto this same rectangle; matches CrossoverSplitBar's own spectrum
+        // treatment exactly, including starting at bin 1 rather than skipping ahead a few bins --
+        // see that class's own comment on why skipping further left content than necessary just
+        // leaves a dead gap at the low end instead of fixing anything.
+        if (auto* analyzer = getAnalyzer ? getAnalyzer() : nullptr)
+        {
+            const double sr = analyzer->getSampleRate();
+            juce::Path linePath, fillPath;
+            bool spectrumStarted = false;
+            float lastX = bounds.getX();
+
+            for (int i = 1; i < SpectrumAnalyzer::numBins; ++i)
+            {
+                const float freq = (float) (i * sr / SpectrumAnalyzer::fftSize);
+                if (freq < minFreqHz || freq > maxFreqHz)
+                    continue;
+
+                const float x = freqToX (freq);
+                const float db = juce::jlimit (-100.0f, 0.0f, analyzer->getMagnitudeDb (i));
+                const float y = juce::jmap (db, -100.0f, 0.0f, bounds.getBottom(), bounds.getY());
+
+                if (! spectrumStarted)
+                {
+                    linePath.startNewSubPath (x, y);
+                    fillPath.startNewSubPath (x, bounds.getBottom());
+                    fillPath.lineTo (x, y);
+                    spectrumStarted = true;
+                }
+                else
+                {
+                    linePath.lineTo (x, y);
+                    fillPath.lineTo (x, y);
+                }
+                lastX = x;
+            }
+
+            if (spectrumStarted)
+            {
+                fillPath.lineTo (lastX, bounds.getBottom());
+                fillPath.closeSubPath();
+
+                juce::ColourGradient gradient (Palette::accent.withAlpha (0.35f), 0, bounds.getY(),
+                                                Palette::accent.withAlpha (0.01f), 0, bounds.getBottom(), false);
+                g.setGradientFill (gradient);
+                g.fillPath (fillPath);
+
+                g.setColour (Palette::accent.withAlpha (0.5f));
+                g.strokePath (linePath, juce::PathStrokeType (1.0f));
+            }
         }
 
         // Combined response of every enabled band, sampled every 2px across the width -- the

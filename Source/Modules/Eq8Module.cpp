@@ -20,6 +20,7 @@ namespace GGrid
     void Eq8Module::prepare (const juce::dsp::ProcessSpec& spec)
     {
         sampleRate = spec.sampleRate;
+        analyzer.setSampleRate (spec.sampleRate);
 
         juce::dsp::ProcessSpec monoSpec = spec;
         monoSpec.numChannels = 1;
@@ -74,6 +75,11 @@ namespace GGrid
         dryBuffer.setSize ((int) numChannels, (int) numSamples, false, false, true);
         for (size_t ch = 0; ch < numChannels; ++ch)
             dryBuffer.copyFrom ((int) ch, 0, block.getChannelPointer (ch), (int) numSamples);
+
+        // Feeds Eq8CurveEditor's live spectrum display -- analyzes the input, before this band's
+        // own filtering, so the curve editor can show what's arriving alongside the response
+        // shape being applied to it. dryBuffer is already exactly that content, captured above.
+        analyzer.pushSamples (dryBuffer);
 
         // Only enabled bands actually run in the per-sample loop below -- an all-disabled EQ
         // reduces to a plain Mix/Output pass rather than 8 wasted no-op filter calls.

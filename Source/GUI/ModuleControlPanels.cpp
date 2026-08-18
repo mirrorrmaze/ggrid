@@ -1,6 +1,9 @@
 #include "ModuleControlPanels.h"
 #include "GGridLookAndFeel.h"
 #include "../IR/IRLibrary.h"
+#include "../Modules/MultibandConvolutionModule.h"
+#include "../Modules/MultipassModule.h"
+#include "../Modules/Eq8Module.h"
 
 namespace GGrid
 {
@@ -874,8 +877,15 @@ namespace GGrid
         layoutKnob (knobRow, outputLabel, outputSlider);
     }
 
-    Eq8ControlsPanel::Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
-        : apvtsRef (apvts), slotIndexValue (slotIndex), curveEditor (apvts, slotIndex)
+    Eq8ControlsPanel::Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
+        : apvtsRef (apvts), slotIndexValue (slotIndex),
+          curveEditor (apvts, slotIndex,
+                       [&rackSlot]() -> SpectrumAnalyzer*
+                       {
+                           if (auto* m = dynamic_cast<Eq8Module*> (rackSlot.getCurrentModule()))
+                               return &m->getAnalyzer();
+                           return nullptr;
+                       })
     {
         addAndMakeVisible (curveEditor);
         curveEditor.onBandSelected = [this] (int band) { setActiveBand (band); };
@@ -929,6 +939,21 @@ namespace GGrid
         using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
         using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
         using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        // Explicitly release the OLD attachments before constructing the new ones -- assigning
+        // straight into the unique_ptrs builds the new attachment first, while the old one is
+        // still alive and still a registered listener on the same slider/combo/button. The new
+        // attachment's constructor syncs the control's display via sendNotificationSync, which
+        // fires synchronously on EVERY current listener -- so the still-alive old attachment
+        // would receive the new band's value as if the user had just dragged the old band's knob
+        // there, and write it straight into the old band's parameter. That's what made a band's
+        // position appear to "reset"/jump to whichever band was clicked next -- see
+        // MultibandConvolutionControlsPanel::setActiveBand's identical fix/comment.
+        enableAttachment.reset();
+        typeAttachment.reset();
+        freqAttachment.reset();
+        gainAttachment.reset();
+        qAttachment.reset();
 
         enableAttachment = std::make_unique<ButtonAttachment> (apvtsRef, eq8BandEnabledParamId (slotIndexValue, band), enableButton);
         typeAttachment   = std::make_unique<ComboBoxAttachment> (apvtsRef, eq8BandTypeParamId (slotIndexValue, band), typeBox);
@@ -1115,10 +1140,20 @@ namespace GGrid
         layoutKnob (knobRow, outputLabel, outputSlider);
     }
 
-    MultibandConvolutionControlsPanel::MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    MultibandConvolutionControlsPanel::MultibandConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
         : apvtsRef (apvts), slotIndexValue (slotIndex),
           splitBar (*apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz1)),
-                    *apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz2)))
+                    *apvts.getParameter (multibandConvolutionParamId (slotIndex, MultibandConvolutionParam::splitHz2)),
+                    [&rackSlot]() -> SpectrumAnalyzer*
+                    {
+                        // Fresh dynamic_cast every call (not cached) -- rackSlot's module instance
+                        // can be destroyed/recreated at any time (type change, re-prepare), same
+                        // caveat as IRWaveformComponent's own polling. nullptr just means "don't
+                        // draw a spectrum right now" (e.g. before the module's first prepare()).
+                        if (auto* m = dynamic_cast<MultibandConvolutionModule*> (rackSlot.getCurrentModule()))
+                            return &m->getAnalyzer();
+                        return nullptr;
+                    })
     {
         addAndMakeVisible (splitBar);
 
@@ -1246,9 +1281,15 @@ namespace GGrid
         layoutKnob (bottomKnobRow, outputLabel, outputSlider);
     }
 
-    MultipassControlsPanel::MultipassControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    MultipassControlsPanel::MultipassControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
         : splitBar (*apvts.getParameter (multipassParamId (slotIndex, MultipassParam::splitHz1)),
-                     *apvts.getParameter (multipassParamId (slotIndex, MultipassParam::splitHz2)))
+                     *apvts.getParameter (multipassParamId (slotIndex, MultipassParam::splitHz2)),
+                     [&rackSlot]() -> SpectrumAnalyzer*
+                     {
+                         if (auto* m = dynamic_cast<MultipassModule*> (rackSlot.getCurrentModule()))
+                             return &m->getAnalyzer();
+                         return nullptr;
+                     })
     {
         addAndMakeVisible (splitBar);
 
@@ -1257,20 +1298,20 @@ namespace GGrid
         const auto bandLabels = getMultipassBandLabels();
         for (int b = 0; b < kNumMultipassBands; ++b)
         {
-            auto& slider = mixSliders[(size_t) b];
-            auto& label = mixLabels[(size_t) b];
+            auto& slider = gainSliders[(size_t) b];
+            auto& label = gainLabels[(size_t) b];
 
             slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
             slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
-            label.setText (bandLabels[b] + " Mix", juce::dontSendNotification);
+            label.setText (bandLabels[b] + " Gain", juce::dontSendNotification);
             label.setJustificationType (juce::Justification::centred);
             addAndMakeVisible (slider);
             addAndMakeVisible (label);
 
-            mixAttachments[(size_t) b] = std::make_unique<SliderAttachment> (
-                apvts, multipassBandParamId (slotIndex, b, MultipassBandParam::mix), slider);
+            gainAttachments[(size_t) b] = std::make_unique<SliderAttachment> (
+                apvts, multipassBandParamId (slotIndex, b, MultipassBandParam::gain), slider);
 
-            modTargets.push_back ({ multipassBandParamId (slotIndex, b, MultipassBandParam::mix), bandLabels[b] + " Mix", &slider });
+            modTargets.push_back ({ multipassBandParamId (slotIndex, b, MultipassBandParam::gain), bandLabels[b] + " Gain", &slider });
         }
     }
 
@@ -1291,7 +1332,7 @@ namespace GGrid
         auto knobRow = area.removeFromTop (106);
         const int knobWidth = knobRow.getWidth() / kNumMultipassBands;
         for (int b = 0; b < kNumMultipassBands; ++b)
-            layoutKnob (b == kNumMultipassBands - 1 ? knobRow : knobRow.removeFromLeft (knobWidth), mixLabels[(size_t) b], mixSliders[(size_t) b]);
+            layoutKnob (b == kNumMultipassBands - 1 ? knobRow : knobRow.removeFromLeft (knobWidth), gainLabels[(size_t) b], gainSliders[(size_t) b]);
     }
 
     ThreeOscControlsPanel::ThreeOscControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)

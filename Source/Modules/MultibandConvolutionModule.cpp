@@ -33,6 +33,7 @@ namespace GGrid
     void MultibandConvolutionModule::prepare (const juce::dsp::ProcessSpec& spec)
     {
         sampleRate = spec.sampleRate;
+        analyzer.setSampleRate (spec.sampleRate);
 
         juce::dsp::ProcessSpec monoSpec = spec;
         monoSpec.numChannels = 1;
@@ -216,6 +217,17 @@ namespace GGrid
         const int numChannels = (int) block.getNumChannels();
         const int numSamples = (int) block.getNumSamples();
         const float nyquistGuard = (float) (sampleRate * 0.49);
+
+        // Feeds CrossoverSplitBar's live spectrum display -- analyzes the raw pre-split signal
+        // as it arrives, same tap point as MultibandConvolver's own inputAnalyzer.
+        {
+            float* channelPtrs[8];
+            const int analyzerChannels = juce::jmin (numChannels, 8);
+            for (int ch = 0; ch < analyzerChannels; ++ch)
+                channelPtrs[ch] = block.getChannelPointer ((size_t) ch);
+            juce::AudioBuffer<float> analyzerView (channelPtrs, analyzerChannels, numSamples);
+            analyzer.pushSamples (analyzerView);
+        }
 
         remaining.setSize (numChannels, numSamples, false, false, true);
         for (int ch = 0; ch < numChannels; ++ch)

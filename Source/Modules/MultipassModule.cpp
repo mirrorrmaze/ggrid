@@ -8,7 +8,7 @@ namespace GGrid
           splitHz2Param (apvtsIn.getRawParameterValue (multipassParamId (slotIndexIn, MultipassParam::splitHz2)))
     {
         for (int b = 0; b < kNumMultipassBands; ++b)
-            mixParams[(size_t) b] = apvtsIn.getRawParameterValue (multipassBandParamId (slotIndexIn, b, MultipassBandParam::mix));
+            gainParams[(size_t) b] = apvtsIn.getRawParameterValue (multipassBandParamId (slotIndexIn, b, MultipassBandParam::gain));
 
         for (auto& stage : splitStages)
         {
@@ -20,6 +20,7 @@ namespace GGrid
     void MultipassModule::prepare (const juce::dsp::ProcessSpec& spec)
     {
         sampleRate = spec.sampleRate;
+        analyzer.setSampleRate (spec.sampleRate);
 
         for (auto& stage : splitStages)
         {
@@ -32,7 +33,6 @@ namespace GGrid
 
         remaining.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
         lowScratch.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
-        dryBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
         for (auto& bandBuffer : bandOutputBuffers)
             bandBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
     }
@@ -52,11 +52,16 @@ namespace GGrid
         const int numSamples = (int) block.getNumSamples();
         const float nyquistGuard = (float) (sampleRate * 0.49);
 
-        // Captured once, before splitting -- every band's own Mix knob blends its isolated
-        // crossover-filtered content against this same original signal (see the class comment).
-        dryBuffer.setSize (numChannels, numSamples, false, false, true);
-        for (int ch = 0; ch < numChannels; ++ch)
-            dryBuffer.copyFrom (ch, 0, block.getChannelPointer ((size_t) ch), numSamples);
+        // Feeds CrossoverSplitBar's live spectrum display -- analyzes the raw pre-split signal
+        // as it arrives, same tap point as MultibandConvolver's own inputAnalyzer.
+        {
+            float* channelPtrs[8];
+            const int analyzerChannels = juce::jmin (numChannels, 8);
+            for (int ch = 0; ch < analyzerChannels; ++ch)
+                channelPtrs[ch] = block.getChannelPointer ((size_t) ch);
+            juce::AudioBuffer<float> analyzerView (channelPtrs, analyzerChannels, numSamples);
+            analyzer.pushSamples (analyzerView);
+        }
 
         remaining.setSize (numChannels, numSamples, false, false, true);
         for (int ch = 0; ch < numChannels; ++ch)
@@ -104,17 +109,17 @@ namespace GGrid
 
         for (int b = 0; b < kNumMultipassBands; ++b)
         {
-            const float mixOffset = modMatrix.getOffsetForParam (
-                multipassBandParamId (slotIndex, b, MultipassBandParam::mix), 50.0f);
-            const float mix = juce::jlimit (0.0f, 100.0f, mixParams[(size_t) b]->load() + mixOffset) / 100.0f;
+            const float gainOffset = modMatrix.getOffsetForParam (
+                multipassBandParamId (slotIndex, b, MultipassBandParam::gain), 12.0f);
+            const float gainLinear = juce::Decibels::decibelsToGain (
+                juce::jlimit (-24.0f, 24.0f, gainParams[(size_t) b]->load() + gainOffset));
 
             auto& bandBuf = bandOutputBuffers[(size_t) b];
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 auto* data = bandBuf.getWritePointer (ch);
-                const auto* dry = dryBuffer.getReadPointer (ch);
                 for (int i = 0; i < numSamples; ++i)
-                    data[i] = data[i] * mix + dry[i] * (1.0f - mix);
+                    data[i] *= gainLinear;
             }
         }
 

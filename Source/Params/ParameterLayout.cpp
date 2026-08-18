@@ -583,10 +583,10 @@ namespace GGrid
         for (int band = 0; band < kNumMultipassBands; ++band)
         {
             layout.add (std::make_unique<AudioParameterFloat> (
-                ParameterID { multipassBandParamId (slotIndex, band, MultipassBandParam::mix), 1 },
-                "Slot " + String (slotIndex + 1) + " Multipass " + bandLabels[band] + " Mix",
-                NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
-                AudioParameterFloatAttributes().withLabel ("%")));
+                ParameterID { multipassBandParamId (slotIndex, band, MultipassBandParam::gain), 1 },
+                "Slot " + String (slotIndex + 1) + " Multipass " + bandLabels[band] + " Gain",
+                NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("dB")));
         }
     }
 

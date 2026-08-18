@@ -2,6 +2,7 @@
 
 #include "../Rack/RackModule.h"
 #include "../Params/Identifiers.h"
+#include "../GUI/SpectrumAnalyzer.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include <array>
@@ -35,6 +36,11 @@ namespace GGrid
         static juce::dsp::IIR::Coefficients<float>::Ptr makeCoefficients (
             int type, double sampleRate, float freq, float q, float gainLinear);
 
+        // For Eq8CurveEditor's live spectrum display (drawn behind the combined-response curve,
+        // so you can see input content alongside the shape you're applying to it) -- see
+        // CrossoverSplitBar's identical use of this pattern for the reasoning.
+        SpectrumAnalyzer& getAnalyzer() { return analyzer; }
+
     private:
         static constexpr int kMaxEq8Channels = 2;
 
@@ -53,6 +59,8 @@ namespace GGrid
         std::array<std::array<juce::dsp::IIR::Filter<float>, kNumEq8Bands>, kMaxEq8Channels> bandFilters;
 
         juce::AudioBuffer<float> dryBuffer;
+
+        SpectrumAnalyzer analyzer;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Eq8Module)
     };

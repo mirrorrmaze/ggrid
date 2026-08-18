@@ -512,10 +512,11 @@ namespace GGrid
     // own dedicated output port (see RackModule::getNumOutputBuses/getOutputBusBuffer and
     // ConnectionGraph.h's Connection::fromPort), so each can be routed to a completely different
     // downstream chain and processed individually -- the entire point of the module. Same 2
-    // draggable split points as Multiband Convolution (reuses CrossoverSplitBar), plus one Mix
-    // knob per band blending that band's isolated crossover-filtered content (wet) against the
-    // original pre-split full-spectrum signal (dry) -- the only knob that makes sense here, since
-    // there's no internal processing step to blend around. See MultipassModule.
+    // draggable split points as Multiband Convolution (reuses CrossoverSplitBar), plus one Gain
+    // knob per band -- a plain dB trim on that band's isolated crossover-filtered content, for
+    // re-levelling Low/Mid/High relative to each other, not a Mix/blend knob (there's no dry
+    // signal worth blending back in here -- each band already IS the entire signal reaching its
+    // own downstream chain). See MultipassModule.
     inline juce::String multipassParamId (int slotIndex, const juce::String& paramName)
     {
         return "slot" + juce::String (slotIndex) + "_multipass_" + paramName;
@@ -537,7 +538,7 @@ namespace GGrid
 
     namespace MultipassBandParam
     {
-        static const juce::String mix = "mix";
+        static const juce::String gain = "gain";
     }
 
     // Master safety limiter -- always the last stage after the rack chain, not a rack slot

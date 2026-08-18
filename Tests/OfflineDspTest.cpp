@@ -876,7 +876,7 @@ int main()
         apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz1))->store (300.0f);
         apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz2))->store (3000.0f);
         for (int b = 0; b < kNumMultipassBands; ++b)
-            apvts.getRawParameterValue (multipassBandParamId (0, b, MultipassBandParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (multipassBandParamId (0, b, MultipassBandParam::gain))->store (0.0f);
 
         MultipassModule module (apvts, 0);
         module.prepare (spec);
@@ -911,34 +911,30 @@ int main()
                     + juce::String (highBandHighMag, 3) + ", 100Hz mag " + juce::String (highBandLowMag, 3) + ")");
     }
 
-    // --- Multipass: a band's Mix knob blends toward the ORIGINAL unsplit signal, not just the
-    // isolated band -- at Mix=0%, a band's output equals the pre-split dry signal exactly ---
+    // --- Multipass: a band's Gain knob genuinely scales that band's own output level, for
+    // re-levelling Low/Mid/High relative to each other ---
     {
         apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz1))->store (300.0f);
         apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz2))->store (3000.0f);
-        apvts.getRawParameterValue (multipassBandParamId (0, 0, MultipassBandParam::mix))->store (0.0f); // Low band, Mix 0%
-        apvts.getRawParameterValue (multipassBandParamId (0, 1, MultipassBandParam::mix))->store (100.0f);
-        apvts.getRawParameterValue (multipassBandParamId (0, 2, MultipassBandParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (multipassBandParamId (0, 0, MultipassBandParam::gain))->store (12.0f); // Low band, +12dB
+        apvts.getRawParameterValue (multipassBandParamId (0, 1, MultipassBandParam::gain))->store (0.0f);
+        apvts.getRawParameterValue (multipassBandParamId (0, 2, MultipassBandParam::gain))->store (0.0f);
 
         MultipassModule module (apvts, 0);
         module.prepare (spec);
 
-        auto highTone = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate); // well outside the Low band
-        auto dryReference = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate); // untouched copy to diff against
-
-        juce::dsp::AudioBlock<float> block (highTone);
+        auto lowTone = makeTestSignal (blockSize, 0.5f, 100.0f, sampleRate); // well inside the Low band
+        juce::dsp::AudioBlock<float> block (lowTone);
         juce::MidiBuffer midi;
         module.process (block, midi, modMatrix);
 
         const auto* lowBandBuffer = module.getOutputBusBuffer (0);
-        double maxDiff = 0.0;
-        for (int i = 0; i < blockSize; ++i)
-            maxDiff = juce::jmax (maxDiff, (double) std::abs (lowBandBuffer->getSample (0, i) - dryReference.getSample (0, i)));
+        const double boostedRms = rms (*lowBandBuffer, 0);
+        const double unityRms = 0.5 * std::sqrt (0.5);
 
-        expect (maxDiff < 0.01,
-                "Multipass Low band at Mix=0% outputs the original unsplit dry signal (an 8kHz tone that would "
-                "otherwise be near-silent through an isolated Low band) rather than the crossover-filtered content "
-                "(max sample difference " + juce::String (maxDiff, 5) + ")");
+        expect (boostedRms > unityRms * 3.0,
+                "Multipass Low band's Gain knob at +12dB genuinely boosts that band's own level well above unity "
+                "(boosted RMS " + juce::String (boostedRms, 4) + ", unity would be " + juce::String (unityRms, 4) + ")");
     }
 
     // --- Multipass: exposes exactly 3 output buses and defensively refuses out-of-range ones ---
@@ -957,7 +953,7 @@ int main()
         apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz1))->store (20.0f);
         apvts.getRawParameterValue (multipassParamId (0, MultipassParam::splitHz2))->store (20000.0f);
         for (int b = 0; b < kNumMultipassBands; ++b)
-            apvts.getRawParameterValue (multipassBandParamId (0, b, MultipassBandParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (multipassBandParamId (0, b, MultipassBandParam::gain))->store (0.0f);
 
         MultipassModule module (apvts, 0);
         module.prepare (spec);

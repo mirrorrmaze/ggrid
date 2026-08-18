@@ -3,6 +3,7 @@
 #include "../Rack/RackModule.h"
 #include "../Rack/SharedServices.h"
 #include "../IR/IRReshapeWorker.h"
+#include "../GUI/SpectrumAnalyzer.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
 #include <array>
@@ -33,6 +34,9 @@ namespace GGrid
         void prepare (const juce::dsp::ProcessSpec& spec) override;
         void reset() override;
         void process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer& midi, const ModulationMatrix& modMatrix) override;
+
+        // For CrossoverSplitBar's live spectrum display -- see that class's own comment.
+        SpectrumAnalyzer& getAnalyzer() { return analyzer; }
 
     private:
         // One independent convolution engine per band -- mirrors ConvolutionModule's own member
@@ -86,6 +90,8 @@ namespace GGrid
 
         std::array<juce::AudioBuffer<float>, kNumConvolutionBands> bandBuffers;
         juce::AudioBuffer<float> remaining, lowScratch;
+
+        SpectrumAnalyzer analyzer;
 
         double sampleRate = 44100.0;
 
