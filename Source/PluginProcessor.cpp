@@ -15,6 +15,8 @@ namespace GGrid
         {
             slots[(size_t) i] = std::make_unique<RackSlot> (apvts, i, sharedServices);
             nodePositions[(size_t) i] = { 260.0f + (float) i * 30.0f, 40.0f + (float) i * 30.0f };
+            nodeSizes[(size_t) i] = {};
+            nodeFolded[(size_t) i] = false;
 
             nodeScopes[(size_t) i] = std::make_unique<juce::AudioVisualiserComponent> (2);
             nodeScopes[(size_t) i]->setColours (juce::Colour (0xff202022), juce::Colour (0xffbf5727));
@@ -283,6 +285,19 @@ namespace GGrid
         }
         xml.setAttribute ("nodePositions", positionTokens.joinIntoString (","));
 
+        juce::StringArray sizeTokens;
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            sizeTokens.add (juce::String (nodeSizes[(size_t) i].x));
+            sizeTokens.add (juce::String (nodeSizes[(size_t) i].y));
+        }
+        xml.setAttribute ("nodeSizes", sizeTokens.joinIntoString (","));
+
+        juce::StringArray foldTokens;
+        for (int i = 0; i < kMaxSlots; ++i)
+            foldTokens.add (nodeFolded[(size_t) i] ? "1" : "0");
+        xml.setAttribute ("nodeFolded", foldTokens.joinIntoString (","));
+
         // Non-parameter per-module state -- currently only EnvelopeModule's breakpoints -- see
         // RackModule::writeExtraState's own comment. Cheap/no-op for every other module type.
         auto* extraStateParent = xml.createNewChildElement ("ModuleExtraState");
@@ -345,6 +360,16 @@ namespace GGrid
         if (positionTokens.size() == kMaxSlots * 2)
             for (int i = 0; i < kMaxSlots; ++i)
                 nodePositions[(size_t) i] = { positionTokens[i * 2].getFloatValue(), positionTokens[i * 2 + 1].getFloatValue() };
+
+        auto sizeTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("nodeSizes"), ",", "");
+        if (sizeTokens.size() == kMaxSlots * 2)
+            for (int i = 0; i < kMaxSlots; ++i)
+                nodeSizes[(size_t) i] = { sizeTokens[i * 2].getFloatValue(), sizeTokens[i * 2 + 1].getFloatValue() };
+
+        auto foldTokens = juce::StringArray::fromTokens (xml->getStringAttribute ("nodeFolded"), ",", "");
+        if (foldTokens.size() == kMaxSlots)
+            for (int i = 0; i < kMaxSlots; ++i)
+                nodeFolded[(size_t) i] = foldTokens[i].getIntValue() != 0;
 
         // Stashed for RackSlot to consume once a matching module instance actually exists (which
         // may not be true yet at this exact point -- see SharedServices.h's own comment). Cleared

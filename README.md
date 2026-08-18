@@ -28,8 +28,8 @@ knob with an LFO/Envelope/ADSR cable.
 **Modulation**
 - Chorus/Flanger -- one module, two characters via a Mode switch
 - Ring Mod / Freq Shift -- ring modulation or true single-sideband frequency shift
-- LFO, Envelope (freeform hand-drawn shape), ADSR (classic sustain/release) -- modulation sources,
-  no audio ports, drag their violet output nub onto any knob's destination dot
+- LFO, LFO Table, Envelope (freeform hand-drawn shape), ADSR (classic sustain/release) --
+  modulation sources, no audio ports, drag their violet output nub onto any knob's destination dot
 
 **Utility**
 - Utility -- gain/pan/width/mono/phase, no coloration of its own
@@ -51,7 +51,9 @@ the incoming signal, so you can see what you're shaping.
   independent per band). Left-drag to pan; hold-then-drag or shift-drag to rubber-band select;
   pinch/Ctrl+scroll/buttons to zoom.
 - **Modulation cables** -- a separate, additive system from audio cables: drag an LFO/Envelope/
-  ADSR's single output nub onto any knob's destination dot.
+  ADSR/LFO Table's single output nub onto any knob's destination dot.
+- **LFO Table wavetables** -- loads Kilohearts factory tables from the local system install when
+  present, otherwise falls back to the bundled copy in `Resources/Wavetables/Kilohearts`.
 - **MIDI Mod Matrix** -- its own tab: 6 fixed routes (Note Pitch/Velocity/Mod Wheel/2 CC lanes) to
   a handful of destinations, plus the always-on Safety Limiter (brickwall, protects your ears/gear
   from an aggressively-driven chain).

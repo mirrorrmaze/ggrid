@@ -34,7 +34,7 @@ namespace GGrid
     // collapses the selection to just that node; a drag preserves the group). Delete/Backspace
     // removes every selected node.
     //
-    // Modulation cables: LFO/Envelope/ADSR nodes have no audio ports (see
+    // Modulation cables: LFO/Envelope/ADSR/LFO Table nodes have no audio ports (see
     // NodeComponent::isModulationSourceType) -- instead
     // a single violet modulation-output nub, dragged onto a violet modulation-destination dot on
     // any continuous knob any other node exposes (see each panel's modTargets in
@@ -146,6 +146,10 @@ namespace GGrid
         void handleNodeGrabbed (int slotIndex, const juce::MouseEvent&);
         void handleNodeDragged (int slotIndex, const juce::MouseEvent&);
         void handleNodeReleased (int slotIndex, const juce::MouseEvent&);
+        void handleNodeResizeGrabbed (int slotIndex, const juce::MouseEvent&);
+        void handleNodeResizeDragged (int slotIndex, const juce::MouseEvent&);
+        void handleNodeResizeReleased (int slotIndex, const juce::MouseEvent&);
+        void handleNodeFoldToggled (int slotIndex, bool shouldBeFolded);
 
         // For a specific edge (identified by its index into processor.connections), which of the
         // kMaxPortsPerSide output/input port positions it should be drawn/hit-tested at -- just
@@ -202,6 +206,8 @@ namespace GGrid
         {
             ModuleType type = ModuleType::none;
             juce::Point<float> relativePosition;
+            juce::Point<float> size;
+            bool folded = false;
             juce::Array<std::pair<juce::String, float>> paramValues;
         };
         struct ClipboardAudioConnection { int fromIndex = -1, toIndex = -1, fromPort = -1; };
@@ -270,6 +276,10 @@ namespace GGrid
         NodeDragMode nodeDragMode = NodeDragMode::none;
         juce::Point<float> nodeDragStartCanvasPos, nodeDragStartViewportPos;
         std::array<juce::Point<float>, kMaxSlots> nodeDragStartPositions {};
+
+        int resizingSlot = -1;
+        juce::Point<float> nodeResizeStartCanvasPos;
+        juce::Point<float> nodeResizeStartSize;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NodeGraphEditor)
     };

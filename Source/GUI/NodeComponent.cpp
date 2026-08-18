@@ -6,8 +6,56 @@ namespace GGrid
 {
     void NodeComponent::OutputNub::paint (juce::Graphics& g)
     {
-        g.setColour (isMod ? Palette::modAccent : Palette::accent);
-        g.fillEllipse (getLocalBounds().toFloat().reduced (2.0f));
+        const bool isMultipassBandPort = ! isMod && owner.isMultipassType() && portIndex >= 0 && portIndex < kNumMultipassBands;
+        const auto colour = isMod ? Palette::modAccent : owner.outputPortColour (portIndex);
+
+        g.setColour (colour);
+        g.fillEllipse (getLocalBounds().toFloat().reduced (isMultipassBandPort ? 1.0f : 2.0f));
+
+        if (isMultipassBandPort)
+        {
+            g.setColour (Palette::bg.withAlpha (0.72f));
+            g.drawEllipse (getLocalBounds().toFloat().reduced (4.0f), 1.0f);
+            g.setColour (Palette::bright.withAlpha (0.38f));
+            g.drawEllipse (getLocalBounds().toFloat().reduced (1.0f), 1.0f);
+        }
+    }
+
+    NodeComponent::ResizeHandle::ResizeHandle (NodeComponent& ownerIn) : owner (ownerIn)
+    {
+        setMouseCursor (juce::MouseCursor::BottomRightCornerResizeCursor);
+    }
+
+    void NodeComponent::ResizeHandle::paint (juce::Graphics& g)
+    {
+        g.setColour ((isHovering || isDragging) ? Palette::bright : Palette::dim.withAlpha (0.78f));
+
+        const auto b = getLocalBounds().toFloat().reduced (4.0f);
+        for (int i = 0; i < 3; ++i)
+        {
+            const float inset = (float) i * 4.0f;
+            g.drawLine (b.getRight() - 10.0f + inset, b.getBottom(),
+                        b.getRight(), b.getBottom() - 10.0f + inset, 1.4f);
+        }
+    }
+
+    void NodeComponent::ResizeHandle::mouseDown (const juce::MouseEvent& e)
+    {
+        isDragging = true;
+        repaint();
+        if (owner.onNodeResizeGrabbed) owner.onNodeResizeGrabbed (owner.slotIndex, e);
+    }
+
+    void NodeComponent::ResizeHandle::mouseDrag (const juce::MouseEvent& e)
+    {
+        if (owner.onNodeResizeDragged) owner.onNodeResizeDragged (owner.slotIndex, e);
+    }
+
+    void NodeComponent::ResizeHandle::mouseUp (const juce::MouseEvent& e)
+    {
+        isDragging = false;
+        repaint();
+        if (owner.onNodeResizeReleased) owner.onNodeResizeReleased (owner.slotIndex, e);
     }
 
     NodeComponent::NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot,
@@ -30,6 +78,13 @@ namespace GGrid
             typeBox.addItem (choice, itemId++);
         addAndMakeVisible (typeBox);
 
+        foldButton.onClick = [this]
+        {
+            if (onFoldToggled)
+                onFoldToggled (slotIndex, ! isFoldedFlag);
+        };
+        addAndMakeVisible (foldButton);
+
         addAndMakeVisible (bypassButton);
 
         deleteButton.onClick = [this] { if (onDeleteRequested) onDeleteRequested (slotIndex); };
@@ -40,6 +95,7 @@ namespace GGrid
         addAndMakeVisible (outputNub2);
         addAndMakeVisible (outputNub3);
         addAndMakeVisible (modOutputNub);
+        addAndMakeVisible (resizeHandle);
 
         typeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
             apvts, slotTypeParamId (slotIndex), typeBox);
@@ -53,7 +109,7 @@ namespace GGrid
         convolutionPanel = std::make_unique<ConvolutionControlsPanel> (apvts, slotIndex, rackSlot);
         utilityPanel     = std::make_unique<UtilityControlsPanel> (apvts, slotIndex);
         ringModPanel     = std::make_unique<RingModControlsPanel> (apvts, slotIndex);
-        lfoPanel         = std::make_unique<LfoControlsPanel> (apvts, slotIndex);
+        lfoPanel         = std::make_unique<LfoControlsPanel> (apvts, slotIndex, rackSlot);
         lossyPanel       = std::make_unique<LossyControlsPanel> (apvts, slotIndex);
         eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex, rackSlot);
         chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
@@ -63,6 +119,7 @@ namespace GGrid
         adsrPanel        = std::make_unique<AdsrControlsPanel> (apvts, slotIndex);
         envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvts, slotIndex, rackSlot);
         multipassPanel   = std::make_unique<MultipassControlsPanel> (apvts, slotIndex, rackSlot);
+        lfoTablePanel    = std::make_unique<LfoTableControlsPanel> (apvts, slotIndex);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
         addAndMakeVisible (*delayPanel);
@@ -80,6 +137,7 @@ namespace GGrid
         addAndMakeVisible (*adsrPanel);
         addAndMakeVisible (*envelopePanel);
         addAndMakeVisible (*multipassPanel);
+        addAndMakeVisible (*lfoTablePanel);
 
         typeBox.onChange = [this] { updateVisiblePanel(); };
         updateVisiblePanel();
@@ -88,23 +146,37 @@ namespace GGrid
     void NodeComponent::updateVisiblePanel()
     {
         const auto type = static_cast<ModuleType> (typeBox.getSelectedId() - 1);
-        waveshaperPanel->setVisible (type == ModuleType::waveshaper);
-        filterPanel->setVisible (type == ModuleType::filter);
-        delayPanel->setVisible (type == ModuleType::delay);
-        dynamicsPanel->setVisible (type == ModuleType::dynamics);
-        convolutionPanel->setVisible (type == ModuleType::convolution);
-        utilityPanel->setVisible (type == ModuleType::utility);
-        ringModPanel->setVisible (type == ModuleType::ringMod);
-        lfoPanel->setVisible (type == ModuleType::lfo);
-        lossyPanel->setVisible (type == ModuleType::lossy);
-        eq8Panel->setVisible (type == ModuleType::eq8);
-        chorusPanel->setVisible (type == ModuleType::chorus);
-        eq3Panel->setVisible (type == ModuleType::eq3);
-        multibandConvolutionPanel->setVisible (type == ModuleType::multibandConvolution);
-        threeOscPanel->setVisible (type == ModuleType::threeOsc);
-        adsrPanel->setVisible (type == ModuleType::adsr);
-        envelopePanel->setVisible (type == ModuleType::envelope);
-        multipassPanel->setVisible (type == ModuleType::multipass);
+        const bool showPanel = ! isFoldedFlag;
+        waveshaperPanel->setVisible (showPanel && type == ModuleType::waveshaper);
+        filterPanel->setVisible (showPanel && type == ModuleType::filter);
+        delayPanel->setVisible (showPanel && type == ModuleType::delay);
+        dynamicsPanel->setVisible (showPanel && type == ModuleType::dynamics);
+        convolutionPanel->setVisible (showPanel && type == ModuleType::convolution);
+        utilityPanel->setVisible (showPanel && type == ModuleType::utility);
+        ringModPanel->setVisible (showPanel && type == ModuleType::ringMod);
+        lfoPanel->setVisible (showPanel && type == ModuleType::lfo);
+        lossyPanel->setVisible (showPanel && type == ModuleType::lossy);
+        eq8Panel->setVisible (showPanel && type == ModuleType::eq8);
+        chorusPanel->setVisible (showPanel && type == ModuleType::chorus);
+        eq3Panel->setVisible (showPanel && type == ModuleType::eq3);
+        multibandConvolutionPanel->setVisible (showPanel && type == ModuleType::multibandConvolution);
+        threeOscPanel->setVisible (showPanel && type == ModuleType::threeOsc);
+        adsrPanel->setVisible (showPanel && type == ModuleType::adsr);
+        envelopePanel->setVisible (showPanel && type == ModuleType::envelope);
+        multipassPanel->setVisible (showPanel && type == ModuleType::multipass);
+        lfoTablePanel->setVisible (showPanel && type == ModuleType::lfoTable);
+    }
+
+    void NodeComponent::setFolded (bool shouldBeFolded)
+    {
+        if (isFoldedFlag == shouldBeFolded)
+            return;
+
+        isFoldedFlag = shouldBeFolded;
+        foldButton.setButtonText (isFoldedFlag ? ">" : "v");
+        updateVisiblePanel();
+        resized();
+        repaint();
     }
 
     int NodeComponent::getPreferredHeight() const
@@ -123,7 +195,7 @@ namespace GGrid
             case ModuleType::convolution: contentHeight = 324; break; // irRow(24)+gap+waveform(70)+gap+2 knob rows(106 each)
             case ModuleType::utility:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::ringMod:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
-            case ModuleType::lfo:         contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::lfo:         contentHeight = 300; break; // curve editor + knob row + selector/sync row
             case ModuleType::lossy:       contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::eq8:
                 contentHeight = 394; break; // curveEditor(140)+gap(6)+selectRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106)
@@ -138,7 +210,9 @@ namespace GGrid
             case ModuleType::envelope:
                 contentHeight = 276; break; // editor(160) + gap(10) + knobRow(106)
             case ModuleType::multipass:
-                contentHeight = 166; break; // splitBar(50) + gap(10) + knobRow(106)
+                contentHeight = 192; break; // splitBar(76, including frequency axis) + gap(10) + knobRow(106)
+            case ModuleType::lfoTable:
+                contentHeight = 398; break; // preview(120)+gap+picker(24)+gap+2 knob rows(106 each)+bottom row(24)
             case ModuleType::input:
             case ModuleType::output:      contentHeight = 80;  break; // just the oscilloscope
             case ModuleType::none:
@@ -151,6 +225,30 @@ namespace GGrid
     int NodeComponent::getPreferredWidth() const
     {
         return (isInputType() || isOutputType()) ? 150 : 380;
+    }
+
+    int NodeComponent::getMinimumWidth() const
+    {
+        return (isInputType() || isOutputType()) ? 120 : 240;
+    }
+
+    int NodeComponent::getMinimumExpandedHeight() const
+    {
+        return (isInputType() || isOutputType()) ? 72 : 118;
+    }
+
+    juce::Colour NodeComponent::outputPortColour (int portIndex) const
+    {
+        if (! isMultipassType())
+            return Palette::accent;
+
+        switch (portIndex)
+        {
+            case 0:  return juce::Colour (0xff4fc3f7); // Low
+            case 1:  return juce::Colour (0xffffd166); // Mid
+            case 2:  return juce::Colour (0xffff6b6b); // High
+            default: return Palette::accent;
+        }
     }
 
     juce::Point<int> NodeComponent::getInputConnectorPosition (int portIndex) const
@@ -300,12 +398,25 @@ namespace GGrid
                 g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (port).toFloat()));
         }
 
-        const int modTargetCount = getModTargetCount();
+        const int modTargetCount = isFoldedFlag ? 0 : getModTargetCount();
         if (modTargetCount > 0)
         {
             g.setColour (Palette::modAccent);
             for (int i = 0; i < modTargetCount; ++i)
                 g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (getModTargetPosition (i).toFloat()));
+        }
+
+        if (isMultipassType())
+        {
+            for (int port = 0; port < kNumMultipassBands; ++port)
+            {
+                const auto pos = getOutputConnectorPosition (port).toFloat();
+                const auto colour = outputPortColour (port);
+                g.setColour (colour.withAlpha (0.18f));
+                g.fillRect (juce::Rectangle<float> ((float) getWidth() - 5.0f, pos.y - 15.0f, 4.0f, 30.0f));
+                g.setColour (colour.withAlpha (0.34f));
+                g.drawLine ((float) getWidth() - 22.0f, pos.y, (float) getWidth() - 5.0f, pos.y, 1.0f);
+            }
         }
     }
 
@@ -327,6 +438,9 @@ namespace GGrid
             titleLabel.setBounds (header.removeFromLeft (50));
 
         deleteButton.setBounds (header.removeFromRight (24));
+        header.removeFromRight (4);
+
+        foldButton.setBounds (header.removeFromRight (24));
         header.removeFromRight (4);
 
         // Bypass has no effect on Input/Output nodes -- RackSlot::process() never runs for them
@@ -365,9 +479,10 @@ namespace GGrid
         adsrPanel->setBounds (contentArea);
         envelopePanel->setBounds (contentArea);
         multipassPanel->setBounds (contentArea);
+        lfoTablePanel->setBounds (contentArea);
 
         scope.setBounds (contentArea);
-        scope.setVisible (isIOType);
+        scope.setVisible (isIOType && ! isFoldedFlag);
 
         const bool modSource = isModulationSourceType();
         // Output nodes have no output ports at all -- their whole purpose is collecting incoming
@@ -390,5 +505,8 @@ namespace GGrid
             outputNubs[port]->setBounds (pos.x - 8, pos.y - 8, 16, 16);
         }
         modOutputNub.setBounds (getWidth() - 8, getHeight() / 2 - 8, 16, 16);
+        resizeHandle.setBounds (getWidth() - 22, getHeight() - 22, 22, 22);
+        resizeHandle.setVisible (! isFoldedFlag);
+        resizeHandle.toFront (false);
     }
 }

@@ -181,10 +181,15 @@ namespace GGrid
             numConnections = w;
         }
 
-        // Canvas position of each slot's node in the node-graph editor. Purely a GUI layout
-        // concern (doesn't affect audio at all) but persisted alongside APVTS so a saved project
-        // reopens with nodes where you left them instead of re-cascading.
+        // Canvas position/size/fold state of each slot's node in the node-graph editor. Purely
+        // GUI layout concerns (don't affect audio at all) but persisted alongside APVTS so a
+        // saved project reopens with nodes where/how large you left them instead of
+        // re-cascading/resetting.
+        // A zero size means "use this module type's natural preferred size" for old saves and
+        // slots that have never been resized.
         std::array<juce::Point<float>, kMaxSlots> nodePositions;
+        std::array<juce::Point<float>, kMaxSlots> nodeSizes;
+        std::array<bool, kMaxSlots> nodeFolded {};
 
         juce::AudioProcessorValueTreeState apvts;
 
