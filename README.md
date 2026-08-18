@@ -58,9 +58,6 @@ the incoming signal, so you can see what you're shaping.
 - **File/Edit menus** -- Init Patch, Save/Load Patch (`.ggridpatch`), Copy/Paste/Duplicate.
 - **Update checker** -- checks this repo's GitHub Releases in the background on launch.
 
-Styled to match [SPANDEX](../RepitchDeck) (flat, hairline-bordered, no gradients/shadows) -- not
-visually polished beyond that yet.
-
 ## Installing
 
 **Windows**: run `Install GGrid.exe` from the Releases page, choose Standalone and/or VST3.
