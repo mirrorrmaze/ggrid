@@ -1,6 +1,6 @@
 # GGrid
 
-A modular processing rack -- a VST3/Standalone plugin built with JUCE: build a signal chain out
+A node-based patch bay -- VST3/Standalone plugin built with JUCE: build a signal chain out
 of up to 24 rack slots, drop in whichever modules you want (distortion, filtering, dynamics,
 modulation, convolution, and more), wire them together however you like, and shape the sound.
 
