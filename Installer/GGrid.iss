@@ -7,7 +7,7 @@
 ; (run from the repo root, or adjust the relative Source paths below if not)
 
 #define MyAppName "GGrid"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Mirror Maze"
 #define MyBuildDir "..\build\GGrid_artefacts\Release"
 
@@ -50,6 +50,9 @@ Source: "{#MyBuildDir}\VST3\GGrid.vst3\*"; DestDir: "{code:GetVST3Dir}\GGrid.vst
 ; fallback, and both Standalone and VST3 need to find the exact same files. Unconditional (not
 ; tied to a Component) since either app needs it to do anything useful with Convolution.
 Source: "..\Resources\IRs\*"; DestDir: "{userdocs}\GGrid\IRs"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Bundled wavetable fallback library for LFO Table and WT Synth. User-installed Kilohearts tables
+; can still be discovered separately, but fresh installs need this local fallback.
+Source: "..\Resources\Wavetables\*"; DestDir: "{userdocs}\GGrid\Wavetables"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\GGrid.exe"; Components: standalone

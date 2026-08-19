@@ -1,0 +1,49 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional release tag to upload Installer/Output/Install GGrid.exe to"
+        required: false
+        default: ""
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build VST3 + Standalone + tests
+        run: cmake --build build --config Release --target GGrid_VST3 GGrid_Standalone OfflineDspTest -j 4
+
+      - name: Run offline DSP tests
+        run: .\build\Release\OfflineDspTest.exe
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" Installer\GGrid.iss'
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GGrid-Windows-Installer
+          path: Installer/Output/Install GGrid.exe
+
+      - name: Upload installer to release
+        if: ${{ github.event_name == 'release' || github.event.inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.release_tag }}
+        run: gh release upload "$env:RELEASE_TAG" "Installer/Output/Install GGrid.exe" --clobber
