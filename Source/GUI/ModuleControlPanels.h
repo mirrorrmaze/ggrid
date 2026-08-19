@@ -70,6 +70,45 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveshaperControlsPanel)
     };
 
+    class FilterResponseEditor : public juce::Component, private juce::Timer
+    {
+    public:
+        FilterResponseEditor (juce::AudioProcessorValueTreeState& apvts,
+                              juce::String frequencyParamId,
+                              juce::String resonanceParamId,
+                              juce::String driveParamId,
+                              juce::String modeParamId = {},
+                              juce::String morphParamId = {},
+                              juce::String distortionParamId = {});
+        ~FilterResponseEditor() override;
+
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+
+    private:
+        void timerCallback() override { repaint(); }
+        void updateFromMouse (juce::Point<float> pos, const juce::ModifierKeys& mods);
+        float getFrequency() const;
+        float getResonance01() const;
+        float getDrive01() const;
+        float getMorph01() const;
+        int getMode() const;
+        int getDistortion() const;
+        float responseAt (float hz, float cutoff, float resonance01, float drive01, float morph01, int mode, int distortion) const;
+        void setFloatParam (juce::AudioParameterFloat* param, float value);
+
+        juce::AudioParameterFloat* frequencyParam = nullptr;
+        juce::AudioParameterFloat* resonanceParam = nullptr;
+        juce::AudioParameterFloat* driveParam = nullptr;
+        juce::AudioParameterFloat* morphParam = nullptr;
+        juce::AudioParameterChoice* modeParam = nullptr;
+        juce::AudioParameterChoice* distortionParam = nullptr;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FilterResponseEditor)
+    };
+
     // Filter module controls: Frequency/Resonance/Feedback/Mix/Output knobs plus the Filter
     // Type dropdown that picks which of the 7 algorithms (biquad SVF modes or delay-line
     // comb/allpass) is active -- see FilterModule for what each does with these parameters.
@@ -84,19 +123,103 @@ namespace GGrid
         const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
 
     private:
-        juce::Label frequencyLabel { {}, "Frequency" }, resonanceLabel { {}, "Resonance" }, feedbackLabel { {}, "Feedback" },
+        FilterResponseEditor responseEditor;
+
+        juce::Label frequencyLabel { {}, "Frequency" }, resonanceLabel { {}, "Resonance" }, driveLabel { {}, "Drive" }, feedbackLabel { {}, "Feedback" },
                     mixLabel { {}, "Mix" }, outputLabel { {}, "Output" }, typeLabel { {}, "Type" };
 
-        juce::Slider frequencySlider, resonanceSlider, feedbackSlider, mixSlider, outputSlider;
+        juce::Slider frequencySlider, resonanceSlider, driveSlider, feedbackSlider, mixSlider, outputSlider;
         juce::ComboBox typeBox;
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
-            frequencyAttachment, resonanceAttachment, feedbackAttachment, mixAttachment, outputAttachment;
+            frequencyAttachment, resonanceAttachment, driveAttachment, feedbackAttachment, mixAttachment, outputAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> typeAttachment;
 
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FilterControlsPanel)
+    };
+
+    class NonlinearFilterControlsPanel : public juce::Component
+    {
+    public:
+        NonlinearFilterControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        FilterResponseEditor responseEditor;
+
+        juce::Label frequencyLabel { {}, "Frequency" }, resonanceLabel { {}, "Resonance" }, driveLabel { {}, "Drive" },
+                    morphLabel { {}, "Morph" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" },
+                    modeLabel { {}, "Mode" }, distortionLabel { {}, "Distortion" };
+
+        juce::Slider frequencySlider, resonanceSlider, driveSlider, morphSlider, mixSlider, outputSlider;
+        juce::ComboBox modeBox, distortionBox;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            frequencyAttachment, resonanceAttachment, driveAttachment, morphAttachment, mixAttachment, outputAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment, distortionAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NonlinearFilterControlsPanel)
+    };
+
+    class MackityControlsPanel : public juce::Component
+    {
+    public:
+        MackityControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label inputLabel { {}, "Input" }, padLabel { {}, "Out Pad" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+        juce::Slider inputSlider, padSlider, mixSlider, outputSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            inputAttachment, padAttachment, mixAttachment, outputAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MackityControlsPanel)
+    };
+
+    class ShimmerReverbControlsPanel : public juce::Component
+    {
+    public:
+        ShimmerReverbControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label sizeLabel { {}, "Size" }, feedbackLabel { {}, "Feedback" }, diffusionLabel { {}, "Diffusion" },
+                    shiftLabel { {}, "Shift" }, modRateLabel { {}, "Mod Rate" }, modDepthLabel { {}, "Mod Depth" },
+                    lowCutLabel { {}, "Low Cut" }, highCutLabel { {}, "High Cut" },
+                    mixLabel { {}, "Mix" }, outputLabel { {}, "Output" },
+                    pitchModeLabel { {}, "Pitch Mode" }, colorLabel { {}, "Color" };
+
+        juce::Slider sizeSlider, feedbackSlider, diffusionSlider, shiftSlider, modRateSlider, modDepthSlider,
+                     lowCutSlider, highCutSlider, mixSlider, outputSlider;
+        juce::ComboBox pitchModeBox, colorBox;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            sizeAttachment, feedbackAttachment, diffusionAttachment, shiftAttachment, modRateAttachment,
+            modDepthAttachment, lowCutAttachment, highCutAttachment, mixAttachment, outputAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> pitchModeAttachment, colorAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ShimmerReverbControlsPanel)
     };
 
     // Delay module controls: Time/Feedback/Saturation/Mix/Output knobs, plus a Sync toggle (locks
@@ -668,5 +791,82 @@ namespace GGrid
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThreeOscControlsPanel)
+    };
+
+    class WavetableSynthPreviewComponent : public juce::Component, private juce::Timer
+    {
+    public:
+        WavetableSynthPreviewComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        ~WavetableSynthPreviewComponent() override;
+
+        void paint (juce::Graphics&) override;
+        void setGeneratorIndex (int index);
+
+    private:
+        void timerCallback() override { repaint(); }
+        std::shared_ptr<const WavetableLibrary::Table> getTable();
+
+        juce::AudioProcessorValueTreeState& apvts;
+        int slotIndex = 0;
+        int generatorIndex = 0;
+        int loadedIndex = -1;
+        std::shared_ptr<const WavetableLibrary::Table> table;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WavetableSynthPreviewComponent)
+    };
+
+    class WavetableSynthControlsPanel : public juce::Component
+    {
+    public:
+        WavetableSynthControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        void selectGenerator (int index);
+        void rebindGeneratorControls();
+        void refreshGeneratorButtons();
+        void setSelectedGeneratorOutput (int outputIndex);
+        void stepSelectedTable (int direction);
+
+        WavetableSynthPreviewComponent preview;
+
+        std::array<juce::TextButton, kNumWavetableSynthGenerators> generatorButtons;
+        juce::ToggleButton generatorEnabledButton { "On" };
+        juce::TextButton prevTableButton { "<" }, nextTableButton { ">" };
+        juce::ComboBox tableBox;
+        juce::Label tableLabel { {}, "Table" };
+        std::array<juce::TextButton, kNumWavetableSynthOutputs> outputButtons;
+        juce::Label algorithmLabel { {}, "Algorithm" }, algorithmHintLabel;
+        juce::ComboBox algorithmBox;
+
+        juce::Label frameLabel { {}, "Frame" }, smoothLabel { {}, "Smooth" }, coarseLabel { {}, "Coarse" }, fineLabel { {}, "Fine" },
+                    panLabel { {}, "Pan" }, levelLabel { {}, "Level" }, fmLabel { {}, "FM" };
+        juce::Slider frameSlider, smoothSlider, coarseSlider, fineSlider, panSlider, levelSlider, fmSlider;
+
+        juce::Label attackLabel { {}, "A" }, decayLabel { {}, "D" }, sustainLabel { {}, "S" }, releaseLabel { {}, "R" },
+                    outputLabel { {}, "Output" }, glideTimeLabel { {}, "Glide" };
+        juce::Slider attackSlider, decaySlider, sustainSlider, releaseSlider, outputSlider, glideTimeSlider;
+        juce::ToggleButton monoLegatoButton { "Mono" }, glideButton { "Glide" };
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            attackAttachment, decayAttachment, sustainAttachment, releaseAttachment, outputAttachment, glideTimeAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoLegatoAttachment, glideAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algorithmAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> generatorEnabledAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> tableAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            frameAttachment, smoothAttachment, coarseAttachment, fineAttachment, panAttachment, levelAttachment, fmAttachment;
+
+        juce::AudioProcessorValueTreeState& apvts;
+        int slotIndex = 0;
+        int selectedGenerator = 0;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WavetableSynthControlsPanel)
     };
 }

@@ -76,6 +76,12 @@ namespace GGrid
             skewedRange (0.1f, 20.0f, 1.0f), 0.707f));
 
         layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { filterParamId (slotIndex, FilterParam::drive), 1 },
+            "Slot " + String (slotIndex + 1) + " Filter Drive",
+            NormalisableRange<float> (0.0f, 36.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { filterParamId (slotIndex, FilterParam::feedback), 1 },
             "Slot " + String (slotIndex + 1) + " Filter Feedback",
             NormalisableRange<float> (-0.95f, 0.95f, 0.001f), 0.5f));
@@ -89,6 +95,161 @@ namespace GGrid
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { filterParamId (slotIndex, FilterParam::output), 1 },
             "Slot " + String (slotIndex + 1) + " Filter Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
+    static void addNonlinearFilterParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::frequency), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Frequency",
+            skewedRange (20.0f, 8000.0f, 1000.0f), 1000.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::resonance), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Resonance",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 25.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::drive), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Drive",
+            NormalisableRange<float> (0.0f, 36.0f, 0.01f), 6.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::morph), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Morph",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::mode), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Mode",
+            getNonlinearFilterModeChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::distortion), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Distortion",
+            getNonlinearFilterDistortionChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Nonlinear Filter Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
+    static void addMackityParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { mackityParamId (slotIndex, MackityParam::input), 1 },
+            "Slot " + String (slotIndex + 1) + " Mackity Input",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 35.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { mackityParamId (slotIndex, MackityParam::pad), 1 },
+            "Slot " + String (slotIndex + 1) + " Mackity Out Pad",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 75.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { mackityParamId (slotIndex, MackityParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Mackity Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { mackityParamId (slotIndex, MackityParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Mackity Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
+    static void addShimmerReverbParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::size), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Size",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 75.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::feedback), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Feedback",
+            NormalisableRange<float> (0.0f, 95.0f, 0.1f), 62.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::diffusion), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Diffusion",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 78.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::shift), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Shift",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 12.0f,
+            AudioParameterFloatAttributes().withLabel ("st")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::pitchMode), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Pitch Mode",
+            getShimmerReverbPitchModeChoices(), 1));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::color), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Color",
+            getShimmerReverbColorChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::modRate), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Mod Rate",
+            NormalisableRange<float> (0.01f, 8.0f, 0.001f, 0.45f), 0.25f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::modDepth), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Mod Depth",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 18.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::lowCut), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Low Cut",
+            skewedRange (20.0f, 2000.0f, 120.0f), 120.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::highCut), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb High Cut",
+            skewedRange (1000.0f, 20000.0f, 9000.0f), 12000.0f,
+            AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 35.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { shimmerReverbParamId (slotIndex, ShimmerReverbParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Shimmer Reverb Output",
             NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
@@ -792,6 +953,123 @@ namespace GGrid
             false));
     }
 
+    static void addWavetableSynthParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::attack), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Attack",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.005f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::decay), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Decay",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.1f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::sustain), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Sustain",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 80.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::release), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Release",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.2f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::algorithm), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Algorithm",
+            getWavetableSynthAlgorithmChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::monoLegato), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Mono/Legato",
+            false));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::glide), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Glide",
+            false));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::glideTimeMs), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Glide Time",
+            skewedRange (1.0f, 2000.0f, 100.0f), 50.0f,
+            AudioParameterFloatAttributes().withLabel ("ms")));
+
+        const auto genLabels = getWavetableSynthGeneratorLabels();
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            const auto label = genLabels[gen];
+
+            layout.add (std::make_unique<AudioParameterBool> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::enabled), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Enabled",
+                gen == 0));
+
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::table), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Table",
+                WavetableLibrary::getCatalogDisplayNames(), gen == 0 ? 0 : juce::jmin (3, WavetableLibrary::getCatalogDisplayNames().size() - 1)));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::frame), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Frame",
+                NormalisableRange<float> (1.0f, 256.0f, 0.01f), 1.0f));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::smooth), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Smooth",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("%")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::coarse), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Coarse",
+                NormalisableRange<float> (-48.0f, 48.0f, 1.0f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("st")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::fine), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Fine",
+                NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("ct")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::pan), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Pan",
+                NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::level), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Level",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), gen == 0 ? 100.0f : 0.0f,
+                AudioParameterFloatAttributes().withLabel ("%")));
+
+            layout.add (std::make_unique<AudioParameterFloat> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::fm), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " FM",
+                NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+                AudioParameterFloatAttributes().withLabel ("%")));
+
+            layout.add (std::make_unique<AudioParameterChoice> (
+                ParameterID { wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::output), 1 },
+                "Slot " + String (slotIndex + 1) + " WT Synth " + label + " Output",
+                getWavetableSynthOutputChoices(), 0));
+        }
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using namespace juce;
@@ -828,6 +1106,10 @@ namespace GGrid
             addEnvelopeParams (layout, slot);
             addMultipassParams (layout, slot);
             addLfoTableParams (layout, slot);
+            addWavetableSynthParams (layout, slot);
+            addNonlinearFilterParams (layout, slot);
+            addMackityParams (layout, slot);
+            addShimmerReverbParams (layout, slot);
         }
 
         // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to

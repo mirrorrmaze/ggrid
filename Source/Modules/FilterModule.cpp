@@ -40,6 +40,7 @@ namespace GGrid
           frequencyParam (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::frequency))),
           typeParam      (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::type))),
           resonanceParam (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::resonance))),
+          driveParam     (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::drive))),
           feedbackParam  (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::feedback))),
           mixParam       (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::mix))),
           outputParam    (apvtsIn.getRawParameterValue (filterParamId (slotIndexIn, FilterParam::output)))
@@ -207,12 +208,25 @@ namespace GGrid
         const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFeedback))
                                     + modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::feedback), 0.9f);
         const float resonanceOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::resonance), 3.0f);
+        const float driveOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::drive), 18.0f);
+        const float driveGain = juce::Decibels::decibelsToGain (juce::jlimit (0.0f, 36.0f, driveParam->load() + driveOffset));
+        const float driveMakeup = 1.0f / juce::jmax (1.0f, std::sqrt (driveGain));
 
         const auto numChannels = juce::jmin (block.getNumChannels(), (size_t) kMaxFilterChannels);
         const auto numSamples = block.getNumSamples();
 
         for (size_t ch = 0; ch < numChannels; ++ch)
             dryBuffer.copyFrom ((int) ch, 0, block.getChannelPointer (ch), (int) numSamples);
+
+        if (driveGain > 1.0001f)
+        {
+            for (size_t ch = 0; ch < numChannels; ++ch)
+            {
+                auto* data = block.getChannelPointer (ch);
+                for (size_t i = 0; i < numSamples; ++i)
+                    data[i] = std::tanh (data[i] * driveGain) * driveMakeup;
+            }
+        }
 
         if (isBiquadType (type))
         {

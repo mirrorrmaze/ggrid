@@ -7,12 +7,13 @@ namespace GGrid
     void NodeComponent::OutputNub::paint (juce::Graphics& g)
     {
         const bool isMultipassBandPort = ! isMod && owner.isMultipassType() && portIndex >= 0 && portIndex < kNumMultipassBands;
+        const bool isWavetableBusPort = ! isMod && owner.isWavetableSynthType() && portIndex >= 0 && portIndex < kNumWavetableSynthOutputs;
         const auto colour = isMod ? Palette::modAccent : owner.outputPortColour (portIndex);
 
         g.setColour (colour);
         g.fillEllipse (getLocalBounds().toFloat().reduced (isMultipassBandPort ? 1.0f : 2.0f));
 
-        if (isMultipassBandPort)
+        if (isMultipassBandPort || isWavetableBusPort)
         {
             g.setColour (Palette::bg.withAlpha (0.72f));
             g.drawEllipse (getLocalBounds().toFloat().reduced (4.0f), 1.0f);
@@ -67,6 +68,7 @@ namespace GGrid
         // drags the node; clicking the type box/bypass/delete hits those instead.
         addAndMakeVisible (titleBar);
         addChildComponent (scope); // visibility toggled in resized() -- only shown for Input/Output
+        scope.setInterceptsMouseClicks (false, false);
 
         titleLabel.setText ("Slot " + juce::String (slotIndex + 1), juce::dontSendNotification);
         titleLabel.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
@@ -104,6 +106,9 @@ namespace GGrid
 
         waveshaperPanel  = std::make_unique<WaveshaperControlsPanel> (apvts, slotIndex);
         filterPanel      = std::make_unique<FilterControlsPanel> (apvts, slotIndex);
+        nonlinearFilterPanel = std::make_unique<NonlinearFilterControlsPanel> (apvts, slotIndex);
+        mackityPanel     = std::make_unique<MackityControlsPanel> (apvts, slotIndex);
+        shimmerReverbPanel = std::make_unique<ShimmerReverbControlsPanel> (apvts, slotIndex);
         delayPanel       = std::make_unique<DelayControlsPanel> (apvts, slotIndex);
         dynamicsPanel    = std::make_unique<DynamicsControlsPanel> (apvts, slotIndex);
         convolutionPanel = std::make_unique<ConvolutionControlsPanel> (apvts, slotIndex, rackSlot);
@@ -116,12 +121,69 @@ namespace GGrid
         eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
         multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex, rackSlot);
         threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvts, slotIndex);
+        wavetableSynthPanel = std::make_unique<WavetableSynthControlsPanel> (apvts, slotIndex);
         adsrPanel        = std::make_unique<AdsrControlsPanel> (apvts, slotIndex);
         envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvts, slotIndex, rackSlot);
         multipassPanel   = std::make_unique<MultipassControlsPanel> (apvts, slotIndex, rackSlot);
         lfoTablePanel    = std::make_unique<LfoTableControlsPanel> (apvts, slotIndex);
+
+        auto letDirectLabelsPassThrough = [] (juce::Component& panel)
+        {
+            for (int i = 0; i < panel.getNumChildComponents(); ++i)
+                if (auto* label = dynamic_cast<juce::Label*> (panel.getChildComponent (i)))
+                    label->setInterceptsMouseClicks (false, false);
+        };
+
+        wavetableSynthPanel->setInterceptsMouseClicks (false, true);
+        waveshaperPanel->setInterceptsMouseClicks (false, true);
+        filterPanel->setInterceptsMouseClicks (false, true);
+        nonlinearFilterPanel->setInterceptsMouseClicks (false, true);
+        mackityPanel->setInterceptsMouseClicks (false, true);
+        shimmerReverbPanel->setInterceptsMouseClicks (false, true);
+        delayPanel->setInterceptsMouseClicks (false, true);
+        dynamicsPanel->setInterceptsMouseClicks (false, true);
+        convolutionPanel->setInterceptsMouseClicks (false, true);
+        utilityPanel->setInterceptsMouseClicks (false, true);
+        ringModPanel->setInterceptsMouseClicks (false, true);
+        lfoPanel->setInterceptsMouseClicks (false, true);
+        lossyPanel->setInterceptsMouseClicks (false, true);
+        eq8Panel->setInterceptsMouseClicks (false, true);
+        chorusPanel->setInterceptsMouseClicks (false, true);
+        eq3Panel->setInterceptsMouseClicks (false, true);
+        multibandConvolutionPanel->setInterceptsMouseClicks (false, true);
+        threeOscPanel->setInterceptsMouseClicks (false, true);
+        adsrPanel->setInterceptsMouseClicks (false, true);
+        envelopePanel->setInterceptsMouseClicks (false, true);
+        multipassPanel->setInterceptsMouseClicks (false, true);
+        lfoTablePanel->setInterceptsMouseClicks (false, true);
+
+        letDirectLabelsPassThrough (*wavetableSynthPanel);
+        letDirectLabelsPassThrough (*waveshaperPanel);
+        letDirectLabelsPassThrough (*filterPanel);
+        letDirectLabelsPassThrough (*nonlinearFilterPanel);
+        letDirectLabelsPassThrough (*mackityPanel);
+        letDirectLabelsPassThrough (*shimmerReverbPanel);
+        letDirectLabelsPassThrough (*delayPanel);
+        letDirectLabelsPassThrough (*dynamicsPanel);
+        letDirectLabelsPassThrough (*convolutionPanel);
+        letDirectLabelsPassThrough (*utilityPanel);
+        letDirectLabelsPassThrough (*ringModPanel);
+        letDirectLabelsPassThrough (*lfoPanel);
+        letDirectLabelsPassThrough (*lossyPanel);
+        letDirectLabelsPassThrough (*eq8Panel);
+        letDirectLabelsPassThrough (*chorusPanel);
+        letDirectLabelsPassThrough (*eq3Panel);
+        letDirectLabelsPassThrough (*multibandConvolutionPanel);
+        letDirectLabelsPassThrough (*threeOscPanel);
+        letDirectLabelsPassThrough (*adsrPanel);
+        letDirectLabelsPassThrough (*envelopePanel);
+        letDirectLabelsPassThrough (*multipassPanel);
+        letDirectLabelsPassThrough (*lfoTablePanel);
         addAndMakeVisible (*waveshaperPanel);
         addAndMakeVisible (*filterPanel);
+        addAndMakeVisible (*nonlinearFilterPanel);
+        addAndMakeVisible (*mackityPanel);
+        addAndMakeVisible (*shimmerReverbPanel);
         addAndMakeVisible (*delayPanel);
         addAndMakeVisible (*dynamicsPanel);
         addAndMakeVisible (*convolutionPanel);
@@ -134,6 +196,7 @@ namespace GGrid
         addAndMakeVisible (*eq3Panel);
         addAndMakeVisible (*multibandConvolutionPanel);
         addAndMakeVisible (*threeOscPanel);
+        addAndMakeVisible (*wavetableSynthPanel);
         addAndMakeVisible (*adsrPanel);
         addAndMakeVisible (*envelopePanel);
         addAndMakeVisible (*multipassPanel);
@@ -143,12 +206,30 @@ namespace GGrid
         updateVisiblePanel();
     }
 
+    void NodeComponent::mouseDown (const juce::MouseEvent& e)
+    {
+        if (onNodeGrabbed) onNodeGrabbed (slotIndex, e);
+    }
+
+    void NodeComponent::mouseDrag (const juce::MouseEvent& e)
+    {
+        if (onNodeDragged) onNodeDragged (slotIndex, e);
+    }
+
+    void NodeComponent::mouseUp (const juce::MouseEvent& e)
+    {
+        if (onNodeReleased) onNodeReleased (slotIndex, e);
+    }
+
     void NodeComponent::updateVisiblePanel()
     {
         const auto type = static_cast<ModuleType> (typeBox.getSelectedId() - 1);
         const bool showPanel = ! isFoldedFlag;
         waveshaperPanel->setVisible (showPanel && type == ModuleType::waveshaper);
         filterPanel->setVisible (showPanel && type == ModuleType::filter);
+        nonlinearFilterPanel->setVisible (showPanel && type == ModuleType::nonlinearFilter);
+        mackityPanel->setVisible (showPanel && type == ModuleType::mackity);
+        shimmerReverbPanel->setVisible (showPanel && type == ModuleType::shimmerReverb);
         delayPanel->setVisible (showPanel && type == ModuleType::delay);
         dynamicsPanel->setVisible (showPanel && type == ModuleType::dynamics);
         convolutionPanel->setVisible (showPanel && type == ModuleType::convolution);
@@ -161,6 +242,7 @@ namespace GGrid
         eq3Panel->setVisible (showPanel && type == ModuleType::eq3);
         multibandConvolutionPanel->setVisible (showPanel && type == ModuleType::multibandConvolution);
         threeOscPanel->setVisible (showPanel && type == ModuleType::threeOsc);
+        wavetableSynthPanel->setVisible (showPanel && type == ModuleType::wavetableSynth);
         adsrPanel->setVisible (showPanel && type == ModuleType::adsr);
         envelopePanel->setVisible (showPanel && type == ModuleType::envelope);
         multipassPanel->setVisible (showPanel && type == ModuleType::multipass);
@@ -189,7 +271,12 @@ namespace GGrid
         switch (type)
         {
             case ModuleType::waveshaper:  contentHeight = 222; break; // curveArea(60) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
-            case ModuleType::filter:      contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
+            case ModuleType::filter:      contentHeight = 366; break; // response(92)+gap+2 knob rows+gap+bottomRow(44)
+            case ModuleType::nonlinearFilter:
+                contentHeight = 366; break; // response(92)+gap+2 knob rows+gap+bottomRow(44)
+            case ModuleType::mackity:     contentHeight = 106; break; // knobRow(106), no bottom row
+            case ModuleType::shimmerReverb:
+                contentHeight = 374; break; // 3 knob rows + selector row
             case ModuleType::delay:       contentHeight = 248; break; // knobRow(106) + gap(6) + filterRow(106) + gap(6) + bottomRow(24)
             case ModuleType::dynamics:    contentHeight = 218; break; // topRow(106) + gap(6) + bottomRow(106)
             case ModuleType::convolution: contentHeight = 324; break; // irRow(24)+gap+waveform(70)+gap+2 knob rows(106 each)
@@ -206,6 +293,8 @@ namespace GGrid
             case ModuleType::threeOsc:
                 contentHeight = 714; break; // 3x[waveformRow(24)+gap(6)+knobRow(106)+gap(10)] + envRow(106)+gap(6)+fmRow(106)
                                              // + gap(6)+monoRow(24)+gap(4)+glideTimeRow(24)
+            case ModuleType::wavetableSynth:
+                contentHeight = 460; break; // generator tabs + preview/browser/output/tune area + oscillator row + ADSR/output row + voice row
             case ModuleType::adsr:        contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::envelope:
                 contentHeight = 276; break; // editor(160) + gap(10) + knobRow(106)
@@ -239,8 +328,20 @@ namespace GGrid
 
     juce::Colour NodeComponent::outputPortColour (int portIndex) const
     {
-        if (! isMultipassType())
+        if (! isMultipassType() && ! isWavetableSynthType())
             return Palette::accent;
+
+        if (isWavetableSynthType())
+        {
+            switch (portIndex)
+            {
+                case 0:  return juce::Colour (0xff4fc3f7);
+                case 1:  return juce::Colour (0xffa0e85a);
+                case 2:  return juce::Colour (0xffffd166);
+                case 3:  return juce::Colour (0xffff6b6b);
+                default: return Palette::accent;
+            }
+        }
 
         switch (portIndex)
         {
@@ -281,9 +382,19 @@ namespace GGrid
         return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::threeOsc;
     }
 
+    bool NodeComponent::isWavetableSynthType() const
+    {
+        return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::wavetableSynth;
+    }
+
     bool NodeComponent::isMultipassType() const
     {
         return static_cast<ModuleType> (typeBox.getSelectedId() - 1) == ModuleType::multipass;
+    }
+
+    bool NodeComponent::hasFourOutputBuses() const
+    {
+        return isWavetableSynthType();
     }
 
     juce::Point<int> NodeComponent::getModOutputPosition() const
@@ -297,6 +408,9 @@ namespace GGrid
         {
             case ModuleType::waveshaper:  return waveshaperPanel->getModTargetCount();
             case ModuleType::filter:      return filterPanel->getModTargetCount();
+            case ModuleType::nonlinearFilter: return nonlinearFilterPanel->getModTargetCount();
+            case ModuleType::mackity:     return mackityPanel->getModTargetCount();
+            case ModuleType::shimmerReverb: return shimmerReverbPanel->getModTargetCount();
             case ModuleType::delay:       return delayPanel->getModTargetCount();
             case ModuleType::dynamics:    return dynamicsPanel->getModTargetCount();
             case ModuleType::convolution: return convolutionPanel->getModTargetCount();
@@ -308,6 +422,7 @@ namespace GGrid
             case ModuleType::eq3:         return eq3Panel->getModTargetCount();
             case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTargetCount();
             case ModuleType::threeOsc:    return threeOscPanel->getModTargetCount();
+            case ModuleType::wavetableSynth: return wavetableSynthPanel->getModTargetCount();
             case ModuleType::multipass:   return multipassPanel->getModTargetCount();
             default:                      return 0;
         }
@@ -319,6 +434,9 @@ namespace GGrid
         {
             case ModuleType::waveshaper:  return waveshaperPanel->getModTarget (index).paramId;
             case ModuleType::filter:      return filterPanel->getModTarget (index).paramId;
+            case ModuleType::nonlinearFilter: return nonlinearFilterPanel->getModTarget (index).paramId;
+            case ModuleType::mackity:     return mackityPanel->getModTarget (index).paramId;
+            case ModuleType::shimmerReverb: return shimmerReverbPanel->getModTarget (index).paramId;
             case ModuleType::delay:       return delayPanel->getModTarget (index).paramId;
             case ModuleType::dynamics:    return dynamicsPanel->getModTarget (index).paramId;
             case ModuleType::convolution: return convolutionPanel->getModTarget (index).paramId;
@@ -330,6 +448,7 @@ namespace GGrid
             case ModuleType::eq3:         return eq3Panel->getModTarget (index).paramId;
             case ModuleType::multibandConvolution: return multibandConvolutionPanel->getModTarget (index).paramId;
             case ModuleType::threeOsc:    return threeOscPanel->getModTarget (index).paramId;
+            case ModuleType::wavetableSynth: return wavetableSynthPanel->getModTarget (index).paramId;
             case ModuleType::multipass:   return multipassPanel->getModTarget (index).paramId;
             default:                      return {};
         }
@@ -342,6 +461,9 @@ namespace GGrid
         {
             case ModuleType::waveshaper:  slider = waveshaperPanel->getModTarget (index).slider; break;
             case ModuleType::filter:      slider = filterPanel->getModTarget (index).slider; break;
+            case ModuleType::nonlinearFilter: slider = nonlinearFilterPanel->getModTarget (index).slider; break;
+            case ModuleType::mackity:     slider = mackityPanel->getModTarget (index).slider; break;
+            case ModuleType::shimmerReverb: slider = shimmerReverbPanel->getModTarget (index).slider; break;
             case ModuleType::delay:       slider = delayPanel->getModTarget (index).slider; break;
             case ModuleType::dynamics:    slider = dynamicsPanel->getModTarget (index).slider; break;
             case ModuleType::convolution: slider = convolutionPanel->getModTarget (index).slider; break;
@@ -353,6 +475,7 @@ namespace GGrid
             case ModuleType::eq3:         slider = eq3Panel->getModTarget (index).slider; break;
             case ModuleType::multibandConvolution: slider = multibandConvolutionPanel->getModTarget (index).slider; break;
             case ModuleType::threeOsc:    slider = threeOscPanel->getModTarget (index).slider; break;
+            case ModuleType::wavetableSynth: slider = wavetableSynthPanel->getModTarget (index).slider; break;
             case ModuleType::multipass:   slider = multipassPanel->getModTarget (index).slider; break;
             default:                      break;
         }
@@ -406,9 +529,10 @@ namespace GGrid
                 g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (getModTargetPosition (i).toFloat()));
         }
 
-        if (isMultipassType())
+        if (isMultipassType() || isWavetableSynthType())
         {
-            for (int port = 0; port < kNumMultipassBands; ++port)
+            const int portCount = isWavetableSynthType() ? kNumWavetableSynthOutputs : kNumMultipassBands;
+            for (int port = 0; port < portCount; ++port)
             {
                 const auto pos = getOutputConnectorPosition (port).toFloat();
                 const auto colour = outputPortColour (port);
@@ -464,6 +588,9 @@ namespace GGrid
 
         waveshaperPanel->setBounds (contentArea);
         filterPanel->setBounds (contentArea);
+        nonlinearFilterPanel->setBounds (contentArea);
+        mackityPanel->setBounds (contentArea);
+        shimmerReverbPanel->setBounds (contentArea);
         delayPanel->setBounds (contentArea);
         dynamicsPanel->setBounds (contentArea);
         convolutionPanel->setBounds (contentArea);
@@ -476,6 +603,7 @@ namespace GGrid
         eq3Panel->setBounds (contentArea);
         multibandConvolutionPanel->setBounds (contentArea);
         threeOscPanel->setBounds (contentArea);
+        wavetableSynthPanel->setBounds (contentArea);
         adsrPanel->setBounds (contentArea);
         envelopePanel->setBounds (contentArea);
         multipassPanel->setBounds (contentArea);
@@ -491,7 +619,7 @@ namespace GGrid
         // Multipass has exactly 3 meaningful output buses (Low/Mid/High) -- the 4th dot would be
         // silence if wired (see RackModule::getOutputBusBuffer's out-of-range nullptr fallback),
         // so it's hidden entirely rather than left as a footgun.
-        const bool hideFourthOutputPort = isMultipassType();
+        const bool hideFourthOutputPort = isMultipassType() && ! hasFourOutputBuses();
         outputNub0.setVisible (! hideOutputPorts);
         outputNub1.setVisible (! hideOutputPorts);
         outputNub2.setVisible (! hideOutputPorts);

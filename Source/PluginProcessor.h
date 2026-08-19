@@ -134,7 +134,7 @@ namespace GGrid
             // matches their port sets in the GUI (see NodeComponent::isInputType/isOutputType/
             // isThreeOscType).
             const auto toType = slots[(size_t) to]->getActiveType();
-            if (toType == ModuleType::input || toType == ModuleType::threeOsc) return false;
+            if (toType == ModuleType::input || toType == ModuleType::threeOsc || toType == ModuleType::wavetableSynth) return false;
             if (slots[(size_t) from]->getActiveType() == ModuleType::output) return false;
             if (numConnections >= kMaxConnections) return false;
             if (getOutDegree (from) >= kMaxPortsPerSide || getInDegree (to) >= kMaxPortsPerSide) return false;

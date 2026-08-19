@@ -38,6 +38,9 @@ target_sources(GGrid
         Source/Rack/RackSlot.cpp
         Source/Modules/WaveshaperModule.cpp
         Source/Modules/FilterModule.cpp
+        Source/Modules/NonlinearFilterModule.cpp
+        Source/Modules/MackityModule.cpp
+        Source/Modules/ShimmerReverbModule.cpp
         Source/Modules/DelayModule.cpp
         Source/Modules/DynamicsModule.cpp
         Source/Modules/ConvolutionModule.cpp
@@ -50,6 +53,7 @@ target_sources(GGrid
         Source/Modules/Eq3Module.cpp
         Source/Modules/MultibandConvolutionModule.cpp
         Source/Modules/ThreeOscModule.cpp
+        Source/Modules/WavetableSynthModule.cpp
         Source/Modules/AdsrModule.cpp
         Source/Modules/EnvelopeModule.cpp
         Source/Modules/MultipassModule.cpp
@@ -102,6 +106,9 @@ add_executable(OfflineDspTest
     Source/Rack/RackSlot.cpp
     Source/Modules/WaveshaperModule.cpp
     Source/Modules/FilterModule.cpp
+    Source/Modules/NonlinearFilterModule.cpp
+    Source/Modules/MackityModule.cpp
+    Source/Modules/ShimmerReverbModule.cpp
     Source/Modules/DelayModule.cpp
     Source/Modules/DynamicsModule.cpp
     Source/Modules/ConvolutionModule.cpp
@@ -114,6 +121,7 @@ add_executable(OfflineDspTest
     Source/Modules/Eq3Module.cpp
     Source/Modules/MultibandConvolutionModule.cpp
     Source/Modules/ThreeOscModule.cpp
+    Source/Modules/WavetableSynthModule.cpp
     Source/Modules/AdsrModule.cpp
     Source/Modules/EnvelopeModule.cpp
     Source/Modules/MultipassModule.cpp

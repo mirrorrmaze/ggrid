@@ -25,6 +25,7 @@ namespace GGrid
 
         void paint (juce::Graphics&) override;
         void resized() override;
+        bool keyPressed (const juce::KeyPress&) override;
 
     private:
         void setActiveTab (bool showModMatrix);

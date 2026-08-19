@@ -2,6 +2,9 @@
 #include "Params/Identifiers.h"
 #include "Modules/WaveshaperModule.h"
 #include "Modules/FilterModule.h"
+#include "Modules/NonlinearFilterModule.h"
+#include "Modules/MackityModule.h"
+#include "Modules/ShimmerReverbModule.h"
 #include "Modules/DelayModule.h"
 #include "Modules/DynamicsModule.h"
 #include "Modules/ConvolutionModule.h"
@@ -15,6 +18,7 @@
 #include "Modules/Eq3Module.h"
 #include "Modules/ChorusModule.h"
 #include "Modules/ThreeOscModule.h"
+#include "Modules/WavetableSynthModule.h"
 #include "Modules/AdsrModule.h"
 #include "Modules/EnvelopeModule.h"
 #include "Modules/MultipassModule.h"
@@ -228,6 +232,31 @@ int main()
                     + juce::String (samplesBelowCeiling) + "/" + juce::String (blockSize) + " samples below ceiling)");
     }
 
+    // --- Mackity: vintage input-stage style drive stays finite and audibly changes the signal ---
+    {
+        apvts.getRawParameterValue (mackityParamId (0, MackityParam::input))->store (70.0f);
+        apvts.getRawParameterValue (mackityParamId (0, MackityParam::pad))->store (65.0f);
+        apvts.getRawParameterValue (mackityParamId (0, MackityParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (mackityParamId (0, MackityParam::output))->store (0.0f);
+
+        MackityModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize, 0.8f, 220.0f, sampleRate);
+        auto dry = buffer;
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        module.process (block, midi, modMatrix);
+
+        double diff = 0.0;
+        for (int i = 0; i < blockSize; ++i)
+            diff += std::abs ((double) buffer.getSample (0, i) - (double) dry.getSample (0, i));
+
+        expect (isFiniteAndBounded (buffer, 2.0f) && diff > 1.0,
+                "Mackity drive stays finite/bounded and changes the input-stage character (absolute diff "
+                    + juce::String (diff, 3) + ")");
+    }
+
     // --- Chain order changes the result ---
     {
         RackSlot slotA (apvts, 0, sharedServices);
@@ -428,6 +457,66 @@ int main()
         }
     }
 
+    // --- Nonlinear Filter: low-pass mode attenuates high-frequency content while staying driven ---
+    {
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::mode))->store (0.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::frequency))->store (500.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::resonance))->store (20.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::drive))->store (18.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::morph))->store (35.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::distortion))->store (0.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::output))->store (0.0f);
+
+        NonlinearFilterModule lowModule (apvts, 0);
+        lowModule.prepare (spec);
+        auto lowBuffer = makeTestSignal (blockSize, 0.5f, 100.0f, sampleRate);
+        juce::dsp::AudioBlock<float> lowBlock (lowBuffer);
+        juce::MidiBuffer midi;
+        lowModule.process (lowBlock, midi, modMatrix);
+
+        NonlinearFilterModule highModule (apvts, 0);
+        highModule.prepare (spec);
+        auto highBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
+        juce::dsp::AudioBlock<float> highBlock (highBuffer);
+        highModule.process (highBlock, midi, modMatrix);
+
+        const double lowRms = rms (lowBuffer, 0);
+        const double highRms = rms (highBuffer, 0);
+        expect (lowRms > highRms * 4.0,
+                "Nonlinear Filter Low Pass attenuates 8kHz well below 100Hz while driven (low RMS "
+                    + juce::String (lowRms, 4) + ", high RMS " + juce::String (highRms, 4) + ")");
+    }
+
+    // --- Nonlinear Filter: every mode/distortion pairing stays stable at extreme drive/resonance/morph ---
+    for (int mode = 0; mode < getNonlinearFilterModeChoices().size(); ++mode)
+    {
+        for (int distortion = 0; distortion < getNonlinearFilterDistortionChoices().size(); ++distortion)
+        {
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::mode))->store ((float) mode);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::distortion))->store ((float) distortion);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::frequency))->store (600.0f);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::resonance))->store (100.0f);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::drive))->store (36.0f);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::morph))->store (100.0f);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (nonlinearFilterParamId (0, NonlinearFilterParam::output))->store (0.0f);
+
+            NonlinearFilterModule module (apvts, 0);
+            module.prepare (spec);
+
+            auto buffer = makeTestSignal (blockSize, 0.95f, 220.0f, sampleRate);
+            juce::dsp::AudioBlock<float> block (buffer);
+            juce::MidiBuffer midi;
+            module.process (block, midi, modMatrix);
+
+            expect (isFiniteAndBounded (buffer, 4.0f),
+                    "Nonlinear Filter mode " + juce::String (mode) + " (" + getNonlinearFilterModeChoices()[mode]
+                        + ") with " + getNonlinearFilterDistortionChoices()[distortion]
+                        + " stays finite/bounded at max drive/resonance/morph");
+        }
+    }
+
     // --- Delay: echo lands at the expected sample offset ---
     {
         apvts.getRawParameterValue (delayParamId (0, DelayParam::time))->store (10.0f); // 10ms
@@ -613,6 +702,56 @@ int main()
         expect (narrowRms < openRms * 0.5,
                 "Low Cut/Hi Cut in the feedback path progressively attenuates repeats more than wide-open filters (open tail RMS "
                     + juce::String (openRms, 9) + ", narrow tail RMS " + juce::String (narrowRms, 9) + ")");
+    }
+
+    // --- Shimmer Reverb: pitch-shifted feedback stays stable and adds octave-like upper energy ---
+    {
+        auto runShimmer = [&] (float pitchMode)
+        {
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::size))->store (80.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::feedback))->store (70.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::diffusion))->store (85.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::shift))->store (12.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::pitchMode))->store (pitchMode);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::color))->store (0.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::modRate))->store (0.2f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::modDepth))->store (12.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::lowCut))->store (80.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::highCut))->store (16000.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (shimmerReverbParamId (0, ShimmerReverbParam::output))->store (0.0f);
+
+            ShimmerReverbModule module (apvts, 0);
+            module.prepare (spec);
+
+            juce::AudioBuffer<float> buffer (2, blockSize * 160);
+            buffer.clear();
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float sample = 0.1f * std::sin (juce::MathConstants<float>::twoPi * 440.0f * (float) i / (float) sampleRate);
+                buffer.setSample (0, i, sample);
+                buffer.setSample (1, i, sample);
+            }
+            juce::dsp::AudioBlock<float> fullBlock (buffer);
+
+            for (int chunk = 0; chunk < 160; ++chunk)
+            {
+                auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+                juce::MidiBuffer midi;
+                module.process (sub, midi, modMatrix);
+            }
+
+            return buffer;
+        };
+
+        auto bypass = runShimmer (0.0f);
+        auto shimmer = runShimmer (1.0f);
+        const double bypassHigh = goertzelMagnitude (bypass, 0, 880.0, sampleRate);
+        const double shimmerHigh = goertzelMagnitude (shimmer, 0, 880.0, sampleRate);
+
+        expect (isFiniteAndBounded (shimmer, 4.0f) && shimmerHigh > bypassHigh * 1.05,
+                "Shimmer Reverb stays finite and pitch-shifted feedback adds upper-octave energy (bypass "
+                    + juce::String (bypassHigh, 5) + ", shimmer " + juce::String (shimmerHigh, 5) + ")");
     }
 
     // --- Dynamics: compressor reduces steady-state level of a signal driven above threshold ---
@@ -2659,6 +2798,178 @@ int main()
         expect (magTargetLateGlide > magBaseLateGlide * 3.0,
                 "3xOsc Glide eventually reaches the target pitch once Glide Time has fully elapsed (target-freq "
                 "magnitude " + juce::String (magTargetLateGlide, 3) + " vs base-freq " + juce::String (magBaseLateGlide, 3) + ")");
+    }
+
+    // --- WT Synth: built-in basic waveforms are always available even before Kilohearts tables ---
+    {
+        const auto names = WavetableLibrary::getCatalogDisplayNames();
+        expect (names.size() >= 4
+                    && names[0] == "Built-in/Sine"
+                    && names[1] == "Built-in/Triangle"
+                    && names[2] == "Built-in/Saw"
+                    && names[3] == "Built-in/Square",
+                "WT Synth wavetable catalog starts with basic built-in Sine/Triangle/Saw/Square tables");
+    }
+
+    // --- WT Synth: a held MIDI note produces audible wavetable output ---
+    {
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::release))->store (0.05f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::output))->store (0.0f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::algorithm))->store (0.0f);
+
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::enabled))->store (gen == 0 ? 1.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::table))->store (0.0f); // Built-in/Sine
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::frame))->store (1.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::smooth))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::coarse))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::level))->store (gen == 0 ? 100.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fm))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::output))->store (0.0f);
+        }
+
+        WavetableSynthModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        buffer.clear();
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 69, (juce::uint8) 100), 0);
+        module.process (block, midi, modMatrix);
+
+        const double heldRms = rms (buffer, 0);
+        expect (heldRms > 0.01 && isFiniteAndBounded (buffer, 2.0f),
+                "WT Synth produces audible finite/bounded wavetable output while a note is held (RMS "
+                    + juce::String (heldRms, 4) + ")");
+    }
+
+    // --- WT Synth: generator output assignment feeds distinct graph output buses ---
+    {
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::algorithm))->store (3.0f);
+
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::enabled))->store (gen < 2 ? 1.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::table))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::frame))->store (1.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::smooth))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::coarse))->store (gen == 0 ? 0.0f : 12.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::level))->store (gen < 2 ? 100.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fm))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::output))->store (gen == 0 ? 0.0f : 1.0f);
+        }
+
+        WavetableSynthModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        buffer.clear();
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+        module.process (block, midi, modMatrix);
+
+        const auto* out1 = module.getOutputBusBuffer (0);
+        const auto* out2 = module.getOutputBusBuffer (1);
+        const double out1Fund = goertzelMagnitude (*out1, 0, 220.0, sampleRate);
+        const double out1Oct = goertzelMagnitude (*out1, 0, 440.0, sampleRate);
+        const double out2Fund = goertzelMagnitude (*out2, 0, 220.0, sampleRate);
+        const double out2Oct = goertzelMagnitude (*out2, 0, 440.0, sampleRate);
+
+        expect (out1Fund > out1Oct * 3.0 && out2Oct > out2Fund * 3.0,
+                "WT Synth assigns generators to separate output buses (Out 1 fundamental "
+                    + juce::String (out1Fund, 3) + "/" + juce::String (out1Oct, 3)
+                    + ", Out 2 octave " + juce::String (out2Oct, 3) + "/" + juce::String (out2Fund, 3) + ")");
+        expect (module.getNumOutputBuses() == kNumWavetableSynthOutputs
+                    && module.getOutputBusBuffer (-1) == nullptr
+                    && module.getOutputBusBuffer (kNumWavetableSynthOutputs) == nullptr,
+                "WT Synth reports 4 output buses and refuses out-of-range bus indices");
+    }
+
+    // --- WT Synth: Operator-style algorithm selection changes which generators FM each other ---
+    {
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::release))->store (0.05f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::output))->store (0.0f);
+
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::enabled))->store (gen < 2 ? 1.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::table))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::frame))->store (1.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::smooth))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::coarse))->store (gen == 0 ? 12.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fine))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::pan))->store (0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::level))->store (100.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fm))->store (gen == 1 ? 100.0f : 0.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::output))->store (0.0f);
+        }
+
+        auto renderWithAlgorithm = [&] (int algorithm)
+        {
+            apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::algorithm))->store ((float) algorithm);
+            WavetableSynthModule module (apvts, 0);
+            module.prepare (spec);
+
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            buffer.clear();
+            juce::dsp::AudioBlock<float> block (buffer);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 100), 0);
+            module.process (block, midi, modMatrix);
+            return buffer;
+        };
+
+        auto pairsBuffer = renderWithAlgorithm (1);
+        auto carriersBuffer = renderWithAlgorithm (3);
+        double diff = 0.0;
+        for (int i = 0; i < blockSize; ++i)
+            diff += std::abs (pairsBuffer.getSample (0, i) - carriersBuffer.getSample (0, i));
+
+        expect (diff > 1.0,
+                "WT Synth Algorithm changes FM routing/output character (Pairs vs Carriers absolute diff "
+                    + juce::String (diff, 3) + ")");
+    }
+
+    // --- WT Synth: chained FM and extreme tuning stay finite/bounded under voice stealing ---
+    {
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::output))->store (12.0f);
+        apvts.getRawParameterValue (wavetableSynthParamId (0, WavetableSynthParam::algorithm))->store (0.0f);
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::enabled))->store (1.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::table))->store ((float) (gen % 4));
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::coarse))->store (gen % 2 == 0 ? 48.0f : -48.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fine))->store (gen % 2 == 0 ? 100.0f : -100.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::level))->store (100.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::fm))->store (100.0f);
+            apvts.getRawParameterValue (wavetableSynthGenParamId (0, gen, WavetableSynthGenParam::output))->store ((float) (gen % kNumWavetableSynthOutputs));
+        }
+
+        WavetableSynthModule module (apvts, 0);
+        module.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        buffer.clear();
+        juce::dsp::AudioBlock<float> block (buffer);
+        juce::MidiBuffer midi;
+        for (int n = 92; n < 112; ++n)
+            midi.addEvent (juce::MidiMessage::noteOn (1, n, (juce::uint8) 110), n - 92);
+        module.process (block, midi, modMatrix);
+
+        expect (isFiniteAndBounded (buffer, 500.0f), "WT Synth stays finite/bounded at extreme FM depth/output/tuning with more notes than voices");
     }
 
     // --- ADSR: sustains while a note is held, releases only once it's released ---

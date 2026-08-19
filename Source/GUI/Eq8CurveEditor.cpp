@@ -16,6 +16,8 @@ namespace GGrid
             r.freq = apvts.getParameter (eq8BandFreqParamId (slotIndex, b));
             r.gain = apvts.getParameter (eq8ParamId (slotIndex, eq8BandParam (b)));
             r.q = apvts.getParameter (eq8BandQParamId (slotIndex, b));
+            r.typeParam = apvts.getParameter (eq8BandTypeParamId (slotIndex, b));
+            r.enabledParam = apvts.getParameter (eq8BandEnabledParamId (slotIndex, b));
             r.type = apvts.getRawParameterValue (eq8BandTypeParamId (slotIndex, b));
             r.enabled = apvts.getRawParameterValue (eq8BandEnabledParamId (slotIndex, b));
         }
@@ -95,6 +97,121 @@ namespace GGrid
         return best;
     }
 
+    int Eq8CurveEditor::findFirstDisabledBand() const
+    {
+        for (int b = 0; b < kNumEq8Bands; ++b)
+            if (bands[(size_t) b].enabled->load() < 0.5f)
+                return b;
+
+        return -1;
+    }
+
+    int Eq8CurveEditor::findNextEnabledBand (int afterBand) const
+    {
+        for (int offset = 1; offset <= kNumEq8Bands; ++offset)
+        {
+            const int candidate = (afterBand + offset) % kNumEq8Bands;
+            if (bands[(size_t) candidate].enabled->load() >= 0.5f)
+                return candidate;
+        }
+
+        return -1;
+    }
+
+    void Eq8CurveEditor::setParamPlain (juce::RangedAudioParameter* param, float value)
+    {
+        if (param == nullptr)
+            return;
+
+        param->setValueNotifyingHost (param->convertTo0to1 (param->getNormalisableRange().snapToLegalValue (value)));
+    }
+
+    void Eq8CurveEditor::beginDragForBand (int band)
+    {
+        if (band < 0)
+            return;
+
+        auto& refs = bands[(size_t) band];
+        refs.freq->beginChangeGesture();
+        if (eq8BandTypeHasGain ((int) refs.type->load()))
+            refs.gain->beginChangeGesture();
+        refs.q->beginChangeGesture();
+        draggingBand = band;
+    }
+
+    void Eq8CurveEditor::endDragForBand (int band)
+    {
+        if (band < 0)
+            return;
+
+        auto& refs = bands[(size_t) band];
+        refs.freq->endChangeGesture();
+        if (eq8BandTypeHasGain ((int) refs.type->load()))
+            refs.gain->endChangeGesture();
+        refs.q->endChangeGesture();
+    }
+
+    void Eq8CurveEditor::createBandAt (int band, juce::Point<float> pos, bool startDragging)
+    {
+        if (band < 0)
+            return;
+
+        auto& refs = bands[(size_t) band];
+        if (refs.enabledParam != nullptr) refs.enabledParam->beginChangeGesture();
+        if (refs.typeParam != nullptr) refs.typeParam->beginChangeGesture();
+        refs.freq->beginChangeGesture();
+        refs.gain->beginChangeGesture();
+        refs.q->beginChangeGesture();
+
+        setParamPlain (refs.enabledParam, 1.0f);
+        setParamPlain (refs.typeParam, 0.0f);
+        setParamPlain (refs.freq, xToFreq (pos.x));
+        setParamPlain (refs.gain, yToGain (pos.y));
+        setParamPlain (refs.q, 1.0f);
+
+        refs.q->endChangeGesture();
+        refs.gain->endChangeGesture();
+        refs.freq->endChangeGesture();
+        if (refs.typeParam != nullptr) refs.typeParam->endChangeGesture();
+        if (refs.enabledParam != nullptr) refs.enabledParam->endChangeGesture();
+
+        selectedBand = band;
+        if (onBandSelected)
+            onBandSelected (selectedBand);
+
+        if (startDragging)
+            beginDragForBand (band);
+
+        repaint();
+    }
+
+    void Eq8CurveEditor::disableBand (int band)
+    {
+        if (band < 0)
+            return;
+
+        auto& refs = bands[(size_t) band];
+        if (refs.enabledParam == nullptr)
+            return;
+
+        refs.enabledParam->beginChangeGesture();
+        setParamPlain (refs.enabledParam, 0.0f);
+        refs.enabledParam->endChangeGesture();
+
+        if (selectedBand == band)
+        {
+            const int next = findNextEnabledBand (band);
+            if (next >= 0)
+            {
+                selectedBand = next;
+                if (onBandSelected)
+                    onBandSelected (selectedBand);
+            }
+        }
+
+        repaint();
+    }
+
     juce::Colour Eq8CurveEditor::colourForBand (int index) const
     {
         // 8 evenly-spaced hues around the wheel, anchored at the theme accent's own hue rather
@@ -108,19 +225,31 @@ namespace GGrid
         if (hit < 0)
             return;
 
-        draggingBand = hit;
-        if (selectedBand != hit)
+        selectedBand = hit;
+        if (onBandSelected)
+            onBandSelected (selectedBand);
+
+        beginDragForBand (hit);
+        repaint();
+    }
+
+    void Eq8CurveEditor::mouseDoubleClick (const juce::MouseEvent& e)
+    {
+        if (draggingBand >= 0)
         {
-            selectedBand = hit;
-            if (onBandSelected)
-                onBandSelected (selectedBand);
+            endDragForBand (draggingBand);
+            draggingBand = -1;
         }
 
-        bands[(size_t) hit].freq->beginChangeGesture();
-        if (eq8BandTypeHasGain ((int) bands[(size_t) hit].type->load()))
-            bands[(size_t) hit].gain->beginChangeGesture();
+        const int hit = findNodeNear (e.position);
+        if (hit < 0)
+        {
+            const int disabledBand = findFirstDisabledBand();
+            createBandAt (disabledBand >= 0 ? disabledBand : selectedBand, e.position, true);
+            return;
+        }
 
-        repaint();
+        disableBand (hit);
     }
 
     void Eq8CurveEditor::mouseDrag (const juce::MouseEvent& e)
@@ -133,6 +262,16 @@ namespace GGrid
         const float freq = xToFreq (e.position.x);
         const float snappedFreq = band.freq->getNormalisableRange().snapToLegalValue (freq);
         band.freq->setValueNotifyingHost (band.freq->convertTo0to1 (snappedFreq));
+
+        if (e.mods.isAltDown() || e.mods.isCommandDown())
+        {
+            const float y01 = juce::jlimit (0.0f, 1.0f, ((float) getLocalBounds().getBottom() - e.position.y) / (float) getHeight());
+            const float q = 0.1f * std::pow (180.0f, y01);
+            const float snappedQ = band.q->getNormalisableRange().snapToLegalValue (q);
+            band.q->setValueNotifyingHost (band.q->convertTo0to1 (snappedQ));
+            repaint();
+            return;
+        }
 
         // Vertical movement only means anything for gain-shaped types (Bell/Low Shelf/High
         // Shelf) -- dragging a High Pass/Low Pass/Notch/Band Pass node only ever moves Frequency,
@@ -153,10 +292,7 @@ namespace GGrid
         if (draggingBand < 0)
             return;
 
-        bands[(size_t) draggingBand].freq->endChangeGesture();
-        if (eq8BandTypeHasGain ((int) bands[(size_t) draggingBand].type->load()))
-            bands[(size_t) draggingBand].gain->endChangeGesture();
-
+        endDragForBand (draggingBand);
         draggingBand = -1;
         repaint();
     }

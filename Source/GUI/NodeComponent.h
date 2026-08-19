@@ -32,6 +32,9 @@ namespace GGrid
 
         void resized() override;
         void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
 
         int getSlotIndex() const { return slotIndex; }
         int getPreferredHeight() const;
@@ -78,6 +81,7 @@ namespace GGrid
         // regular module gets (it's a real instrument with real knobs, not a compact wire
         // endpoint) -- so it's a separate predicate from isInputType(), not folded into it.
         bool isThreeOscType() const;
+        bool isWavetableSynthType() const;
 
         // True for Multipass nodes -- the only module type with more than one output BUS (Low/
         // Mid/High bands, see RackModule::getNumOutputBuses). Unlike every other type, its output
@@ -85,11 +89,12 @@ namespace GGrid
         // one's port index is functionally pinned to a specific band, not auto-assigned ordinally
         // -- see NodeGraphEditor::handleOutputDragStart.
         bool isMultipassType() const;
+        bool hasFourOutputBuses() const;
 
         // No input ports at all: Input (a source of the raw dry signal) and ThreeOsc (a source of
         // its own MIDI-generated audio) alike -- see isInputType()/isThreeOscType(). Used to hide
         // the input-side connector dots and exclude a node from being a valid cable-drop target.
-        bool hasNoInputPorts() const { return isInputType() || isThreeOscType(); }
+        bool hasNoInputPorts() const { return isInputType() || isThreeOscType() || isWavetableSynthType(); }
 
         juce::Point<int> getModOutputPosition() const;
 
@@ -206,6 +211,9 @@ namespace GGrid
 
         std::unique_ptr<WaveshaperControlsPanel> waveshaperPanel;
         std::unique_ptr<FilterControlsPanel> filterPanel;
+        std::unique_ptr<NonlinearFilterControlsPanel> nonlinearFilterPanel;
+        std::unique_ptr<MackityControlsPanel> mackityPanel;
+        std::unique_ptr<ShimmerReverbControlsPanel> shimmerReverbPanel;
         std::unique_ptr<DelayControlsPanel> delayPanel;
         std::unique_ptr<DynamicsControlsPanel> dynamicsPanel;
         std::unique_ptr<ConvolutionControlsPanel> convolutionPanel;
@@ -218,6 +226,7 @@ namespace GGrid
         std::unique_ptr<Eq3ControlsPanel> eq3Panel;
         std::unique_ptr<MultibandConvolutionControlsPanel> multibandConvolutionPanel;
         std::unique_ptr<ThreeOscControlsPanel> threeOscPanel;
+        std::unique_ptr<WavetableSynthControlsPanel> wavetableSynthPanel;
         std::unique_ptr<AdsrControlsPanel> adsrPanel;
         std::unique_ptr<EnvelopeControlsPanel> envelopePanel;
         std::unique_ptr<MultipassControlsPanel> multipassPanel;

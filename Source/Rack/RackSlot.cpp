@@ -1,6 +1,9 @@
 #include "RackSlot.h"
 #include "../Modules/WaveshaperModule.h"
 #include "../Modules/FilterModule.h"
+#include "../Modules/NonlinearFilterModule.h"
+#include "../Modules/MackityModule.h"
+#include "../Modules/ShimmerReverbModule.h"
 #include "../Modules/DelayModule.h"
 #include "../Modules/DynamicsModule.h"
 #include "../Modules/ConvolutionModule.h"
@@ -13,6 +16,7 @@
 #include "../Modules/Eq3Module.h"
 #include "../Modules/MultibandConvolutionModule.h"
 #include "../Modules/ThreeOscModule.h"
+#include "../Modules/WavetableSynthModule.h"
 #include "../Modules/AdsrModule.h"
 #include "../Modules/EnvelopeModule.h"
 #include "../Modules/MultipassModule.h"
@@ -36,6 +40,15 @@ namespace GGrid
 
             case ModuleType::filter:
                 return std::make_unique<FilterModule> (apvts, slotIndex);
+
+            case ModuleType::nonlinearFilter:
+                return std::make_unique<NonlinearFilterModule> (apvts, slotIndex);
+
+            case ModuleType::mackity:
+                return std::make_unique<MackityModule> (apvts, slotIndex);
+
+            case ModuleType::shimmerReverb:
+                return std::make_unique<ShimmerReverbModule> (apvts, slotIndex);
 
             case ModuleType::delay:
                 return std::make_unique<DelayModule> (apvts, slotIndex, services);
@@ -76,6 +89,9 @@ namespace GGrid
             // it needs an actual module instance here, not the nullptr Input/Output get below.
             case ModuleType::threeOsc:
                 return std::make_unique<ThreeOscModule> (apvts, slotIndex);
+
+            case ModuleType::wavetableSynth:
+                return std::make_unique<WavetableSynthModule> (apvts, slotIndex);
 
             // LFO/Envelope/ADSR are modulation SOURCE roles (see isModulationSourceType() in
             // Identifiers.h) -- excluded from the audio ConnectionGraph entirely, but (like
