@@ -41,6 +41,7 @@ namespace GGrid
         void resized() override;
 
         void mouseDown (const juce::MouseEvent&) override;
+        void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override;
         void mouseMove (const juce::MouseEvent&) override;
@@ -62,6 +63,13 @@ namespace GGrid
 
         // Closest enabled band's node to a point, within grabToleranceX pixels, or -1.
         int findNodeNear (juce::Point<float> pos) const;
+        int findFirstDisabledBand() const;
+        int findNextEnabledBand (int afterBand) const;
+        void createBandAt (int band, juce::Point<float> pos, bool startDragging);
+        void disableBand (int band);
+        void beginDragForBand (int band);
+        void endDragForBand (int band);
+        void setParamPlain (juce::RangedAudioParameter* param, float value);
 
         juce::Colour colourForBand (int index) const;
 
@@ -70,6 +78,8 @@ namespace GGrid
             juce::RangedAudioParameter* freq = nullptr;
             juce::RangedAudioParameter* gain = nullptr;
             juce::RangedAudioParameter* q = nullptr;
+            juce::RangedAudioParameter* typeParam = nullptr;
+            juce::RangedAudioParameter* enabledParam = nullptr;
             std::atomic<float>* type = nullptr;
             std::atomic<float>* enabled = nullptr;
         };

@@ -38,6 +38,10 @@ namespace GGrid
         adsr = 18,
         multipass = 19,
         lfoTable = 20,
+        wavetableSynth = 21,
+        nonlinearFilter = 22,
+        mackity = 23,
+        shimmerReverb = 24,
     };
 
     // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
@@ -55,7 +59,7 @@ namespace GGrid
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
-                 "Envelope", "ADSR", "Multipass", "LFO Table" };
+                 "Envelope", "ADSR", "Multipass", "LFO Table", "WT Synth", "Nonlinear Filter", "Mackity", "Shimmer Reverb" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -92,6 +96,7 @@ namespace GGrid
         static const juce::String frequency  = "freq";
         static const juce::String type       = "type";
         static const juce::String resonance  = "resonance";
+        static const juce::String drive      = "drive";
         static const juce::String feedback   = "feedback";
         static const juce::String mix        = "mix";
         static const juce::String output     = "output";
@@ -115,6 +120,77 @@ namespace GGrid
     inline juce::String delayParamId (int slotIndex, const juce::String& paramName)
     {
         return "slot" + juce::String (slotIndex) + "_delay_" + paramName;
+    }
+
+    inline juce::String nonlinearFilterParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_nonlinear_filter_" + paramName;
+    }
+
+    namespace NonlinearFilterParam
+    {
+        static const juce::String frequency = "freq";
+        static const juce::String resonance = "resonance";
+        static const juce::String drive     = "drive";
+        static const juce::String morph     = "morph";
+        static const juce::String mode      = "mode";
+        static const juce::String distortion = "distortion";
+        static const juce::String mix       = "mix";
+        static const juce::String output    = "output";
+    }
+
+    inline juce::StringArray getNonlinearFilterModeChoices()
+    {
+        return { "Low Pass", "High Pass", "Band Pass", "Notch" };
+    }
+
+    inline juce::StringArray getNonlinearFilterDistortionChoices()
+    {
+        return { "Soft Clip", "Hard Clip", "Sine Fold", "Foldback", "Asymmetric", "Warm", "Saturated", "Bias", "Clipped" };
+    }
+
+    inline juce::String mackityParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_mackity_" + paramName;
+    }
+
+    namespace MackityParam
+    {
+        static const juce::String input  = "input";
+        static const juce::String pad    = "pad";
+        static const juce::String mix    = "mix";
+        static const juce::String output = "output";
+    }
+
+    inline juce::String shimmerReverbParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_shimmer_reverb_" + paramName;
+    }
+
+    namespace ShimmerReverbParam
+    {
+        static const juce::String size      = "size";
+        static const juce::String feedback  = "feedback";
+        static const juce::String diffusion = "diffusion";
+        static const juce::String shift     = "shift";
+        static const juce::String pitchMode = "pitchMode";
+        static const juce::String color     = "color";
+        static const juce::String modRate   = "modRate";
+        static const juce::String modDepth  = "modDepth";
+        static const juce::String lowCut    = "lowCut";
+        static const juce::String highCut   = "highCut";
+        static const juce::String mix       = "mix";
+        static const juce::String output    = "output";
+    }
+
+    inline juce::StringArray getShimmerReverbPitchModeChoices()
+    {
+        return { "Bypass", "Single", "Dual", "Reverse", "Dual Reverse" };
+    }
+
+    inline juce::StringArray getShimmerReverbColorChoices()
+    {
+        return { "Bright", "Dark" };
     }
 
     namespace DelayParam
@@ -466,6 +542,68 @@ namespace GGrid
         static const juce::String fine     = "fine";   // cents
         static const juce::String pan      = "pan";
         static const juce::String level    = "level";
+    }
+
+    // A Phase Plant-inspired wavetable generator. GGrid's graph has 4 physical output ports per
+    // node, so this module exposes 4 routable output buses and a bank of internal generators that
+    // can each be assigned to any bus. The fixed parameter bank keeps DAW automation stable while
+    // still feeling expandable in use: turn on more generator rows as needed, choose built-in
+    // sine/triangle/saw/square or the bundled Kilohearts tables, then patch output ports 1-4 to
+    // different lanes/effects. FM routing is picked with an Operator-style algorithm selector.
+    constexpr int kNumWavetableSynthGenerators = 8;
+    constexpr int kNumWavetableSynthOutputs = 4;
+    constexpr int kMaxWavetableSynthVoices = 16;
+
+    inline juce::StringArray getWavetableSynthGeneratorLabels()
+    {
+        return { "Gen 1", "Gen 2", "Gen 3", "Gen 4", "Gen 5", "Gen 6", "Gen 7", "Gen 8" };
+    }
+
+    inline juce::StringArray getWavetableSynthOutputChoices()
+    {
+        return { "Out 1", "Out 2", "Out 3", "Out 4" };
+    }
+
+    inline juce::StringArray getWavetableSynthAlgorithmChoices()
+    {
+        return { "Series", "Pairs", "Two Stacks", "Carriers" };
+    }
+
+    inline juce::String wavetableSynthParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_wavetableSynth_" + paramName;
+    }
+
+    namespace WavetableSynthParam
+    {
+        static const juce::String attack      = "attack";
+        static const juce::String decay       = "decay";
+        static const juce::String sustain     = "sustain";
+        static const juce::String release     = "release";
+        static const juce::String output      = "output";
+        static const juce::String algorithm   = "algorithm";
+        static const juce::String monoLegato  = "monoLegato";
+        static const juce::String glide       = "glide";
+        static const juce::String glideTimeMs = "glideTimeMs";
+    }
+
+    inline juce::String wavetableSynthGenParamId (int slotIndex, int genIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_wavetableSynth_gen" + juce::String (genIndex) + "_" + paramName;
+    }
+
+    namespace WavetableSynthGenParam
+    {
+        static const juce::String enabled = "enabled";
+        static const juce::String table   = "table";
+        static const juce::String frame   = "frame";
+        static const juce::String smooth  = "smooth";
+        static const juce::String coarse  = "coarse";
+        static const juce::String fine    = "fine";
+        static const juce::String pan     = "pan";
+        static const juce::String level   = "level";
+        static const juce::String fm      = "fm";
+        static const juce::String output  = "output";
     }
 
     // A standalone ADSR modulation source: sustains while a note is held, releases on note-off --

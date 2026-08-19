@@ -44,6 +44,7 @@ namespace GGrid
         std::atomic<float>* frequencyParam;
         std::atomic<float>* typeParam;
         std::atomic<float>* resonanceParam;
+        std::atomic<float>* driveParam;
         std::atomic<float>* feedbackParam;
         std::atomic<float>* mixParam;
         std::atomic<float>* outputParam;

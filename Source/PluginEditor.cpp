@@ -7,6 +7,7 @@ namespace GGrid
           nodeGraphEditor (p)
     {
         setLookAndFeel (&lookAndFeel);
+        setWantsKeyboardFocus (true);
 
         addAndMakeVisible (processorRef.outputScope);
 
@@ -114,13 +115,18 @@ namespace GGrid
         juce::PopupMenu menu;
 
         const bool hasSelection = nodeGraphEditor.hasSelection();
-        menu.addItem ("Copy (Ctrl+C)", hasSelection, false, [this] { nodeGraphEditor.copySelection(); });
-        menu.addItem ("Paste (Ctrl+V)", nodeGraphEditor.hasClipboardContent(), false, [this] { nodeGraphEditor.pasteClipboard(); });
-        menu.addItem ("Duplicate (Ctrl+D)", hasSelection, false, [this] { nodeGraphEditor.duplicateSelection(); });
+        menu.addItem ("Copy (Cmd+C)", hasSelection, false, [this] { nodeGraphEditor.copySelection(); });
+        menu.addItem ("Paste (Cmd+V)", nodeGraphEditor.hasClipboardContent(), false, [this] { nodeGraphEditor.pasteClipboard(); });
+        menu.addItem ("Duplicate (Cmd+D)", hasSelection, false, [this] { nodeGraphEditor.duplicateSelection(); });
         menu.addSeparator();
         menu.addItem ("Delete (Del)", hasSelection, false, [this] { nodeGraphEditor.deleteSelectedNodes(); });
 
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (editMenuButton));
+    }
+
+    bool GGridAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+    {
+        return nodeGraphEditor.keyPressed (key);
     }
 
     static juce::File getPatchesDirectory()

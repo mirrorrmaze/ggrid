@@ -84,19 +84,48 @@ namespace GGrid::WavetableLibrary
             return juce::jmax (1, totalSamples);
         }
 
-        std::shared_ptr<Table> makeFallbackTable()
+        enum class BuiltInShape { sine, triangle, saw, square };
+
+        std::shared_ptr<Table> makeBuiltInTable (BuiltInShape shape, const juce::String& name)
         {
             auto table = std::make_shared<Table>();
-            table->displayName = "Built-in/Sine";
+            table->displayName = name;
             table->frameSize = kKiloheartsFrameSize;
             table->numFrames = 1;
             table->samples.resize ((size_t) table->frameSize);
             for (int i = 0; i < table->frameSize; ++i)
             {
                 const float phase = (float) i / (float) table->frameSize;
-                table->samples[(size_t) i] = std::sin (phase * juce::MathConstants<float>::twoPi);
+                switch (shape)
+                {
+                    case BuiltInShape::sine:
+                        table->samples[(size_t) i] = std::sin (phase * juce::MathConstants<float>::twoPi);
+                        break;
+                    case BuiltInShape::triangle:
+                        table->samples[(size_t) i] = phase < 0.5f ? 4.0f * phase - 1.0f : 3.0f - 4.0f * phase;
+                        break;
+                    case BuiltInShape::saw:
+                        table->samples[(size_t) i] = 2.0f * phase - 1.0f;
+                        break;
+                    case BuiltInShape::square:
+                        table->samples[(size_t) i] = phase < 0.5f ? 1.0f : -1.0f;
+                        break;
+                }
             }
             return table;
+        }
+
+        std::shared_ptr<Table> makeFallbackTable()
+        {
+            return makeBuiltInTable (BuiltInShape::sine, "Built-in/Sine");
+        }
+
+        void appendBuiltIns (std::vector<Entry>& entries)
+        {
+            entries.push_back ({ "Built-in/Sine",     "Built-in", {} });
+            entries.push_back ({ "Built-in/Triangle", "Built-in", {} });
+            entries.push_back ({ "Built-in/Saw",      "Built-in", {} });
+            entries.push_back ({ "Built-in/Square",   "Built-in", {} });
         }
 
         float rawSample (const Table& table, int frame, float phase01)
@@ -168,6 +197,8 @@ namespace GGrid::WavetableLibrary
         static const std::vector<Entry> catalog = []
         {
             std::vector<Entry> entries;
+            appendBuiltIns (entries);
+
             const auto kh = kiloheartsFactoryRoot();
             if (kh.isDirectory())
                 appendFilesFromRoot (entries, kh, "Kilohearts");
@@ -176,9 +207,6 @@ namespace GGrid::WavetableLibrary
 
             appendFilesFromRoot (entries, bundledGGridRoot(), "GGrid");
             appendFilesFromRoot (entries, userRoot(), "Custom");
-
-            if (entries.empty())
-                entries.push_back ({ "Built-in/Sine", "Built-in", {} });
 
             return entries;
         }();
@@ -213,7 +241,12 @@ namespace GGrid::WavetableLibrary
 
         const auto& entry = catalog[(size_t) clampedIndex];
         if (! entry.file.existsAsFile())
+        {
+            if (entry.displayName == "Built-in/Triangle") return makeBuiltInTable (BuiltInShape::triangle, entry.displayName);
+            if (entry.displayName == "Built-in/Saw")      return makeBuiltInTable (BuiltInShape::saw, entry.displayName);
+            if (entry.displayName == "Built-in/Square")   return makeBuiltInTable (BuiltInShape::square, entry.displayName);
             return makeFallbackTable();
+        }
 
         juce::AudioFormatManager formatManager;
         formatManager.registerBasicFormats();

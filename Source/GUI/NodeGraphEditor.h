@@ -216,6 +216,8 @@ namespace GGrid
         {
             int numModules = 0;
             std::array<ClipboardModule, kMaxSlots> modules;
+            juce::Point<float> sourceTopLeft;
+            int pasteCount = 0;
             int numAudioConnections = 0;
             std::array<ClipboardAudioConnection, kMaxConnections> audioConnections;
             int numModConnections = 0;

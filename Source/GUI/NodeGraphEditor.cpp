@@ -397,9 +397,11 @@ namespace GGrid
         juce::PopupMenu distortionMenu;
         distortionMenu.addItem (1, "Waveshaper");
         distortionMenu.addItem (9, "Lossy");
+        distortionMenu.addItem ((int) ModuleType::mackity, "Mackity");
 
         juce::PopupMenu filterEqMenu;
         filterEqMenu.addItem (2, "Filter");
+        filterEqMenu.addItem ((int) ModuleType::nonlinearFilter, "Nonlinear Filter");
         filterEqMenu.addItem (10, "EQ 8");
         filterEqMenu.addItem (12, "EQ 3");
         filterEqMenu.addItem ((int) ModuleType::multipass, "Multipass");
@@ -417,6 +419,7 @@ namespace GGrid
 
         juce::PopupMenu timeSpaceMenu;
         timeSpaceMenu.addItem (3, "Delay");
+        timeSpaceMenu.addItem ((int) ModuleType::shimmerReverb, "Shimmer Reverb");
         timeSpaceMenu.addItem (5, "Convolution");
         timeSpaceMenu.addItem ((int) ModuleType::multibandConvolution, "Multiband Convolution");
 
@@ -428,6 +431,7 @@ namespace GGrid
         // instrument, not a routing utility -- see ModuleType::threeOsc's class comment).
         juce::PopupMenu generatorsMenu;
         generatorsMenu.addItem ((int) ModuleType::threeOsc, "3xOsc");
+        generatorsMenu.addItem ((int) ModuleType::wavetableSynth, "WT Synth");
 
         // Input/Output are ordinary addable module types like any other here -- adding another
         // of either just gives you a second entry/exit point for another parallel rack sharing
@@ -504,7 +508,7 @@ namespace GGrid
             {
                 const int outputSlot = findFirstSlotOfType (ModuleType::output);
 
-                if (type == ModuleType::threeOsc)
+                if (type == ModuleType::threeOsc || type == ModuleType::wavetableSynth)
                 {
                     // ThreeOsc is itself a source (like Input, see ModuleType::threeOsc's class
                     // comment) -- there's no "from Input" leg to wire (it has no input port at
@@ -562,7 +566,7 @@ namespace GGrid
         // has no output ports (only its incoming edges are still valid) -- prune whichever side
         // just became invalid for the new type. Iterated backward since removeConnection shifts
         // later entries down.
-        if (newType == ModuleType::input || newType == ModuleType::threeOsc)
+        if (newType == ModuleType::input || newType == ModuleType::threeOsc || newType == ModuleType::wavetableSynth)
         {
             for (int c = processor.numConnections - 1; c >= 0; --c)
                 if (processor.connections[(size_t) c].to == slotIndex)
@@ -656,6 +660,7 @@ namespace GGrid
         clipboard.numModules = 0;
         clipboard.numAudioConnections = 0;
         clipboard.numModConnections = 0;
+        clipboard.pasteCount = 0;
 
         // Maps a real slot index to its position within the clipboard (only set for selected,
         // populated slots) so connections between two copied modules can be recorded relative to
@@ -670,6 +675,7 @@ namespace GGrid
                 topLeft.x = juce::jmin (topLeft.x, processor.nodePositions[(size_t) i].x);
                 topLeft.y = juce::jmin (topLeft.y, processor.nodePositions[(size_t) i].y);
             }
+        clipboard.sourceTopLeft = topLeft;
 
         for (int i = 0; i < kMaxSlots; ++i)
         {
@@ -734,6 +740,8 @@ namespace GGrid
         // Offset from the copied modules' original position so repeated pastes visibly cascade
         // rather than stacking exactly on top of the originals (or each other).
         constexpr float pasteOffset = 40.0f;
+        const auto pasteOrigin = clipboard.sourceTopLeft + juce::Point<float> (pasteOffset * (float) (clipboard.pasteCount + 1),
+                                                                               pasteOffset * (float) (clipboard.pasteCount + 1));
 
         std::array<int, kMaxSlots> targetSlot;
         targetSlot.fill (-1);
@@ -760,7 +768,7 @@ namespace GGrid
             if (auto* choiceParam = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (slotTypeParamId (found))))
                 *choiceParam = (int) mod.type;
 
-            processor.nodePositions[(size_t) found] = mod.relativePosition + juce::Point<float> (pasteOffset, pasteOffset);
+            processor.nodePositions[(size_t) found] = pasteOrigin + mod.relativePosition;
             processor.nodeSizes[(size_t) found] = mod.size;
             processor.nodeFolded[(size_t) found] = mod.folded;
 
@@ -800,6 +808,7 @@ namespace GGrid
 
         refreshLayout();
         repaint();
+        ++clipboard.pasteCount;
     }
 
     void NodeGraphEditor::duplicateSelection()
@@ -846,6 +855,12 @@ namespace GGrid
             setSelectionToSingle (slotIndex);
         // else: already part of the selection (possibly multi-node) -- preserve it for now; it
         // only collapses to just this node if the gesture resolves as a plain click, below.
+
+        if (e.mods.isAltDown())
+        {
+            copySelection();
+            pasteClipboard();
+        }
 
         nodeDragMode = NodeDragMode::pendingClickOrMove;
         nodeDragStartCanvasPos = e.getEventRelativeTo (this).position;

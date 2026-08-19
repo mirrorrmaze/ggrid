@@ -131,7 +131,9 @@ namespace GGrid
             active[(size_t) i] = (type != ModuleType::none) && ! isModulationSourceType (type);
             isInputRole[(size_t) i] = (type == ModuleType::input);
             isOutputRole[(size_t) i] = (type == ModuleType::output);
-            isSourceRole[(size_t) i] = isInputRole[(size_t) i] || (type == ModuleType::threeOsc);
+            isSourceRole[(size_t) i] = isInputRole[(size_t) i]
+                || type == ModuleType::threeOsc
+                || type == ModuleType::wavetableSynth;
         }
 
         // Tick every active modulation-source slot (LFO/Envelope/ADSR) once per block, before the

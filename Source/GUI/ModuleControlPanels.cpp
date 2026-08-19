@@ -190,7 +190,229 @@ namespace GGrid
         oversampleBox.setBounds (right.removeFromTop (24));
     }
 
+    FilterResponseEditor::FilterResponseEditor (juce::AudioProcessorValueTreeState& apvts,
+                                                juce::String frequencyParamId,
+                                                juce::String resonanceParamId,
+                                                juce::String driveParamId,
+                                                juce::String modeParamId,
+                                                juce::String morphParamId,
+                                                juce::String distortionParamId)
+        : frequencyParam (dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (frequencyParamId))),
+          resonanceParam (dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (resonanceParamId))),
+          driveParam (dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (driveParamId))),
+          morphParam (dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (morphParamId))),
+          modeParam (dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (modeParamId))),
+          distortionParam (dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (distortionParamId)))
+    {
+        setMouseCursor (juce::MouseCursor::CrosshairCursor);
+        startTimerHz (24);
+    }
+
+    FilterResponseEditor::~FilterResponseEditor()
+    {
+        stopTimer();
+    }
+
+    float FilterResponseEditor::getFrequency() const
+    {
+        return frequencyParam != nullptr ? frequencyParam->get() : 1000.0f;
+    }
+
+    float FilterResponseEditor::getResonance01() const
+    {
+        return resonanceParam != nullptr ? resonanceParam->convertTo0to1 (resonanceParam->get()) : 0.35f;
+    }
+
+    float FilterResponseEditor::getDrive01() const
+    {
+        return driveParam != nullptr ? driveParam->convertTo0to1 (driveParam->get()) : 0.0f;
+    }
+
+    float FilterResponseEditor::getMorph01() const
+    {
+        return morphParam != nullptr ? morphParam->convertTo0to1 (morphParam->get()) : 0.0f;
+    }
+
+    int FilterResponseEditor::getMode() const
+    {
+        if (modeParam == nullptr)
+            return 0;
+
+        const int index = modeParam->getIndex();
+        if (modeParam->choices.size() <= 4)
+            return index;
+
+        if (index == 8) return 1; // Ladder High Pass
+        if (index == 9) return 2; // Formant
+        if (index >= 4 && index <= 6) return 3; // comb/allpass character
+        return juce::jlimit (0, 3, index);
+    }
+
+    int FilterResponseEditor::getDistortion() const
+    {
+        return distortionParam != nullptr ? distortionParam->getIndex() : 0;
+    }
+
+    void FilterResponseEditor::setFloatParam (juce::AudioParameterFloat* param, float value)
+    {
+        if (param == nullptr)
+            return;
+
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
+    }
+
+    float FilterResponseEditor::responseAt (float hz, float cutoff, float resonance01, float drive01, float morph01, int mode, int distortion) const
+    {
+        const float x = juce::jlimit (0.05f, 20.0f, hz / juce::jmax (20.0f, cutoff));
+        float slope = 2.0f + drive01 * 2.5f;
+        float peakScale = 1.0f + resonance01 * (5.0f + drive01 * 5.0f);
+        float tilt = 1.0f;
+        float ripple = 1.0f;
+
+        if (distortionParam != nullptr)
+        {
+            switch (distortion)
+            {
+                case 1: slope += 1.6f * morph01; peakScale += drive01 * 3.0f; break; // Hard Clip
+                case 2: ripple += std::sin (std::log2 (x) * 12.0f) * drive01 * morph01 * 0.18f; break; // Sine Fold
+                case 3: ripple += std::sin (std::log2 (x) * 18.0f) * drive01 * morph01 * 0.28f; slope += morph01; break; // Foldback
+                case 4: tilt = std::pow (x, morph01 * drive01 * 0.18f); peakScale += morph01 * 1.5f; break; // Asymmetric
+                case 5: tilt = 1.0f / std::pow (x, morph01 * drive01 * 0.12f); slope -= morph01 * 0.45f; break; // Warm
+                case 6: peakScale += drive01 * (2.0f + morph01 * 4.0f); break; // Saturated
+                case 7: tilt = std::pow (x, -0.08f + morph01 * drive01 * 0.28f); peakScale += morph01 * 2.0f; break; // Bias
+                case 8: slope += 2.4f * morph01; ripple += std::sin (std::log2 (x) * 8.0f) * drive01 * 0.12f; break; // Clipped
+                default: peakScale += morph01 * drive01 * 1.5f; break;
+            }
+        }
+
+        slope = juce::jmax (0.8f, slope);
+        ripple = juce::jlimit (0.35f, 1.75f, ripple);
+        const float bell = std::exp (-std::pow (std::log2 (x) * (2.4f + resonance01 * 3.6f), 2.0f)) * resonance01 * peakScale;
+        const float low = 1.0f / std::sqrt (1.0f + std::pow (x, slope * 2.0f));
+        const float high = 1.0f / std::sqrt (1.0f + std::pow (1.0f / x, slope * 2.0f));
+        const float band = std::exp (-std::abs (std::log2 (x)) * (1.2f + (1.0f - resonance01) * 4.0f));
+        const float notch = 1.0f - band * (0.75f + resonance01 * 0.2f);
+
+        switch (mode)
+        {
+            case 1:  return (high + bell * 0.45f) * tilt * ripple;
+            case 2:  return band * (0.5f + resonance01 * 1.4f) * tilt * ripple;
+            case 3:  return (notch + bell * 0.25f) * tilt * ripple;
+            default: return (low + bell * 0.35f) * tilt * ripple;
+        }
+    }
+
+    void FilterResponseEditor::paint (juce::Graphics& g)
+    {
+        auto r = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (juce::Colour (0xff10141b));
+        g.fillRoundedRectangle (r, 5.0f);
+        g.setColour (juce::Colour (0xff303846));
+        g.drawRoundedRectangle (r, 5.0f, 1.0f);
+
+        auto plot = r.reduced (10.0f, 8.0f);
+        g.setColour (juce::Colour (0xff252c36));
+        for (float t : { 0.25f, 0.5f, 0.75f })
+        {
+            g.drawVerticalLine ((int) (plot.getX() + plot.getWidth() * t), plot.getY(), plot.getBottom());
+            g.drawHorizontalLine ((int) (plot.getY() + plot.getHeight() * t), plot.getX(), plot.getRight());
+        }
+
+        const float cutoff = getFrequency();
+        const float resonance01 = getResonance01();
+        const float drive01 = getDrive01();
+        const float morph01 = getMorph01();
+        const int mode = getMode();
+        const int distortion = getDistortion();
+
+        juce::Path fill, curve;
+        for (int x = 0; x < (int) plot.getWidth(); ++x)
+        {
+            const float norm = (float) x / juce::jmax (1.0f, plot.getWidth() - 1.0f);
+            const float hz = 20.0f * std::pow (8000.0f / 20.0f, norm);
+            const float db = juce::Decibels::gainToDecibels (juce::jmax (0.001f, responseAt (hz, cutoff, resonance01, drive01, morph01, mode, distortion)));
+            const float yNorm = juce::jmap (juce::jlimit (-36.0f, 18.0f, db), -36.0f, 18.0f, 1.0f, 0.0f);
+            const float px = plot.getX() + (float) x;
+            const float py = plot.getY() + yNorm * plot.getHeight();
+
+            if (x == 0)
+            {
+                curve.startNewSubPath (px, py);
+                fill.startNewSubPath (px, plot.getBottom());
+                fill.lineTo (px, py);
+            }
+            else
+            {
+                curve.lineTo (px, py);
+                fill.lineTo (px, py);
+            }
+        }
+        fill.lineTo (plot.getRight(), plot.getBottom());
+        fill.closeSubPath();
+
+        const auto accent = juce::Colour (0xffb7c8ff);
+        g.setColour (accent.withAlpha (0.13f + drive01 * 0.14f));
+        g.fillPath (fill);
+        g.setColour (accent.withAlpha (0.92f));
+        g.strokePath (curve, juce::PathStrokeType (2.0f + drive01 * 1.2f));
+
+        const float cutoffNorm = std::log (cutoff / 20.0f) / std::log (8000.0f / 20.0f);
+        const float handleX = plot.getX() + juce::jlimit (0.0f, 1.0f, cutoffNorm) * plot.getWidth();
+        const float handleY = plot.getBottom() - resonance01 * plot.getHeight();
+        g.setColour (juce::Colours::white.withAlpha (0.18f));
+        g.drawLine (handleX, plot.getY(), handleX, plot.getBottom(), 1.0f);
+        g.setColour (juce::Colours::white);
+        g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ handleX, handleY }));
+    }
+
+    void FilterResponseEditor::mouseDown (const juce::MouseEvent& e)
+    {
+        if (frequencyParam != nullptr) frequencyParam->beginChangeGesture();
+        if (resonanceParam != nullptr) resonanceParam->beginChangeGesture();
+        if (driveParam != nullptr) driveParam->beginChangeGesture();
+        updateFromMouse (e.position, e.mods);
+    }
+
+    void FilterResponseEditor::mouseDrag (const juce::MouseEvent& e)
+    {
+        updateFromMouse (e.position, e.mods);
+    }
+
+    void FilterResponseEditor::mouseUp (const juce::MouseEvent&)
+    {
+        if (frequencyParam != nullptr) frequencyParam->endChangeGesture();
+        if (resonanceParam != nullptr) resonanceParam->endChangeGesture();
+        if (driveParam != nullptr) driveParam->endChangeGesture();
+    }
+
+    void FilterResponseEditor::updateFromMouse (juce::Point<float> pos, const juce::ModifierKeys& mods)
+    {
+        auto plot = getLocalBounds().toFloat().reduced (11.0f, 9.0f);
+        const float x01 = juce::jlimit (0.0f, 1.0f, (pos.x - plot.getX()) / juce::jmax (1.0f, plot.getWidth()));
+        const float y01 = juce::jlimit (0.0f, 1.0f, 1.0f - (pos.y - plot.getY()) / juce::jmax (1.0f, plot.getHeight()));
+
+        if (mods.isAltDown() || mods.isCommandDown() || mods.isRightButtonDown())
+        {
+            if (driveParam != nullptr)
+                setFloatParam (driveParam, driveParam->convertFrom0to1 (y01));
+        }
+        else
+        {
+            if (frequencyParam != nullptr)
+                setFloatParam (frequencyParam, 20.0f * std::pow (8000.0f / 20.0f, x01));
+            if (resonanceParam != nullptr)
+                setFloatParam (resonanceParam, resonanceParam->convertFrom0to1 (y01));
+        }
+
+        repaint();
+    }
+
     FilterControlsPanel::FilterControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : responseEditor (apvts,
+                          filterParamId (slotIndex, FilterParam::frequency),
+                          filterParamId (slotIndex, FilterParam::resonance),
+                          filterParamId (slotIndex, FilterParam::drive),
+                          filterParamId (slotIndex, FilterParam::type))
     {
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
@@ -204,9 +426,11 @@ namespace GGrid
 
         setupRotary (frequencySlider, frequencyLabel, "Frequency");
         setupRotary (resonanceSlider, resonanceLabel, "Resonance");
+        setupRotary (driveSlider, driveLabel, "Drive");
         setupRotary (feedbackSlider, feedbackLabel, "Feedback");
         setupRotary (mixSlider, mixLabel, "Mix");
         setupRotary (outputSlider, outputLabel, "Output");
+        addAndMakeVisible (responseEditor);
 
         typeLabel.setText ("Type", juce::dontSendNotification);
         typeLabel.setJustificationType (juce::Justification::centred);
@@ -223,6 +447,7 @@ namespace GGrid
 
         frequencyAttachment = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::frequency), frequencySlider);
         resonanceAttachment = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::resonance), resonanceSlider);
+        driveAttachment     = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::drive), driveSlider);
         feedbackAttachment  = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::feedback), feedbackSlider);
         mixAttachment       = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::mix), mixSlider);
         outputAttachment    = std::make_unique<SliderAttachment> (apvts, filterParamId (slotIndex, FilterParam::output), outputSlider);
@@ -231,6 +456,7 @@ namespace GGrid
         modTargets = {
             { filterParamId (slotIndex, FilterParam::frequency), "Frequency", &frequencySlider },
             { filterParamId (slotIndex, FilterParam::resonance), "Resonance", &resonanceSlider },
+            { filterParamId (slotIndex, FilterParam::drive),      "Drive",      &driveSlider },
             { filterParamId (slotIndex, FilterParam::feedback),  "Feedback",  &feedbackSlider },
             { filterParamId (slotIndex, FilterParam::mix),       "Mix",       &mixSlider },
             { filterParamId (slotIndex, FilterParam::output),    "Output",    &outputSlider },
@@ -241,9 +467,6 @@ namespace GGrid
     {
         auto area = getLocalBounds().reduced (4);
 
-        auto knobRow = area.removeFromTop (106);
-        const int knobWidth = knobRow.getWidth() / 5;
-
         auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (col.removeFromTop (16));
@@ -251,11 +474,21 @@ namespace GGrid
             slider.setBounds (col);
         };
 
-        layoutKnob (knobRow.removeFromLeft (knobWidth), frequencyLabel, frequencySlider);
-        layoutKnob (knobRow.removeFromLeft (knobWidth), resonanceLabel, resonanceSlider);
-        layoutKnob (knobRow.removeFromLeft (knobWidth), feedbackLabel, feedbackSlider);
-        layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
-        layoutKnob (knobRow, outputLabel, outputSlider);
+        responseEditor.setBounds (area.removeFromTop (92));
+        area.removeFromTop (6);
+
+        auto topKnobRow = area.removeFromTop (106);
+        const int topKnobWidth = topKnobRow.getWidth() / 3;
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), frequencyLabel, frequencySlider);
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), resonanceLabel, resonanceSlider);
+        layoutKnob (topKnobRow, driveLabel, driveSlider);
+
+        area.removeFromTop (6);
+        auto bottomKnobRow = area.removeFromTop (106);
+        const int bottomKnobWidth = bottomKnobRow.getWidth() / 3;
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), feedbackLabel, feedbackSlider);
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
+        layoutKnob (bottomKnobRow, outputLabel, outputSlider);
 
         area.removeFromTop (6);
         auto bottomRow = area.removeFromTop (44);
@@ -263,6 +496,267 @@ namespace GGrid
 
         typeLabel.setBounds (left.removeFromTop (16));
         typeBox.setBounds (left.removeFromTop (24));
+    }
+
+    NonlinearFilterControlsPanel::NonlinearFilterControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+        : responseEditor (apvts,
+                          nonlinearFilterParamId (slotIndex, NonlinearFilterParam::frequency),
+                          nonlinearFilterParamId (slotIndex, NonlinearFilterParam::resonance),
+                          nonlinearFilterParamId (slotIndex, NonlinearFilterParam::drive),
+                          nonlinearFilterParamId (slotIndex, NonlinearFilterParam::mode),
+                          nonlinearFilterParamId (slotIndex, NonlinearFilterParam::morph),
+                          nonlinearFilterParamId (slotIndex, NonlinearFilterParam::distortion))
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (frequencySlider, frequencyLabel, "Frequency");
+        setupRotary (resonanceSlider, resonanceLabel, "Resonance");
+        setupRotary (driveSlider, driveLabel, "Drive");
+        setupRotary (morphSlider, morphLabel, "Morph");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        modeLabel.setText ("Mode", juce::dontSendNotification);
+        modeLabel.setJustificationType (juce::Justification::centred);
+        distortionLabel.setText ("Distortion", juce::dontSendNotification);
+        distortionLabel.setJustificationType (juce::Justification::centred);
+
+        int itemId = 1;
+        for (auto& choice : getNonlinearFilterModeChoices())
+            modeBox.addItem (choice, itemId++);
+        itemId = 1;
+        for (auto& choice : getNonlinearFilterDistortionChoices())
+            distortionBox.addItem (choice, itemId++);
+
+        addAndMakeVisible (responseEditor);
+        addAndMakeVisible (modeBox);
+        addAndMakeVisible (modeLabel);
+        addAndMakeVisible (distortionBox);
+        addAndMakeVisible (distortionLabel);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        frequencyAttachment = std::make_unique<SliderAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::frequency), frequencySlider);
+        resonanceAttachment = std::make_unique<SliderAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::resonance), resonanceSlider);
+        driveAttachment     = std::make_unique<SliderAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::drive), driveSlider);
+        morphAttachment     = std::make_unique<SliderAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::morph), morphSlider);
+        mixAttachment       = std::make_unique<SliderAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::mix), mixSlider);
+        outputAttachment    = std::make_unique<SliderAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::output), outputSlider);
+        modeAttachment      = std::make_unique<ComboBoxAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::mode), modeBox);
+        distortionAttachment = std::make_unique<ComboBoxAttachment> (apvts, nonlinearFilterParamId (slotIndex, NonlinearFilterParam::distortion), distortionBox);
+
+        modTargets = {
+            { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::frequency), "Frequency", &frequencySlider },
+            { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::resonance), "Resonance", &resonanceSlider },
+            { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::drive),     "Drive",     &driveSlider },
+            { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::morph),     "Morph",     &morphSlider },
+            { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::mix),       "Mix",       &mixSlider },
+            { nonlinearFilterParamId (slotIndex, NonlinearFilterParam::output),    "Output",    &outputSlider },
+        };
+    }
+
+    void NonlinearFilterControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        responseEditor.setBounds (area.removeFromTop (92));
+        area.removeFromTop (6);
+
+        auto topKnobRow = area.removeFromTop (106);
+        const int topKnobWidth = topKnobRow.getWidth() / 3;
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), frequencyLabel, frequencySlider);
+        layoutKnob (topKnobRow.removeFromLeft (topKnobWidth), resonanceLabel, resonanceSlider);
+        layoutKnob (topKnobRow, driveLabel, driveSlider);
+
+        area.removeFromTop (6);
+        auto bottomKnobRow = area.removeFromTop (106);
+        const int bottomKnobWidth = bottomKnobRow.getWidth() / 3;
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), morphLabel, morphSlider);
+        layoutKnob (bottomKnobRow.removeFromLeft (bottomKnobWidth), mixLabel, mixSlider);
+        layoutKnob (bottomKnobRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto bottomRow = area.removeFromTop (44);
+        auto left = bottomRow.removeFromLeft (bottomRow.getWidth() / 2).reduced (4, 0);
+        auto right = bottomRow.reduced (4, 0);
+
+        modeLabel.setBounds (left.removeFromTop (16));
+        modeBox.setBounds (left.removeFromTop (24));
+        distortionLabel.setBounds (right.removeFromTop (16));
+        distortionBox.setBounds (right.removeFromTop (24));
+    }
+
+    MackityControlsPanel::MackityControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (inputSlider, inputLabel, "Input");
+        setupRotary (padSlider, padLabel, "Out Pad");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        inputAttachment  = std::make_unique<SliderAttachment> (apvts, mackityParamId (slotIndex, MackityParam::input), inputSlider);
+        padAttachment    = std::make_unique<SliderAttachment> (apvts, mackityParamId (slotIndex, MackityParam::pad), padSlider);
+        mixAttachment    = std::make_unique<SliderAttachment> (apvts, mackityParamId (slotIndex, MackityParam::mix), mixSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (apvts, mackityParamId (slotIndex, MackityParam::output), outputSlider);
+
+        modTargets = {
+            { mackityParamId (slotIndex, MackityParam::input),  "Input",  &inputSlider },
+            { mackityParamId (slotIndex, MackityParam::pad),    "Out Pad", &padSlider },
+            { mackityParamId (slotIndex, MackityParam::mix),    "Mix",    &mixSlider },
+            { mackityParamId (slotIndex, MackityParam::output), "Output", &outputSlider },
+        };
+    }
+
+    void MackityControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 4;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), inputLabel, inputSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), padLabel, padSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
+        layoutKnob (knobRow, outputLabel, outputSlider);
+    }
+
+    ShimmerReverbControlsPanel::ShimmerReverbControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (sizeSlider, sizeLabel, "Size");
+        setupRotary (feedbackSlider, feedbackLabel, "Feedback");
+        setupRotary (diffusionSlider, diffusionLabel, "Diffusion");
+        setupRotary (shiftSlider, shiftLabel, "Shift");
+        setupRotary (modRateSlider, modRateLabel, "Mod Rate");
+        setupRotary (modDepthSlider, modDepthLabel, "Mod Depth");
+        setupRotary (lowCutSlider, lowCutLabel, "Low Cut");
+        setupRotary (highCutSlider, highCutLabel, "High Cut");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        pitchModeLabel.setJustificationType (juce::Justification::centred);
+        colorLabel.setJustificationType (juce::Justification::centred);
+        addAndMakeVisible (pitchModeLabel);
+        addAndMakeVisible (colorLabel);
+
+        int itemId = 1;
+        for (auto& choice : getShimmerReverbPitchModeChoices())
+            pitchModeBox.addItem (choice, itemId++);
+        itemId = 1;
+        for (auto& choice : getShimmerReverbColorChoices())
+            colorBox.addItem (choice, itemId++);
+        addAndMakeVisible (pitchModeBox);
+        addAndMakeVisible (colorBox);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+        sizeAttachment      = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::size), sizeSlider);
+        feedbackAttachment  = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::feedback), feedbackSlider);
+        diffusionAttachment = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::diffusion), diffusionSlider);
+        shiftAttachment     = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::shift), shiftSlider);
+        modRateAttachment   = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::modRate), modRateSlider);
+        modDepthAttachment  = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::modDepth), modDepthSlider);
+        lowCutAttachment    = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::lowCut), lowCutSlider);
+        highCutAttachment   = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::highCut), highCutSlider);
+        mixAttachment       = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::mix), mixSlider);
+        outputAttachment    = std::make_unique<SliderAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::output), outputSlider);
+        pitchModeAttachment = std::make_unique<ComboBoxAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::pitchMode), pitchModeBox);
+        colorAttachment     = std::make_unique<ComboBoxAttachment> (apvts, shimmerReverbParamId (slotIndex, ShimmerReverbParam::color), colorBox);
+
+        modTargets = {
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::size),      "Size",      &sizeSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::feedback),  "Feedback",  &feedbackSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::diffusion), "Diffusion", &diffusionSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::shift),     "Shift",     &shiftSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::modRate),   "Mod Rate",  &modRateSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::modDepth),  "Mod Depth", &modDepthSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::lowCut),    "Low Cut",   &lowCutSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::highCut),   "High Cut",  &highCutSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::mix),       "Mix",       &mixSlider },
+            { shimmerReverbParamId (slotIndex, ShimmerReverbParam::output),    "Output",    &outputSlider },
+        };
+    }
+
+    void ShimmerReverbControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        auto row1 = area.removeFromTop (106);
+        const int w1 = row1.getWidth() / 4;
+        layoutKnob (row1.removeFromLeft (w1), sizeLabel, sizeSlider);
+        layoutKnob (row1.removeFromLeft (w1), feedbackLabel, feedbackSlider);
+        layoutKnob (row1.removeFromLeft (w1), diffusionLabel, diffusionSlider);
+        layoutKnob (row1, shiftLabel, shiftSlider);
+
+        area.removeFromTop (6);
+        auto row2 = area.removeFromTop (106);
+        const int w2 = row2.getWidth() / 3;
+        layoutKnob (row2.removeFromLeft (w2), modRateLabel, modRateSlider);
+        layoutKnob (row2.removeFromLeft (w2), modDepthLabel, modDepthSlider);
+        layoutKnob (row2, lowCutLabel, lowCutSlider);
+
+        area.removeFromTop (6);
+        auto row3 = area.removeFromTop (106);
+        const int w3 = row3.getWidth() / 3;
+        layoutKnob (row3.removeFromLeft (w3), highCutLabel, highCutSlider);
+        layoutKnob (row3.removeFromLeft (w3), mixLabel, mixSlider);
+        layoutKnob (row3, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto selectorRow = area.removeFromTop (44);
+        auto left = selectorRow.removeFromLeft (selectorRow.getWidth() / 2).reduced (4, 0);
+        auto right = selectorRow.reduced (4, 0);
+        pitchModeLabel.setBounds (left.removeFromTop (16));
+        pitchModeBox.setBounds (left.removeFromTop (24));
+        colorLabel.setBounds (right.removeFromTop (16));
+        colorBox.setBounds (right.removeFromTop (24));
     }
 
     DelayControlsPanel::DelayControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
@@ -2087,5 +2581,372 @@ namespace GGrid
         glideTimeRow.removeFromLeft (110 + 8); // align under the Glide button, past Mono/Legato + gap
         glideTimeLabel.setBounds (glideTimeRow.removeFromLeft (66));
         glideTimeSlider.setBounds (glideTimeRow);
+    }
+
+    WavetableSynthPreviewComponent::WavetableSynthPreviewComponent (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
+        : apvts (apvtsIn), slotIndex (slotIndexIn)
+    {
+        setInterceptsMouseClicks (false, false);
+        startTimerHz (15);
+    }
+
+    WavetableSynthPreviewComponent::~WavetableSynthPreviewComponent()
+    {
+        stopTimer();
+    }
+
+    std::shared_ptr<const WavetableLibrary::Table> WavetableSynthPreviewComponent::getTable()
+    {
+        const auto* tableParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, generatorIndex, WavetableSynthGenParam::table));
+        const int wanted = tableParam != nullptr ? (int) tableParam->load() : 0;
+        if (wanted != loadedIndex || table == nullptr)
+        {
+            table = WavetableLibrary::loadTable (wanted);
+            loadedIndex = wanted;
+        }
+        return table;
+    }
+
+    void WavetableSynthPreviewComponent::setGeneratorIndex (int index)
+    {
+        const int next = juce::jlimit (0, kNumWavetableSynthGenerators - 1, index);
+        if (generatorIndex == next)
+            return;
+
+        generatorIndex = next;
+        loadedIndex = -1;
+        repaint();
+    }
+
+    void WavetableSynthPreviewComponent::paint (juce::Graphics& g)
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour (Palette::bg);
+        g.fillRect (bounds);
+        g.setColour (Palette::dim);
+        g.drawRect (bounds, 1.0f);
+
+        const auto currentTable = getTable();
+        if (currentTable == nullptr || ! currentTable->isValid())
+            return;
+
+        auto waveArea = bounds.reduced (8.0f, 8.0f);
+        const auto* frameParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, generatorIndex, WavetableSynthGenParam::frame));
+        const auto* smoothParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, generatorIndex, WavetableSynthGenParam::smooth));
+        const float frame = juce::jlimit (0.0f, (float) currentTable->numFrames - 1.0f, (frameParam != nullptr ? frameParam->load() : 1.0f) - 1.0f);
+        const float smooth = (smoothParam != nullptr ? smoothParam->load() : 0.0f) / 100.0f;
+
+        g.setColour (Palette::dimmer);
+        g.drawLine (waveArea.getX(), waveArea.getCentreY(), waveArea.getRight(), waveArea.getCentreY(), 1.0f);
+
+        juce::Path path;
+        constexpr int points = 180;
+        for (int i = 0; i < points; ++i)
+        {
+            const float x01 = (float) i / (float) (points - 1);
+            const float y = currentTable->sample (frame, x01, smooth);
+            const auto x = juce::jmap (x01, waveArea.getX(), waveArea.getRight());
+            const auto py = juce::jmap (y, -1.0f, 1.0f, waveArea.getBottom(), waveArea.getY());
+            if (i == 0) path.startNewSubPath (x, py);
+            else        path.lineTo (x, py);
+        }
+
+        g.setColour (Palette::bright);
+        g.strokePath (path, juce::PathStrokeType (2.0f));
+    }
+
+    WavetableSynthControlsPanel::WavetableSynthControlsPanel (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
+        : preview (apvtsIn, slotIndexIn), apvts (apvtsIn), slotIndex (slotIndexIn)
+    {
+        addAndMakeVisible (preview);
+
+        const auto genLabels = getWavetableSynthGeneratorLabels();
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            auto& button = generatorButtons[(size_t) gen];
+            button.setButtonText (genLabels[gen]);
+            button.setClickingTogglesState (false);
+            button.onClick = [this, gen] { selectGenerator (gen); };
+            addAndMakeVisible (button);
+        }
+
+        addAndMakeVisible (generatorEnabledButton);
+        generatorEnabledButton.onClick = [this] { refreshGeneratorButtons(); };
+
+        int itemId = 1;
+        for (auto& name : WavetableLibrary::getCatalogDisplayNames())
+            tableBox.addItem (name, itemId++);
+        addAndMakeVisible (tableBox);
+        addAndMakeVisible (prevTableButton);
+        addAndMakeVisible (nextTableButton);
+        addAndMakeVisible (tableLabel);
+        prevTableButton.onClick = [this] { stepSelectedTable (-1); };
+        nextTableButton.onClick = [this] { stepSelectedTable (1); };
+
+        const auto outputNames = getWavetableSynthOutputChoices();
+        for (int out = 0; out < kNumWavetableSynthOutputs; ++out)
+        {
+            auto& button = outputButtons[(size_t) out];
+            button.setButtonText (outputNames[out]);
+            button.setClickingTogglesState (false);
+            button.onClick = [this, out] { setSelectedGeneratorOutput (out); };
+            addAndMakeVisible (button);
+        }
+
+        int algorithmId = 1;
+        for (auto& choice : getWavetableSynthAlgorithmChoices())
+            algorithmBox.addItem (choice, algorithmId++);
+        algorithmLabel.setJustificationType (juce::Justification::centredLeft);
+        algorithmHintLabel.setJustificationType (juce::Justification::centredLeft);
+        algorithmHintLabel.setColour (juce::Label::textColourId, Palette::dim);
+        algorithmBox.onChange = [this]
+        {
+            static const juce::String hints[] = { "1>2>3>4>5>6>7>8", "1>2  3>4  5>6  7>8", "1>2>3>4  5>6>7>8", "1+2+3+4+5+6+7+8" };
+            algorithmHintLabel.setText (hints[(size_t) juce::jlimit (0, 3, algorithmBox.getSelectedItemIndex())], juce::dontSendNotification);
+        };
+        addAndMakeVisible (algorithmLabel);
+        addAndMakeVisible (algorithmHintLabel);
+        addAndMakeVisible (algorithmBox);
+
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 52, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (frameSlider, frameLabel, "Frame");
+        setupRotary (smoothSlider, smoothLabel, "Smooth");
+        setupRotary (coarseSlider, coarseLabel, "Coarse");
+        setupRotary (fineSlider, fineLabel, "Fine");
+        setupRotary (panSlider, panLabel, "Pan");
+        setupRotary (levelSlider, levelLabel, "Level");
+        setupRotary (fmSlider, fmLabel, "FM");
+        setupRotary (attackSlider, attackLabel, "A");
+        setupRotary (decaySlider, decayLabel, "D");
+        setupRotary (sustainSlider, sustainLabel, "S");
+        setupRotary (releaseSlider, releaseLabel, "R");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        glideTimeSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        glideTimeSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 20);
+        glideTimeLabel.setJustificationType (juce::Justification::centredLeft);
+        addAndMakeVisible (monoLegatoButton);
+        addAndMakeVisible (glideButton);
+        addAndMakeVisible (glideTimeLabel);
+        addAndMakeVisible (glideTimeSlider);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        algorithmAttachment = std::make_unique<ComboBoxAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::algorithm), algorithmBox);
+        attackAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::attack), attackSlider);
+        decayAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::decay), decaySlider);
+        sustainAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::sustain), sustainSlider);
+        releaseAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::release), releaseSlider);
+        outputAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::output), outputSlider);
+        monoLegatoAttachment = std::make_unique<ButtonAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::monoLegato), monoLegatoButton);
+        glideAttachment = std::make_unique<ButtonAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::glide), glideButton);
+        glideTimeAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::glideTimeMs), glideTimeSlider);
+
+        rebindGeneratorControls();
+        refreshGeneratorButtons();
+        algorithmBox.onChange();
+    }
+
+    void WavetableSynthControlsPanel::selectGenerator (int index)
+    {
+        const int next = juce::jlimit (0, kNumWavetableSynthGenerators - 1, index);
+        if (selectedGenerator == next)
+            return;
+
+        selectedGenerator = next;
+        preview.setGeneratorIndex (selectedGenerator);
+        rebindGeneratorControls();
+        refreshGeneratorButtons();
+        resized();
+        if (auto* parent = getParentComponent())
+            parent->repaint();
+    }
+
+    void WavetableSynthControlsPanel::rebindGeneratorControls()
+    {
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        generatorEnabledAttachment.reset();
+        tableAttachment.reset();
+        frameAttachment.reset();
+        smoothAttachment.reset();
+        coarseAttachment.reset();
+        fineAttachment.reset();
+        panAttachment.reset();
+        levelAttachment.reset();
+        fmAttachment.reset();
+
+        generatorEnabledAttachment = std::make_unique<ButtonAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::enabled), generatorEnabledButton);
+        tableAttachment = std::make_unique<ComboBoxAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::table), tableBox);
+        frameAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::frame), frameSlider);
+        smoothAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::smooth), smoothSlider);
+        coarseAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::coarse), coarseSlider);
+        fineAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::fine), fineSlider);
+        panAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::pan), panSlider);
+        levelAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::level), levelSlider);
+        fmAttachment = std::make_unique<SliderAttachment> (
+            apvts, wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::fm), fmSlider);
+
+        const auto label = getWavetableSynthGeneratorLabels()[selectedGenerator];
+        modTargets.clear();
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::frame),  label + " Frame",  &frameSlider });
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::smooth), label + " Smooth", &smoothSlider });
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::coarse), label + " Coarse", &coarseSlider });
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::fine),   label + " Fine",   &fineSlider });
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::pan),    label + " Pan",    &panSlider });
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::level),  label + " Level",  &levelSlider });
+        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::fm),     label + " FM",     &fmSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::attack), "Attack", &attackSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::decay), "Decay", &decaySlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::sustain), "Sustain", &sustainSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::release), "Release", &releaseSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::output), "Output", &outputSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::glideTimeMs), "Glide Time", &glideTimeSlider });
+    }
+
+    void WavetableSynthControlsPanel::refreshGeneratorButtons()
+    {
+        const auto labels = getWavetableSynthGeneratorLabels();
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            const auto* enabled = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::enabled));
+            const auto* output = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::output));
+            const bool isOn = enabled != nullptr && enabled->load() >= 0.5f;
+            const int out = output != nullptr ? (int) output->load() + 1 : 1;
+            generatorButtons[(size_t) gen].setButtonText (labels[gen] + (isOn ? " > " : " - ") + juce::String (out));
+            generatorButtons[(size_t) gen].setToggleState (gen == selectedGenerator, juce::dontSendNotification);
+        }
+
+        const auto* selectedOut = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::output));
+        const int outIndex = selectedOut != nullptr ? (int) selectedOut->load() : 0;
+        for (int out = 0; out < kNumWavetableSynthOutputs; ++out)
+        {
+            outputButtons[(size_t) out].setToggleState (out == outIndex, juce::dontSendNotification);
+            outputButtons[(size_t) out].repaint();
+        }
+    }
+
+    void WavetableSynthControlsPanel::setSelectedGeneratorOutput (int outputIndex)
+    {
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (
+                apvts.getParameter (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::output))))
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) juce::jlimit (0, kNumWavetableSynthOutputs - 1, outputIndex)));
+        refreshGeneratorButtons();
+    }
+
+    void WavetableSynthControlsPanel::stepSelectedTable (int direction)
+    {
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (
+                apvts.getParameter (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::table))))
+        {
+            const int next = juce::jlimit (0, param->choices.size() - 1, param->getIndex() + direction);
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) next));
+        }
+    }
+
+    void WavetableSynthControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto genRow = area.removeFromTop (54);
+        const int genWidth = genRow.getWidth() / kNumWavetableSynthGenerators;
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            auto cell = gen == kNumWavetableSynthGenerators - 1 ? genRow : genRow.removeFromLeft (genWidth);
+            generatorButtons[(size_t) gen].setBounds (cell.reduced (2, 6));
+        }
+
+        area.removeFromTop (4);
+        auto top = area.removeFromTop (152);
+        auto left = top.removeFromLeft (juce::jmax (190, top.getWidth() / 2));
+        preview.setBounds (left.reduced (0, 2));
+
+        auto browser = top.removeFromTop (28);
+        generatorEnabledButton.setBounds (browser.removeFromLeft (52));
+        browser.removeFromLeft (6);
+        tableLabel.setBounds (browser.removeFromLeft (40));
+        prevTableButton.setBounds (browser.removeFromLeft (24));
+        browser.removeFromLeft (2);
+        nextTableButton.setBounds (browser.removeFromLeft (24));
+        browser.removeFromLeft (6);
+        tableBox.setBounds (browser);
+
+        top.removeFromTop (8);
+        auto outputRow = top.removeFromTop (32);
+        const int outputWidth = outputRow.getWidth() / kNumWavetableSynthOutputs;
+        for (int out = 0; out < kNumWavetableSynthOutputs; ++out)
+            outputButtons[(size_t) out].setBounds ((out == kNumWavetableSynthOutputs - 1 ? outputRow : outputRow.removeFromLeft (outputWidth)).reduced (2, 3));
+
+        top.removeFromTop (8);
+        auto algorithmRow = top.removeFromTop (28);
+        algorithmLabel.setBounds (algorithmRow.removeFromLeft (64));
+        algorithmBox.setBounds (algorithmRow.removeFromLeft (120));
+        algorithmRow.removeFromLeft (8);
+        algorithmHintLabel.setBounds (algorithmRow);
+
+        top.removeFromTop (6);
+        auto tuneRow = top.removeFromTop (38);
+        const int tuneWidth = tuneRow.getWidth() / 3;
+        auto layoutCompact = [] (juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (cell.removeFromTop (16));
+            slider.setBounds (cell);
+        };
+        layoutCompact (tuneRow.removeFromLeft (tuneWidth), coarseLabel, coarseSlider);
+        layoutCompact (tuneRow.removeFromLeft (tuneWidth), fineLabel, fineSlider);
+        layoutCompact (tuneRow, fmLabel, fmSlider);
+
+        area.removeFromTop (8);
+        auto oscRow = area.removeFromTop (98);
+        const int oscWidth = oscRow.getWidth() / 4;
+        auto layoutKnob = [] (juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (cell.removeFromTop (16));
+            cell.removeFromTop (16);
+            slider.setBounds (cell);
+        };
+        layoutKnob (oscRow.removeFromLeft (oscWidth), frameLabel, frameSlider);
+        layoutKnob (oscRow.removeFromLeft (oscWidth), smoothLabel, smoothSlider);
+        layoutKnob (oscRow.removeFromLeft (oscWidth), panLabel, panSlider);
+        layoutKnob (oscRow, levelLabel, levelSlider);
+
+        area.removeFromTop (8);
+        auto envRow = area.removeFromTop (98);
+        const int envWidth = envRow.getWidth() / 5;
+        layoutKnob (envRow.removeFromLeft (envWidth), attackLabel, attackSlider);
+        layoutKnob (envRow.removeFromLeft (envWidth), decayLabel, decaySlider);
+        layoutKnob (envRow.removeFromLeft (envWidth), sustainLabel, sustainSlider);
+        layoutKnob (envRow.removeFromLeft (envWidth), releaseLabel, releaseSlider);
+        layoutKnob (envRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto monoRow = area.removeFromTop (24);
+        monoLegatoButton.setBounds (monoRow.removeFromLeft (76));
+        monoRow.removeFromLeft (6);
+        glideButton.setBounds (monoRow.removeFromLeft (76));
+        monoRow.removeFromLeft (8);
+        glideTimeLabel.setBounds (monoRow.removeFromLeft (42));
+        glideTimeSlider.setBounds (monoRow.removeFromLeft (180));
     }
 }
