@@ -149,12 +149,16 @@ namespace GGrid
 
     int WavetableSynthModule::findVoiceForNoteOn()
     {
-        for (int i = 0; i < kMaxWavetableSynthVoices; ++i)
+        // Index 0 is reserved exclusively for Mono/Legato (handleMonoNoteOn/Off) -- if poly could
+        // also land a note on it, a note-off arriving after a mode switch couldn't tell which path
+        // owns voices[0], and note-off routing (see handleMidiEvent below) needs that to be
+        // unambiguous to avoid ever orphaning a still-sounding voice.
+        for (int i = 1; i < kMaxWavetableSynthVoices; ++i)
             if (! voices[(size_t) i].active)
                 return i;
 
-        int oldest = 0;
-        for (int i = 1; i < kMaxWavetableSynthVoices; ++i)
+        int oldest = 1;
+        for (int i = 2; i < kMaxWavetableSynthVoices; ++i)
             if (voices[(size_t) i].triggerOrder < voices[(size_t) oldest].triggerOrder)
                 oldest = i;
         return oldest;
@@ -183,15 +187,20 @@ namespace GGrid
         }
         else if (message.isNoteOff())
         {
-            if (resolved.monoLegato)
-            {
-                handleMonoNoteOff (message.getNoteNumber(), resolved);
-                return;
-            }
+            const int note = message.getNoteNumber();
 
-            for (auto& voice : voices)
-                if (voice.active && voice.noteNumber == message.getNoteNumber())
-                    voice.envelope.noteOff();
+            // Deliberately NOT gated behind resolved.monoLegato -- if Mono/Legato was toggled
+            // while this note was held, its note-on could have gone through either path (poly's
+            // findVoiceForNoteOn never touches index 0, so there's no ambiguity), and only
+            // checking whichever path is active *now* would leave the other one's voice with no
+            // note-off ever coming, sounding forever. Always check both; each is a no-op if this
+            // note isn't the one it's tracking.
+            for (int i = 1; i < kMaxWavetableSynthVoices; ++i)
+                if (voices[(size_t) i].active && voices[(size_t) i].noteNumber == note)
+                    voices[(size_t) i].envelope.noteOff();
+
+            if (heldNoteStackSize > 0 || (voices[0].active && voices[0].noteNumber == note))
+                handleMonoNoteOff (note, resolved);
         }
         else if (message.isAllNotesOff() || message.isAllSoundOff())
         {
@@ -214,8 +223,19 @@ namespace GGrid
                 break;
             }
 
-        if (heldNoteStackSize < kMaxWavetableSynthVoices)
-            heldNoteStack[(size_t) heldNoteStackSize++] = note;
+        // If the stack is already full, evict the oldest entry rather than silently failing to
+        // track this note at all -- the note about to sound (below) must always be represented
+        // in the stack, or its own eventual note-off has nothing to find, falls through to "some
+        // other note must still be held," and retargets pitch instead of ever releasing (a real
+        // stuck-note bug this used to produce whenever more than kMaxWavetableSynthVoices notes
+        // were held in Mono/Legato at once).
+        if (heldNoteStackSize == kMaxWavetableSynthVoices)
+        {
+            for (int j = 0; j < heldNoteStackSize - 1; ++j)
+                heldNoteStack[(size_t) j] = heldNoteStack[(size_t) (j + 1)];
+            --heldNoteStackSize;
+        }
+        heldNoteStack[(size_t) heldNoteStackSize++] = note;
 
         auto& voice = voices[0];
         voice.velocity = velocity;
@@ -254,6 +274,14 @@ namespace GGrid
             }
 
         auto& voice = voices[0];
+
+        // Releasing a note that isn't the one actually sounding right now has nothing further to
+        // do -- it's already not audible (a still-held note lower in the stack, or, before the
+        // eviction fix above, an untracked overflow note), so there's no voice state to update.
+        // Only the currently-sounding note's own release should ever retarget or stop the voice.
+        if (voice.noteNumber != note)
+            return;
+
         if (heldNoteStackSize == 0)
             voice.envelope.noteOff();
         else
