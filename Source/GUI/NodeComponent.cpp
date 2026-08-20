@@ -352,14 +352,20 @@ namespace GGrid
     juce::Point<int> NodeComponent::getInputConnectorPosition (int portIndex) const
     {
         if (isWavetableSynthType())
-            return { 0, getHeight() / 2 };
+        {
+            // WT Synth's audio input is FM, so keep it visually attached to the wavetable
+            // preview instead of the node centre where it collides with the lower controls.
+            return { 0, contentAreaOrigin.y + 70 };
+        }
         return { 0, getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
     juce::Point<int> NodeComponent::getOutputConnectorPosition (int portIndex) const
     {
         if (isWavetableSynthType())
-            return { getWidth(), getHeight() / 2 };
+        {
+            return { getWidth(), contentAreaOrigin.y + 70 };
+        }
         return { getWidth(), getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
@@ -494,6 +500,9 @@ namespace GGrid
         // ModuleControlPanels.cpp's layoutKnob), so the dot touches neither -- sitting right at
         // the knob's edge made it look fused to the rotary ring instead of a separate target.
         const auto bounds = slider->getBounds();
+        if (slider->getSliderStyle() == juce::Slider::LinearHorizontal)
+            return contentAreaOrigin + juce::Point<int> (bounds.getX() + 10, bounds.getY() - 9);
+
         constexpr int dotClearanceAboveKnob = 8;
         return contentAreaOrigin + juce::Point<int> (bounds.getCentreX(), bounds.getY() - dotClearanceAboveKnob);
     }
@@ -524,13 +533,6 @@ namespace GGrid
             const int inputPortCount = isWavetableSynthType() ? 1 : kMaxPortsPerSide;
             for (int port = 0; port < inputPortCount; ++port)
                 g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (port).toFloat()));
-
-            if (isWavetableSynthType())
-            {
-                g.setColour (Palette::bright.withAlpha (0.78f));
-                g.setFont (juce::Font (juce::FontOptions (11.0f)));
-                g.drawText ("FM In", 14, getInputConnectorPosition (0).y - 9, 42, 18, juce::Justification::centredLeft);
-            }
         }
 
         const int modTargetCount = isFoldedFlag ? 0 : getModTargetCount();
@@ -553,6 +555,26 @@ namespace GGrid
                 g.setColour (colour.withAlpha (0.34f));
                 g.drawLine ((float) getWidth() - 22.0f, pos.y, (float) getWidth() - 5.0f, pos.y, 1.0f);
             }
+        }
+    }
+
+    void NodeComponent::paintOverChildren (juce::Graphics& g)
+    {
+        if (isFoldedFlag)
+            return;
+
+        if (! isModulationSourceType() && ! hasNoInputPorts() && isWavetableSynthType())
+        {
+            const auto inputPos = getInputConnectorPosition (0).toFloat();
+            g.setColour (Palette::accent);
+            g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (inputPos));
+
+            const auto labelBounds = juce::Rectangle<float> (10.0f, inputPos.y - 10.0f, 54.0f, 20.0f);
+            g.setColour (Palette::bg.withAlpha (0.82f));
+            g.fillRoundedRectangle (labelBounds, 4.0f);
+            g.setColour (Palette::bright);
+            g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+            g.drawText ("FM In", labelBounds.toNearestInt(), juce::Justification::centred);
         }
     }
 

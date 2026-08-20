@@ -32,6 +32,7 @@ namespace GGrid
 
         void resized() override;
         void paint (juce::Graphics&) override;
+        void paintOverChildren (juce::Graphics&) override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override;

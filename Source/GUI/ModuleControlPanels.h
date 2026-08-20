@@ -849,6 +849,7 @@ namespace GGrid
     public:
         WavetableSynthControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
 
+        void paint (juce::Graphics& g) override;
         void resized() override;
 
         int getModTargetCount() const { return (int) modTargets.size(); }
@@ -904,6 +905,7 @@ namespace GGrid
         juce::AudioProcessorValueTreeState& apvts;
         int slotIndex = 0;
         int selectedGenerator = 0;
+        juce::String algorithmHintText;
 
         std::vector<ModTarget> modTargets;
 

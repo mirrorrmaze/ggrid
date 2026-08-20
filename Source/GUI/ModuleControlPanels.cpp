@@ -3082,7 +3082,8 @@ namespace GGrid
         multiplierLabel.setText ("Multiply", juce::dontSendNotification);
         multiplierLabel.setJustificationType (juce::Justification::centredLeft);
         algorithmHintLabel.setJustificationType (juce::Justification::centredLeft);
-        algorithmHintLabel.setColour (juce::Label::textColourId, Palette::dim);
+        algorithmHintLabel.setVisible (false);
+        algorithmHintLabel.setInterceptsMouseClicks (false, false);
         algorithmBox.onChange = [this]
         {
             const int index = algorithmBox.getSelectedItemIndex();
@@ -3091,7 +3092,8 @@ namespace GGrid
             else if (index <= 5)  hint = "creative pitch/frequency stack";
             else if (index <= 7)  hint = "scale-shaped oscillator stack";
             else                  hint = "chord and overtone intervals";
-            algorithmHintLabel.setText (hint, juce::dontSendNotification);
+            algorithmHintText = hint;
+            repaint (algorithmHintLabel.getBounds().expanded (8, 4));
         };
         addAndMakeVisible (algorithmLabel);
         addAndMakeVisible (multiplierLabel);
@@ -3334,6 +3336,29 @@ namespace GGrid
         tableNameLabel.setText (names.isEmpty() ? "No tables" : names[index], juce::dontSendNotification);
     }
 
+    void WavetableSynthControlsPanel::paint (juce::Graphics& g)
+    {
+        if (algorithmHintText.isEmpty())
+            return;
+
+        const auto hintBounds = algorithmHintLabel.getBounds().toFloat();
+        constexpr float shear = -0.26f;
+
+        g.saveState();
+        g.addTransform (juce::AffineTransform::shear (shear, 0.0f));
+        g.setColour (Palette::dim.brighter (0.2f));
+        g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::italic)));
+
+        const auto compensatedX = juce::roundToInt (hintBounds.getX() - shear * hintBounds.getY());
+        g.drawText (algorithmHintText,
+                    compensatedX,
+                    juce::roundToInt (hintBounds.getY()),
+                    juce::roundToInt (hintBounds.getWidth()),
+                    juce::roundToInt (hintBounds.getHeight()),
+                    juce::Justification::centredLeft);
+        g.restoreState();
+    }
+
     void WavetableSynthControlsPanel::resized()
     {
         auto area = getLocalBounds().reduced (8);
@@ -3358,6 +3383,7 @@ namespace GGrid
         auto layoutKnob = [] (juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (cell.removeFromTop (16));
+            cell.removeFromTop (16); // keep the modulation destination nub clear of the label text
             slider.setBounds (cell);
         };
         layoutKnob (genControls.removeFromLeft (genControlWidth), frameLabel, frameSlider);
