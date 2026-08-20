@@ -21,11 +21,15 @@ jobs:
 
       # Zipped artifact only for now -- no code-signed/notarized .pkg installer yet (that's a
       # later pass; see MultibandConvolver's Installer/macos + macos-build.yml for the pattern
-      # to follow once GGrid has an Installer/ folder of its own). Until then, the factory IR
-      # library ships as a plain IRs/ folder alongside the plugin in the zip -- Convolution
-      # won't find any IRs until it's copied to ~/Documents/GGrid/IRs (see
-      # IRLibrary::resolveIRRoot()'s fallback order), same as the Windows installer's
-      # {userdocs}\GGrid\IRs step, just manual until there's a signed macOS installer.
+      # to follow once GGrid has an Installer/ folder of its own). Until then, every module's own
+      # resource library (factory IRs for Convolution/Multiband Convolution, the bundled
+      # wavetable set for LFO Table/Wavetable Synth -- see WavetableLibrary.cpp's own comment on
+      # why it's self-contained rather than reaching for an external Kilohearts install) ships as
+      # plain folders alongside the plugin in the zip -- neither resolves anything until copied to
+      # its ~/Documents/GGrid/* fallback location (see IRLibrary::resolveIRRoot()/
+      # WavetableLibrary::resolveFactoryRoot()'s fallback order), same as the Windows installer's
+      # {userdocs}\GGrid\* steps, just manual until there's a signed macOS installer. Add any
+      # future module's own Resources/ subfolder here too, the same way.
       - name: Zip build output
         run: |
           set -e
@@ -33,6 +37,7 @@ jobs:
           cp -R "build/GGrid_artefacts/Release/VST3/GGrid.vst3" dist/
           cp -R "build/GGrid_artefacts/Release/Standalone/GGrid.app" dist/
           cp -R "Resources/IRs" dist/IRs
+          cp -R "Resources/Wavetables" dist/Wavetables
           ditto -c -k --sequesterRsrc --keepParent dist "GGrid-macOS.zip"
 
       - name: Upload build artifact

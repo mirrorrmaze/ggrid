@@ -2,6 +2,28 @@
 
 namespace GGrid
 {
+    // Where "Skip This Version" persists so the update popup doesn't nag on every launch once
+    // dismissed for a specific version -- a plain one-line text file (matching the project's
+    // general preference for simple flat storage over heavier machinery like PropertiesFile),
+    // holding just the last skipped version tag. A newer release than the skipped one still
+    // prompts -- this only silences the exact version the user already said no to.
+    static juce::File getSkippedUpdateVersionFile()
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("GGrid");
+        dir.createDirectory();
+        return dir.getChildFile ("skipped_update_version.txt");
+    }
+
+    static juce::String getSkippedUpdateVersion()
+    {
+        return getSkippedUpdateVersionFile().loadFileAsString().trim();
+    }
+
+    static void setSkippedUpdateVersion (const juce::String& version)
+    {
+        getSkippedUpdateVersionFile().replaceWithText (version);
+    }
+
     GGridAudioProcessorEditor::GGridAudioProcessorEditor (GGridAudioProcessor& p)
         : AudioProcessorEditor (&p), processorRef (p), modMatrixPanel (p.apvts),
           nodeGraphEditor (p)
@@ -68,6 +90,31 @@ namespace GGrid
             safeThis->availableUpdateVersion = newVersion;
             safeThis->availableUpdateUrl = releaseUrl;
             safeThis->fileMenuButton.setColour (juce::TextButton::textColourOffId, Palette::accent);
+
+            // The passive indicator above always lights up; the popup below only interrupts once
+            // per version -- "Skip This Version" persists so it won't ask again for this exact
+            // release (a later one will still prompt), and just closing/escaping the dialog (or
+            // "Not Now"-equivalent) asks again next launch rather than being remembered as a skip.
+            if (newVersion == getSkippedUpdateVersion())
+                return;
+
+            juce::AlertWindow::showAsync (
+                juce::MessageBoxOptions()
+                    .withIconType (juce::MessageBoxIconType::InfoIcon)
+                    .withTitle ("Update Available")
+                    .withMessage ("GGrid " + newVersion + " is available -- you're running v"
+                                      + juce::String (GGRID_VERSION) + ".")
+                    .withButton ("Download")
+                    .withButton ("Skip This Version"),
+                [safeThis, newVersion, releaseUrl] (int result)
+                {
+                    if (safeThis == nullptr)
+                        return;
+                    if (result == 1)
+                        releaseUrl.launchInDefaultBrowser();
+                    else if (result == 2)
+                        setSkippedUpdateVersion (newVersion);
+                });
         });
     }
 

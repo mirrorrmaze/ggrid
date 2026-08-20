@@ -11,11 +11,6 @@ namespace GGrid::WavetableLibrary
         constexpr int kKiloheartsFrameSize = 2048;
         constexpr int kKiloheartsFrameCount = 256;
 
-        juce::File kiloheartsFactoryRoot()
-        {
-            return juce::File ("/Library/Application Support/Kilohearts/dependencies/factory_wavetables");
-        }
-
         juce::File userRoot()
         {
             return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
@@ -173,10 +168,9 @@ namespace GGrid::WavetableLibrary
 
     juce::File resolveFactoryRoot()
     {
-        auto kh = kiloheartsFactoryRoot();
-        if (kh.isDirectory())
-            return kh;
-
+        // GGrid owns its own copy of these tables (Resources/Wavetables/Kilohearts, installed to
+        // Documents/GGrid/Wavetables) rather than reaching into any external product's install --
+        // never depends on Kilohearts (or anything else) being installed on this machine.
         auto bundledKh = bundledKiloheartsRoot();
         if (bundledKh.isDirectory())
             return bundledKh;
@@ -199,12 +193,7 @@ namespace GGrid::WavetableLibrary
             std::vector<Entry> entries;
             appendBuiltIns (entries);
 
-            const auto kh = kiloheartsFactoryRoot();
-            if (kh.isDirectory())
-                appendFilesFromRoot (entries, kh, "Kilohearts");
-            else
-                appendFilesFromRoot (entries, bundledKiloheartsRoot(), "Kilohearts");
-
+            appendFilesFromRoot (entries, bundledKiloheartsRoot(), "Kilohearts");
             appendFilesFromRoot (entries, bundledGGridRoot(), "GGrid");
             appendFilesFromRoot (entries, userRoot(), "Custom");
 

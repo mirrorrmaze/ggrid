@@ -65,8 +65,9 @@ the incoming signal, so you can see what you're shaping.
   hold-then-drag or shift-drag to rubber-band select; pinch/Ctrl+scroll/buttons to zoom.
 - **Modulation cables** -- a separate, additive system from audio cables: drag an LFO/Envelope/
   ADSR/LFO Table's single output nub onto any knob's destination dot.
-- **LFO Table wavetables** -- loads Kilohearts factory tables from the local system install when
-  present, otherwise falls back to the bundled copy in `Resources/Wavetables/Kilohearts`.
+- **LFO Table / Wavetable Synth tables** -- GGrid ships its own copy of a Kilohearts-style factory
+  wavetable set (`Resources/Wavetables/Kilohearts`, installed to `Documents/GGrid/Wavetables`) --
+  self-contained, doesn't look for or depend on Kilohearts (or anything else) being installed.
 - **WT Synth wavetables** -- uses the same wavetable catalog, starts with built-in basic waves,
   and can route individual generators to one of four output ports for separate downstream chains.
 - **MIDI Mod Matrix** -- its own tab: 6 fixed routes (Note Pitch/Velocity/Mod Wheel/2 CC lanes) to
