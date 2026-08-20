@@ -27,7 +27,7 @@ namespace GGrid
     class NodeComponent : public juce::Component
     {
     public:
-        NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot,
+        NodeComponent (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn, RackSlot& rackSlot,
                         juce::AudioVisualiserComponent& scopeIn);
 
         void resized() override;
@@ -184,6 +184,18 @@ namespace GGrid
             bool isDragging = false;
         };
 
+        struct RandomizeButton : public juce::Button
+        {
+            RandomizeButton();
+            void paintButton (juce::Graphics&, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
+
+            JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RandomizeButton)
+        };
+
+        void randomizeCurrentModuleParameters();
+        juce::String getCurrentModuleParameterPrefix() const;
+
+        juce::AudioProcessorValueTreeState& apvts;
         int slotIndex;
 
         // Live waveform for Input/Output nodes only -- owned on the processor (see
@@ -196,6 +208,7 @@ namespace GGrid
         juce::Label titleLabel;
         juce::ComboBox typeBox;
         juce::TextButton foldButton { "v" };
+        RandomizeButton randomizeButton;
         juce::ToggleButton bypassButton { "Bypass" };
         juce::TextButton deleteButton { "X" };
         OutputNub outputNub0 { *this, false, 0 }, outputNub1 { *this, false, 1 },

@@ -4,6 +4,42 @@
 
 namespace GGrid
 {
+    NodeComponent::RandomizeButton::RandomizeButton()
+        : juce::Button ("Randomize parameters")
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void NodeComponent::RandomizeButton::paintButton (juce::Graphics& g, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
+    {
+        auto area = getLocalBounds().toFloat().reduced (3.0f);
+        const auto base = shouldDrawButtonAsDown ? Palette::bright : (shouldDrawButtonAsHighlighted ? Palette::accent : Palette::dim);
+
+        g.setColour (base.withAlpha (shouldDrawButtonAsDown ? 0.22f : 0.12f));
+        g.fillRoundedRectangle (area, 3.0f);
+        g.setColour (base);
+        g.drawRoundedRectangle (area, 3.0f, 1.4f);
+
+        auto pip = [&g, base] (float x, float y)
+        {
+            g.setColour (base);
+            g.fillEllipse (x - 1.4f, y - 1.4f, 2.8f, 2.8f);
+        };
+
+        const auto left = area.getX() + area.getWidth() * 0.28f;
+        const auto centre = area.getCentreX();
+        const auto right = area.getRight() - area.getWidth() * 0.28f;
+        const auto top = area.getY() + area.getHeight() * 0.28f;
+        const auto middle = area.getCentreY();
+        const auto bottom = area.getBottom() - area.getHeight() * 0.28f;
+
+        pip (left, top);
+        pip (right, top);
+        pip (centre, middle);
+        pip (left, bottom);
+        pip (right, bottom);
+    }
+
     void NodeComponent::OutputNub::paint (juce::Graphics& g)
     {
         const bool isMultipassBandPort = ! isMod && owner.isMultipassType() && portIndex >= 0 && portIndex < kNumMultipassBands;
@@ -58,9 +94,9 @@ namespace GGrid
         if (owner.onNodeResizeReleased) owner.onNodeResizeReleased (owner.slotIndex, e);
     }
 
-    NodeComponent::NodeComponent (juce::AudioProcessorValueTreeState& apvts, int slotIndexIn, RackSlot& rackSlot,
+    NodeComponent::NodeComponent (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn, RackSlot& rackSlot,
                                    juce::AudioVisualiserComponent& scopeIn)
-        : slotIndex (slotIndexIn), scope (scopeIn)
+        : apvts (apvtsIn), slotIndex (slotIndexIn), scope (scopeIn)
     {
         // titleBar added first (behind, in z-order) so it only receives clicks that fall through
         // the header's actual controls (added after, in front) -- clicking blank header space
@@ -86,6 +122,9 @@ namespace GGrid
         };
         addAndMakeVisible (foldButton);
 
+        randomizeButton.onClick = [this] { randomizeCurrentModuleParameters(); };
+        addAndMakeVisible (randomizeButton);
+
         addAndMakeVisible (bypassButton);
 
         deleteButton.onClick = [this] { if (onDeleteRequested) onDeleteRequested (slotIndex); };
@@ -99,33 +138,33 @@ namespace GGrid
         addAndMakeVisible (resizeHandle);
 
         typeAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
-            apvts, slotTypeParamId (slotIndex), typeBox);
+            apvtsIn, slotTypeParamId (slotIndex), typeBox);
         bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-            apvts, slotBypassParamId (slotIndex), bypassButton);
+            apvtsIn, slotBypassParamId (slotIndex), bypassButton);
 
-        waveshaperPanel  = std::make_unique<WaveshaperControlsPanel> (apvts, slotIndex);
-        filterPanel      = std::make_unique<FilterControlsPanel> (apvts, slotIndex);
-        nonlinearFilterPanel = std::make_unique<NonlinearFilterControlsPanel> (apvts, slotIndex);
-        mackityPanel     = std::make_unique<MackityControlsPanel> (apvts, slotIndex);
-        shimmerReverbPanel = std::make_unique<ShimmerReverbControlsPanel> (apvts, slotIndex);
-        delayPanel       = std::make_unique<DelayControlsPanel> (apvts, slotIndex);
-        dynamicsPanel    = std::make_unique<DynamicsControlsPanel> (apvts, slotIndex);
-        convolutionPanel = std::make_unique<ConvolutionControlsPanel> (apvts, slotIndex, rackSlot);
-        utilityPanel     = std::make_unique<UtilityControlsPanel> (apvts, slotIndex);
-        ringModPanel     = std::make_unique<RingModControlsPanel> (apvts, slotIndex);
-        lfoPanel         = std::make_unique<LfoControlsPanel> (apvts, slotIndex, rackSlot);
-        lossyPanel       = std::make_unique<LossyControlsPanel> (apvts, slotIndex);
-        spectralClipperPanel = std::make_unique<SpectralClipperControlsPanel> (apvts, slotIndex);
-        eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex, rackSlot);
-        chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
-        eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
-        multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvts, slotIndex, rackSlot);
-        threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvts, slotIndex);
-        wavetableSynthPanel = std::make_unique<WavetableSynthControlsPanel> (apvts, slotIndex);
-        adsrPanel        = std::make_unique<AdsrControlsPanel> (apvts, slotIndex);
-        envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvts, slotIndex, rackSlot);
-        multipassPanel   = std::make_unique<MultipassControlsPanel> (apvts, slotIndex, rackSlot);
-        lfoTablePanel    = std::make_unique<LfoTableControlsPanel> (apvts, slotIndex);
+        waveshaperPanel  = std::make_unique<WaveshaperControlsPanel> (apvtsIn, slotIndex);
+        filterPanel      = std::make_unique<FilterControlsPanel> (apvtsIn, slotIndex);
+        nonlinearFilterPanel = std::make_unique<NonlinearFilterControlsPanel> (apvtsIn, slotIndex);
+        mackityPanel     = std::make_unique<MackityControlsPanel> (apvtsIn, slotIndex);
+        shimmerReverbPanel = std::make_unique<ShimmerReverbControlsPanel> (apvtsIn, slotIndex);
+        delayPanel       = std::make_unique<DelayControlsPanel> (apvtsIn, slotIndex);
+        dynamicsPanel    = std::make_unique<DynamicsControlsPanel> (apvtsIn, slotIndex);
+        convolutionPanel = std::make_unique<ConvolutionControlsPanel> (apvtsIn, slotIndex, rackSlot);
+        utilityPanel     = std::make_unique<UtilityControlsPanel> (apvtsIn, slotIndex);
+        ringModPanel     = std::make_unique<RingModControlsPanel> (apvtsIn, slotIndex);
+        lfoPanel         = std::make_unique<LfoControlsPanel> (apvtsIn, slotIndex, rackSlot);
+        lossyPanel       = std::make_unique<LossyControlsPanel> (apvtsIn, slotIndex);
+        spectralClipperPanel = std::make_unique<SpectralClipperControlsPanel> (apvtsIn, slotIndex);
+        eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvtsIn, slotIndex, rackSlot);
+        chorusPanel      = std::make_unique<ChorusControlsPanel> (apvtsIn, slotIndex);
+        eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvtsIn, slotIndex);
+        multibandConvolutionPanel = std::make_unique<MultibandConvolutionControlsPanel> (apvtsIn, slotIndex, rackSlot);
+        threeOscPanel    = std::make_unique<ThreeOscControlsPanel> (apvtsIn, slotIndex);
+        wavetableSynthPanel = std::make_unique<WavetableSynthControlsPanel> (apvtsIn, slotIndex);
+        adsrPanel        = std::make_unique<AdsrControlsPanel> (apvtsIn, slotIndex);
+        envelopePanel    = std::make_unique<EnvelopeControlsPanel> (apvtsIn, slotIndex, rackSlot);
+        multipassPanel   = std::make_unique<MultipassControlsPanel> (apvtsIn, slotIndex, rackSlot);
+        lfoTablePanel    = std::make_unique<LfoTableControlsPanel> (apvtsIn, slotIndex);
 
         auto letDirectLabelsPassThrough = [] (juce::Component& panel)
         {
@@ -205,7 +244,11 @@ namespace GGrid
         addAndMakeVisible (*multipassPanel);
         addAndMakeVisible (*lfoTablePanel);
 
-        typeBox.onChange = [this] { updateVisiblePanel(); };
+        typeBox.onChange = [this]
+        {
+            updateVisiblePanel();
+            resized();
+        };
         updateVisiblePanel();
     }
 
@@ -224,10 +267,69 @@ namespace GGrid
         if (onNodeReleased) onNodeReleased (slotIndex, e);
     }
 
+    juce::String NodeComponent::getCurrentModuleParameterPrefix() const
+    {
+        const auto type = static_cast<ModuleType> (typeBox.getSelectedId() - 1);
+        const juce::String slotPrefix = "slot" + juce::String (slotIndex) + "_";
+
+        switch (type)
+        {
+            case ModuleType::waveshaper:             return slotPrefix + "waveshaper_";
+            case ModuleType::filter:                 return slotPrefix + "filter_";
+            case ModuleType::delay:                  return slotPrefix + "delay_";
+            case ModuleType::dynamics:               return slotPrefix + "dynamics_";
+            case ModuleType::convolution:            return slotPrefix + "convolution_";
+            case ModuleType::utility:                return slotPrefix + "utility_";
+            case ModuleType::ringMod:                return slotPrefix + "ringMod_";
+            case ModuleType::lfo:                    return slotPrefix + "lfo_";
+            case ModuleType::lossy:                  return slotPrefix + "lossy_";
+            case ModuleType::eq8:                    return slotPrefix + "eq8_";
+            case ModuleType::chorus:                 return slotPrefix + "chorus_";
+            case ModuleType::eq3:                    return slotPrefix + "eq3_";
+            case ModuleType::multibandConvolution:   return slotPrefix + "multibandConvolution_";
+            case ModuleType::threeOsc:               return slotPrefix + "threeOsc_";
+            case ModuleType::envelope:               return slotPrefix + "envelope_";
+            case ModuleType::adsr:                   return slotPrefix + "adsr_";
+            case ModuleType::multipass:              return slotPrefix + "multipass_";
+            case ModuleType::lfoTable:               return slotPrefix + "lfoTable_";
+            case ModuleType::wavetableSynth:         return slotPrefix + "wavetableSynth_";
+            case ModuleType::nonlinearFilter:        return slotPrefix + "nonlinear_filter_";
+            case ModuleType::mackity:                return slotPrefix + "mackity_";
+            case ModuleType::shimmerReverb:          return slotPrefix + "shimmer_reverb_";
+            case ModuleType::spectralClipper:        return slotPrefix + "spectralClipper_";
+            case ModuleType::none:
+            case ModuleType::input:
+            case ModuleType::output:
+                break;
+        }
+
+        return {};
+    }
+
+    void NodeComponent::randomizeCurrentModuleParameters()
+    {
+        const auto prefix = getCurrentModuleParameterPrefix();
+        if (prefix.isEmpty())
+            return;
+
+        auto& random = juce::Random::getSystemRandom();
+        for (auto* param : apvts.processor.getParameters())
+        {
+            auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (param);
+            if (ranged == nullptr || ! ranged->paramID.startsWith (prefix))
+                continue;
+
+            ranged->beginChangeGesture();
+            ranged->setValueNotifyingHost (random.nextFloat());
+            ranged->endChangeGesture();
+        }
+    }
+
     void NodeComponent::updateVisiblePanel()
     {
         const auto type = static_cast<ModuleType> (typeBox.getSelectedId() - 1);
         const bool showPanel = ! isFoldedFlag;
+        randomizeButton.setVisible (type != ModuleType::none && type != ModuleType::input && type != ModuleType::output);
         waveshaperPanel->setVisible (showPanel && type == ModuleType::waveshaper);
         filterPanel->setVisible (showPanel && type == ModuleType::filter);
         nonlinearFilterPanel->setVisible (showPanel && type == ModuleType::nonlinearFilter);
@@ -588,6 +690,10 @@ namespace GGrid
         const bool isIOType = isInputType() || isOutputType();
 
         auto header = getLocalBounds().removeFromTop (headerHeight).reduced (padding, 4);
+        const auto selectedTypeId = typeBox.getSelectedId();
+        const auto currentType = selectedTypeId > 0 ? static_cast<ModuleType> (selectedTypeId - 1) : ModuleType::none;
+        const bool showRandomize = currentType != ModuleType::none && ! isIOType;
+        randomizeButton.setVisible (showRandomize);
 
         // The compact Input/Output box has no room for a title label alongside a usable type
         // dropdown -- every other type keeps it (matches "Slot N" everywhere else in the rack).
@@ -597,6 +703,12 @@ namespace GGrid
 
         deleteButton.setBounds (header.removeFromRight (24));
         header.removeFromRight (4);
+
+        if (showRandomize)
+        {
+            randomizeButton.setBounds (header.removeFromRight (24));
+            header.removeFromRight (4);
+        }
 
         foldButton.setBounds (header.removeFromRight (24));
         header.removeFromRight (4);
