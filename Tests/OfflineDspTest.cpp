@@ -1875,6 +1875,37 @@ int main()
                     + juce::String (rmsAtPositiveLfo, 4) + ", negative-LFO RMS " + juce::String (rmsAtNegativeLfo, 4) + ")");
     }
 
+    // --- Modulation cable: two different sources can both target the same destination at once,
+    // and their contributions add rather than one overriding the other ---
+    {
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::type))->store (0.0f);
+        apvts.getRawParameterValue (filterParamId (1, FilterParam::frequency))->store (1000.0f);
+
+        ModulationMatrix stackMatrix (apvts);
+        const auto destParamId = filterParamId (1, FilterParam::frequency);
+
+        const bool addedFirst = stackMatrix.addModConnection (0, 1, destParamId);
+        expect (addedFirst, "a first modulation cable to a destination is accepted");
+
+        const bool addedSecond = stackMatrix.addModConnection (2, 1, destParamId); // a different source slot
+        expect (addedSecond, "a second modulation cable from a different source to the SAME destination is "
+                              "also accepted -- a destination can take more than one incoming cable");
+
+        const bool rejectedDuplicate = ! stackMatrix.addModConnection (0, 1, destParamId); // same source again
+        expect (rejectedDuplicate, "cabling the exact same source to the exact same destination a second "
+                                    "time is still rejected as a redundant duplicate");
+
+        stackMatrix.setLfoValue (0, 0.4f);
+        stackMatrix.setLfoValue (2, 0.3f);
+
+        const float combined = stackMatrix.getOffsetForParam (destParamId, 1000.0f);
+        const float expected = (0.4f + 0.3f) * 1000.0f;
+        expect (std::abs (combined - expected) < 1.0e-3f,
+                "two modulation cables into the same destination sum their contributions rather than one "
+                "overriding the other (combined offset " + juce::String (combined, 2) + ", expected "
+                    + juce::String (expected, 2) + ")");
+    }
+
     // --- Lossy: stays finite/bounded at maximum degradation ---
     {
         apvts.getRawParameterValue (lossyParamId (0, LossyParam::bits))->store (1.0f);

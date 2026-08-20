@@ -64,7 +64,9 @@ the incoming signal, so you can see what you're shaping.
   resize handle to resize it; use the fold button to minimize. Left-drag empty canvas to pan;
   hold-then-drag or shift-drag to rubber-band select; pinch/Ctrl+scroll/buttons to zoom.
 - **Modulation cables** -- a separate, additive system from audio cables: drag an LFO/Envelope/
-  ADSR/LFO Table's single output nub onto any knob's destination dot.
+  ADSR/LFO Table's single output nub onto any knob's destination dot. A destination can take more
+  than one cable at once -- e.g. two LFOs, or an LFO and an Envelope, both stacking onto the same
+  knob -- their contributions sum rather than one replacing the other.
 - **LFO Table / Wavetable Synth tables** -- GGrid ships its own copy of a Kilohearts-style factory
   wavetable set (`Resources/Wavetables/Kilohearts`, installed to `Documents/GGrid/Wavetables`) --
   self-contained, doesn't look for or depend on Kilohearts (or anything else) being installed.

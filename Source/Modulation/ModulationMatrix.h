@@ -83,9 +83,13 @@ namespace GGrid
     };
 
     // Generous fan-out cap (an LFO driving several destinations at once is a normal, useful
-    // patch) -- capacity is actually enforced per-destination instead (see canAddModConnection):
-    // each destinationParamId accepts at most one incoming cable, matching "a knob has one
-    // modulation source" in most simple modular designs.
+    // patch). A destination can also receive more than one incoming cable at once -- e.g. two
+    // LFOs, or an LFO and an Envelope, both modulating the same knob -- getOffsetForParam sums
+    // every connection targeting a given destination, so this is additive/stacked, not a
+    // last-one-wins override. The only thing still rejected is a literal duplicate edge (the
+    // same source cabled to the same destination twice, see canAddModConnection) -- that would
+    // just double-count one source's contribution for no reason, not add a second independent
+    // one.
     constexpr int kMaxModConnections = kMaxSlots * 8;
 
     class ModulationMatrix

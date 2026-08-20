@@ -150,9 +150,7 @@ namespace GGrid
         {
             const auto& conn = modConnections[(size_t) c];
             if (conn.fromSlot == fromSlot && conn.destinationParamId == destinationParamId)
-                return false; // duplicate
-            if (conn.destinationParamId == destinationParamId)
-                return false; // destination already has a source
+                return false; // duplicate -- same source already cabled to this exact destination
         }
 
         return true;
