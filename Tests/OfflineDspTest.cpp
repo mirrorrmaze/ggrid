@@ -14,6 +14,7 @@
 #include "Modules/LFOModule.h"
 #include "Modules/LfoTableModule.h"
 #include "Modules/LossyModule.h"
+#include "Modules/SpectralClipperModule.h"
 #include "Modules/Eq8Module.h"
 #include "Modules/Eq3Module.h"
 #include "Modules/ChorusModule.h"
@@ -1971,6 +1972,101 @@ int main()
 
         expect (! buffersMatch (runOnce (1.0f), runOnce (1.0f)),
                 "Lossy with Jitter=1 produces different output across independent runs on the same input (random per-bin phase)");
+    }
+
+    // --- Spectral Clipper: stays finite everywhere, and settles to a bounded level, at extreme
+    //     Drive + every Shape ---
+    //
+    // Unlike the analogous Lossy test above, this deliberately does NOT reprocess the same short
+    // buffer through process() repeatedly -- Lossy has no pre-gain knob, so re-feeding its own
+    // bounded output back in stays naturally bounded, but Spectral Clipper's Drive would then
+    // compound (each of the 20 passes re-amplifying the previous pass's already-clipped output by
+    // another +24dB before clipping again), which isn't how a continuous audio stream ever
+    // actually drives this module. A single continuous pass over a fresh signal matches real
+    // usage and is what the Ceiling-comparison test right below also relies on.
+    //
+    // The bound is only checked from settleSamples onward, not over the very first hop: any
+    // overlap-add STFT reconstruction needs a few hops before enough overlapping windows have
+    // accumulated for the steady-state normalisation to be accurate (the same startup ramp Lossy
+    // has too), so the first ~windowSize samples can transiently read louder than the settled
+    // signal that follows -- finiteness (no NaN/Inf) is still asserted over the entire buffer,
+    // startup included.
+    for (int shapeIndex = 0; shapeIndex < getSpectralClipperShapeChoices().size(); ++shapeIndex)
+    {
+        apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::drive))->store (24.0f);
+        apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::ceiling))->store (-24.0f);
+        apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::shape))->store ((float) shapeIndex);
+        apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::output))->store (0.0f);
+
+        SpectralClipperModule module (apvts, 0);
+        module.prepare (spec);
+
+        const int numChunks = 20;
+        auto buffer = makeTestSignal (blockSize * numChunks, 0.9f, 1000.0f, sampleRate);
+        juce::dsp::AudioBlock<float> fullBlock (buffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            module.process (sub, midi, modMatrix);
+        }
+
+        expect (isFinite (buffer),
+                "Spectral Clipper shape " + juce::String (shapeIndex) + " never produces NaN/Inf at extreme Drive with a tight Ceiling");
+
+        const int settleSamples = 2048;
+        const float settledPeak = juce::jmax (buffer.getMagnitude (0, settleSamples, buffer.getNumSamples() - settleSamples),
+                                               buffer.getMagnitude (1, settleSamples, buffer.getNumSamples() - settleSamples));
+        expect (settledPeak < 2.0f,
+                "Spectral Clipper shape " + juce::String (shapeIndex) + " settles to a bounded level (" + juce::String (settledPeak, 3)
+                    + ") well after the STFT's startup ramp, at extreme Drive with a tight Ceiling");
+    }
+
+    // --- Spectral Clipper: a tight Ceiling actually caps the reconstructed level below a loose
+    //     one, for the same driven input -- confirms the per-bin magnitude clip is doing
+    //     something audible, not just a no-op knob ---
+    {
+        const int numChunks = 40;
+        const int totalSamples = blockSize * numChunks;
+
+        auto runOnce = [&] (float ceilingDb) -> juce::AudioBuffer<float>
+        {
+            apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::drive))->store (24.0f);
+            apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::ceiling))->store (ceilingDb);
+            apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::shape))->store (0.0f); // Hard
+            apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (spectralClipperParamId (0, SpectralClipperParam::output))->store (0.0f);
+
+            SpectralClipperModule module (apvts, 0);
+            module.prepare (spec);
+
+            auto fullBuffer = makeTestSignal (totalSamples, 0.9f, 1000.0f, sampleRate);
+            juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+            for (int chunk = 0; chunk < numChunks; ++chunk)
+            {
+                auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+                juce::MidiBuffer midi;
+                module.process (sub, midi, modMatrix);
+            }
+            return fullBuffer;
+        };
+
+        auto looseBuffer = runOnce (6.0f);
+        auto tightBuffer = runOnce (-24.0f);
+
+        // Skip the STFT's own startup latency (one window's worth) and measure steady-state peak
+        // over the back half of the signal.
+        const int settleSamples = 2048;
+        const int measureLength = totalSamples - settleSamples;
+
+        const float loosePeak = looseBuffer.getMagnitude (0, settleSamples, measureLength);
+        const float tightPeak = tightBuffer.getMagnitude (0, settleSamples, measureLength);
+
+        expect (tightPeak < loosePeak * 0.5f,
+                "Spectral Clipper with a tight Ceiling (-24dB) reconstructs a noticeably lower peak than a loose "
+                "one (+6dB) for the same driven input (tight " + juce::String (tightPeak, 4) + ", loose "
+                    + juce::String (loosePeak, 4) + ")");
     }
 
     // --- EQ 8: stays finite/bounded with all bands at extreme alternating gains ---

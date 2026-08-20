@@ -1969,6 +1969,77 @@ namespace GGrid
         layoutKnob (knobRow, outputLabel, outputSlider);
     }
 
+    SpectralClipperControlsPanel::SpectralClipperControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (driveSlider, driveLabel, "Drive");
+        setupRotary (ceilingSlider, ceilingLabel, "Ceiling");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        shapeLabel.setText ("Shape", juce::dontSendNotification);
+        shapeLabel.setJustificationType (juce::Justification::centred);
+
+        int itemId = 1;
+        for (auto& choice : getSpectralClipperShapeChoices())
+            shapeBox.addItem (choice, itemId++);
+
+        addAndMakeVisible (shapeBox);
+        addAndMakeVisible (shapeLabel);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        driveAttachment   = std::make_unique<SliderAttachment> (apvts, spectralClipperParamId (slotIndex, SpectralClipperParam::drive), driveSlider);
+        ceilingAttachment = std::make_unique<SliderAttachment> (apvts, spectralClipperParamId (slotIndex, SpectralClipperParam::ceiling), ceilingSlider);
+        mixAttachment     = std::make_unique<SliderAttachment> (apvts, spectralClipperParamId (slotIndex, SpectralClipperParam::mix), mixSlider);
+        outputAttachment  = std::make_unique<SliderAttachment> (apvts, spectralClipperParamId (slotIndex, SpectralClipperParam::output), outputSlider);
+        shapeAttachment   = std::make_unique<ComboBoxAttachment> (apvts, spectralClipperParamId (slotIndex, SpectralClipperParam::shape), shapeBox);
+
+        modTargets = {
+            { spectralClipperParamId (slotIndex, SpectralClipperParam::drive),   "Drive",   &driveSlider },
+            { spectralClipperParamId (slotIndex, SpectralClipperParam::ceiling), "Ceiling", &ceilingSlider },
+            { spectralClipperParamId (slotIndex, SpectralClipperParam::mix),     "Mix",     &mixSlider },
+            { spectralClipperParamId (slotIndex, SpectralClipperParam::output),  "Output",  &outputSlider },
+        };
+    }
+
+    void SpectralClipperControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 4;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), driveLabel, driveSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), ceilingLabel, ceilingSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), mixLabel, mixSlider);
+        layoutKnob (knobRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        auto bottomRow = area.removeFromTop (44);
+        auto left = bottomRow.removeFromLeft (bottomRow.getWidth() / 2).reduced (4, 0);
+
+        shapeLabel.setBounds (left.removeFromTop (16));
+        shapeBox.setBounds (left.removeFromTop (24));
+    }
+
     Eq8ControlsPanel::Eq8ControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
         : apvtsRef (apvts), slotIndexValue (slotIndex),
           curveEditor (apvts, slotIndex,

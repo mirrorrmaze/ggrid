@@ -221,6 +221,7 @@ namespace GGrid
         std::unique_ptr<RingModControlsPanel> ringModPanel;
         std::unique_ptr<LfoControlsPanel> lfoPanel;
         std::unique_ptr<LossyControlsPanel> lossyPanel;
+        std::unique_ptr<SpectralClipperControlsPanel> spectralClipperPanel;
         std::unique_ptr<Eq8ControlsPanel> eq8Panel;
         std::unique_ptr<ChorusControlsPanel> chorusPanel;
         std::unique_ptr<Eq3ControlsPanel> eq3Panel;

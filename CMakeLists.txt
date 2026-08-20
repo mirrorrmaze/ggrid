@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(GGrid VERSION 1.0.1)
+project(GGrid VERSION 1.0.2)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,6 +48,7 @@ target_sources(GGrid
         Source/Modules/RingModModule.cpp
         Source/Modules/LFOModule.cpp
         Source/Modules/LossyModule.cpp
+        Source/Modules/SpectralClipperModule.cpp
         Source/Modules/Eq8Module.cpp
         Source/Modules/ChorusModule.cpp
         Source/Modules/Eq3Module.cpp
@@ -69,6 +70,7 @@ target_sources(GGrid
         Source/GUI/EnvelopeBreakpointEditor.cpp
         Source/GUI/NodeComponent.cpp
         Source/GUI/NodeGraphEditor.cpp
+        Source/GUI/AddModuleSearchPopup.cpp
         Source/GUI/MasterControlsPanel.cpp
         Source/GUI/GGridLookAndFeel.cpp
         Source/GUI/ModMatrixPanel.cpp
@@ -116,6 +118,7 @@ add_executable(OfflineDspTest
     Source/Modules/RingModModule.cpp
     Source/Modules/LFOModule.cpp
     Source/Modules/LossyModule.cpp
+    Source/Modules/SpectralClipperModule.cpp
     Source/Modules/Eq8Module.cpp
     Source/Modules/ChorusModule.cpp
     Source/Modules/Eq3Module.cpp

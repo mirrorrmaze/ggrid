@@ -566,6 +566,35 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LossyControlsPanel)
     };
 
+    // Spectral Clipper controls: Drive/Ceiling/Mix/Output knobs plus a Shape dropdown (Hard/
+    // Soft/Foldback/Sine Fold) picking how per-bin magnitude overshoot above Ceiling gets brought
+    // back down -- see SpectralClipperModule for the actual FFT-domain clipping algorithm.
+    class SpectralClipperControlsPanel : public juce::Component
+    {
+    public:
+        SpectralClipperControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label driveLabel { {}, "Drive" }, ceilingLabel { {}, "Ceiling" }, shapeLabel { {}, "Shape" },
+                    mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+
+        juce::Slider driveSlider, ceilingSlider, mixSlider, outputSlider;
+        juce::ComboBox shapeBox;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            driveAttachment, ceilingAttachment, mixAttachment, outputAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> shapeAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectralClipperControlsPanel)
+    };
+
     // EQ 8 controls: Eq8CurveEditor (draggable graphic-EQ curve -- primary interaction) on top,
     // then one shared Enable/Type/Freq/Gain/Q knob set that retargets to whichever band was just
     // clicked on the curve (exactly like MultibandConvolutionControlsPanel's own band-select

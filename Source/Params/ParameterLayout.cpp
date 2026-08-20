@@ -533,6 +533,40 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
 
+    static void addSpectralClipperParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { spectralClipperParamId (slotIndex, SpectralClipperParam::drive), 1 },
+            "Slot " + String (slotIndex + 1) + " Spectral Clipper Drive",
+            NormalisableRange<float> (0.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { spectralClipperParamId (slotIndex, SpectralClipperParam::ceiling), 1 },
+            "Slot " + String (slotIndex + 1) + " Spectral Clipper Ceiling",
+            NormalisableRange<float> (-24.0f, 6.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { spectralClipperParamId (slotIndex, SpectralClipperParam::shape), 1 },
+            "Slot " + String (slotIndex + 1) + " Spectral Clipper Shape",
+            getSpectralClipperShapeChoices(), 0));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { spectralClipperParamId (slotIndex, SpectralClipperParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Spectral Clipper Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { spectralClipperParamId (slotIndex, SpectralClipperParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Spectral Clipper Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
     static void addEq8Params (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
     {
         using namespace juce;
@@ -1097,6 +1131,7 @@ namespace GGrid
             addRingModParams (layout, slot);
             addLfoParams (layout, slot);
             addLossyParams (layout, slot);
+            addSpectralClipperParams (layout, slot);
             addEq8Params (layout, slot);
             addChorusParams (layout, slot);
             addEq3Params (layout, slot);

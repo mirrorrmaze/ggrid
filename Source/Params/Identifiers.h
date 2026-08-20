@@ -42,6 +42,7 @@ namespace GGrid
         nonlinearFilter = 22,
         mackity = 23,
         shimmerReverb = 24,
+        spectralClipper = 25,
     };
 
     // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
@@ -59,7 +60,8 @@ namespace GGrid
     {
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
-                 "Envelope", "ADSR", "Multipass", "LFO Table", "WT Synth", "Nonlinear Filter", "Mackity", "Shimmer Reverb" };
+                 "Envelope", "ADSR", "Multipass", "LFO Table", "WT Synth", "Nonlinear Filter", "Mackity", "Shimmer Reverb",
+                 "Spectral Clipper" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -331,6 +333,32 @@ namespace GGrid
         static const juce::String jitter  = "jitter";
         static const juce::String mix     = "mix";
         static const juce::String output  = "output";
+    }
+
+    inline juce::String spectralClipperParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_spectralClipper_" + paramName;
+    }
+
+    // Clips in the frequency domain rather than the time domain: an STFT (same window/hop as
+    // Lossy) transforms each block to its magnitude/phase spectrum, Ceiling caps each bin's
+    // magnitude (Shape decides how the overshoot above that ceiling gets handled), then an
+    // inverse transform reconstructs the signal. Distinct in character from Waveshaper's
+    // time-domain clipping -- the nonlinearity acts per-frequency-bin instead of on the combined
+    // waveform, so it doesn't generate the same broadband harmonic series a sample-domain clip
+    // does. See SpectralClipperModule.
+    namespace SpectralClipperParam
+    {
+        static const juce::String drive   = "drive";
+        static const juce::String ceiling = "ceiling";
+        static const juce::String shape   = "shape";
+        static const juce::String mix     = "mix";
+        static const juce::String output  = "output";
+    }
+
+    inline juce::StringArray getSpectralClipperShapeChoices()
+    {
+        return { "Hard", "Soft (tanh)", "Foldback", "Sine Fold" };
     }
 
     inline juce::String eq8ParamId (int slotIndex, const juce::String& paramName)

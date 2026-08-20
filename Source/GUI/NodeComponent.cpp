@@ -116,6 +116,7 @@ namespace GGrid
         ringModPanel     = std::make_unique<RingModControlsPanel> (apvts, slotIndex);
         lfoPanel         = std::make_unique<LfoControlsPanel> (apvts, slotIndex, rackSlot);
         lossyPanel       = std::make_unique<LossyControlsPanel> (apvts, slotIndex);
+        spectralClipperPanel = std::make_unique<SpectralClipperControlsPanel> (apvts, slotIndex);
         eq8Panel         = std::make_unique<Eq8ControlsPanel> (apvts, slotIndex, rackSlot);
         chorusPanel      = std::make_unique<ChorusControlsPanel> (apvts, slotIndex);
         eq3Panel         = std::make_unique<Eq3ControlsPanel> (apvts, slotIndex);
@@ -147,6 +148,7 @@ namespace GGrid
         ringModPanel->setInterceptsMouseClicks (false, true);
         lfoPanel->setInterceptsMouseClicks (false, true);
         lossyPanel->setInterceptsMouseClicks (false, true);
+        spectralClipperPanel->setInterceptsMouseClicks (false, true);
         eq8Panel->setInterceptsMouseClicks (false, true);
         chorusPanel->setInterceptsMouseClicks (false, true);
         eq3Panel->setInterceptsMouseClicks (false, true);
@@ -170,6 +172,7 @@ namespace GGrid
         letDirectLabelsPassThrough (*ringModPanel);
         letDirectLabelsPassThrough (*lfoPanel);
         letDirectLabelsPassThrough (*lossyPanel);
+        letDirectLabelsPassThrough (*spectralClipperPanel);
         letDirectLabelsPassThrough (*eq8Panel);
         letDirectLabelsPassThrough (*chorusPanel);
         letDirectLabelsPassThrough (*eq3Panel);
@@ -191,6 +194,7 @@ namespace GGrid
         addAndMakeVisible (*ringModPanel);
         addAndMakeVisible (*lfoPanel);
         addAndMakeVisible (*lossyPanel);
+        addAndMakeVisible (*spectralClipperPanel);
         addAndMakeVisible (*eq8Panel);
         addAndMakeVisible (*chorusPanel);
         addAndMakeVisible (*eq3Panel);
@@ -237,6 +241,7 @@ namespace GGrid
         ringModPanel->setVisible (showPanel && type == ModuleType::ringMod);
         lfoPanel->setVisible (showPanel && type == ModuleType::lfo);
         lossyPanel->setVisible (showPanel && type == ModuleType::lossy);
+        spectralClipperPanel->setVisible (showPanel && type == ModuleType::spectralClipper);
         eq8Panel->setVisible (showPanel && type == ModuleType::eq8);
         chorusPanel->setVisible (showPanel && type == ModuleType::chorus);
         eq3Panel->setVisible (showPanel && type == ModuleType::eq3);
@@ -284,6 +289,7 @@ namespace GGrid
             case ModuleType::ringMod:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::lfo:         contentHeight = 300; break; // curve editor + knob row + selector/sync row
             case ModuleType::lossy:       contentHeight = 106; break; // knobRow(106), no bottom row
+            case ModuleType::spectralClipper: contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::eq8:
                 contentHeight = 394; break; // curveEditor(140)+gap(6)+selectRow(24)+gap(6)+knobRow(106)+gap(6)+knobRow(106)
             case ModuleType::chorus:      contentHeight = 268; break; // knobRow(106) + gap(6) + knobRow(106) + gap(6) + bottomRow(44)
@@ -417,6 +423,7 @@ namespace GGrid
             case ModuleType::utility:     return utilityPanel->getModTargetCount();
             case ModuleType::ringMod:     return ringModPanel->getModTargetCount();
             case ModuleType::lossy:       return lossyPanel->getModTargetCount();
+            case ModuleType::spectralClipper: return spectralClipperPanel->getModTargetCount();
             case ModuleType::eq8:         return eq8Panel->getModTargetCount();
             case ModuleType::chorus:      return chorusPanel->getModTargetCount();
             case ModuleType::eq3:         return eq3Panel->getModTargetCount();
@@ -443,6 +450,7 @@ namespace GGrid
             case ModuleType::utility:     return utilityPanel->getModTarget (index).paramId;
             case ModuleType::ringMod:     return ringModPanel->getModTarget (index).paramId;
             case ModuleType::lossy:       return lossyPanel->getModTarget (index).paramId;
+            case ModuleType::spectralClipper: return spectralClipperPanel->getModTarget (index).paramId;
             case ModuleType::eq8:         return eq8Panel->getModTarget (index).paramId;
             case ModuleType::chorus:      return chorusPanel->getModTarget (index).paramId;
             case ModuleType::eq3:         return eq3Panel->getModTarget (index).paramId;
@@ -470,6 +478,7 @@ namespace GGrid
             case ModuleType::utility:     slider = utilityPanel->getModTarget (index).slider; break;
             case ModuleType::ringMod:     slider = ringModPanel->getModTarget (index).slider; break;
             case ModuleType::lossy:       slider = lossyPanel->getModTarget (index).slider; break;
+            case ModuleType::spectralClipper: slider = spectralClipperPanel->getModTarget (index).slider; break;
             case ModuleType::eq8:         slider = eq8Panel->getModTarget (index).slider; break;
             case ModuleType::chorus:      slider = chorusPanel->getModTarget (index).slider; break;
             case ModuleType::eq3:         slider = eq3Panel->getModTarget (index).slider; break;
@@ -598,6 +607,7 @@ namespace GGrid
         ringModPanel->setBounds (contentArea);
         lfoPanel->setBounds (contentArea);
         lossyPanel->setBounds (contentArea);
+        spectralClipperPanel->setBounds (contentArea);
         eq8Panel->setBounds (contentArea);
         chorusPanel->setBounds (contentArea);
         eq3Panel->setBounds (contentArea);

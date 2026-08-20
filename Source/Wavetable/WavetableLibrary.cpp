@@ -40,7 +40,8 @@ namespace GGrid::WavetableLibrary
             return resourcesRoot().getChildFile ("GGrid");
         }
 
-        void appendFilesFromRoot (std::vector<Entry>& entries, const juce::File& root, const juce::String& prefix)
+        void appendFilesFromRoot (std::vector<Entry>& entries, const juce::File& root, const juce::String& prefix,
+                                   const juce::StringArray& excludeTopLevelSubfolders = {})
         {
             if (! root.isDirectory())
                 return;
@@ -58,6 +59,11 @@ namespace GGrid::WavetableLibrary
                     continue;
 
                 const auto relative = file.getRelativePathFrom (root).replaceCharacter ('\\', '/');
+
+                if (relative.containsChar ('/')
+                    && excludeTopLevelSubfolders.contains (relative.upToFirstOccurrenceOf ("/", false, false)))
+                    continue;
+
                 const auto category = relative.containsChar ('/')
                     ? relative.upToLastOccurrenceOf ("/", false, false)
                     : prefix;
@@ -193,9 +199,24 @@ namespace GGrid::WavetableLibrary
             std::vector<Entry> entries;
             appendBuiltIns (entries);
 
-            appendFilesFromRoot (entries, bundledKiloheartsRoot(), "Kilohearts");
-            appendFilesFromRoot (entries, bundledGGridRoot(), "GGrid");
-            appendFilesFromRoot (entries, userRoot(), "Custom");
+            // Factory content: prefer the dev-tree/bundled-beside-exe copy; fall back to what the
+            // installer placed under Documents\GGrid\Wavetables (the ONLY place an installed build
+            // -- VST3 in Program Files, or the Standalone app -- ever finds it, since neither sits
+            // near a Resources folder). Without this fallback, every installed build silently fell
+            // through to the "Custom" scan below, which flattened all ~400 Kilohearts tables into
+            // one mislabeled "Custom" category instead of "Kilohearts".
+            const auto kilohearts = bundledKiloheartsRoot().isDirectory() ? bundledKiloheartsRoot()
+                                                                           : userRoot().getChildFile ("Kilohearts");
+            appendFilesFromRoot (entries, kilohearts, "Kilohearts");
+
+            const auto ggridFactory = bundledGGridRoot().isDirectory() ? bundledGGridRoot()
+                                                                        : userRoot().getChildFile ("GGrid");
+            appendFilesFromRoot (entries, ggridFactory, "GGrid");
+
+            // Genuinely user-added tables dropped directly into Documents\GGrid\Wavetables --
+            // excludes the Kilohearts/GGrid subfolders already covered above so factory content
+            // installed there is never double-listed.
+            appendFilesFromRoot (entries, userRoot(), "Custom", { "Kilohearts", "GGrid" });
 
             return entries;
         }();

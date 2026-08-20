@@ -1,5 +1,6 @@
 #include "NodeGraphEditor.h"
 #include "GGridLookAndFeel.h"
+#include "AddModuleSearchPopup.h"
 
 namespace GGrid
 {
@@ -377,10 +378,9 @@ namespace GGrid
             }
         }
 
-        juce::PopupMenu menu;
-
         if (! anyFreeSlot)
         {
+            juce::PopupMenu menu;
             menu.addItem (0, "Rack full (" + juce::String (kMaxSlots) + "/" + juce::String (kMaxSlots)
                               + " slots) -- delete a node first", false);
 
@@ -389,75 +389,25 @@ namespace GGrid
             return;
         }
 
-        // Grouped into submenus by category rather than one flat list -- item IDs still map
-        // directly to ModuleType (see addNode's static_cast below), that mapping doesn't care
-        // about nesting depth, only which numeric ID got clicked. Add new module types to
-        // whichever category they fit, or a new category if none do -- this is meant to scale as
-        // the rack grows, not stay a fixed 6-way split.
-        juce::PopupMenu distortionMenu;
-        distortionMenu.addItem (1, "Waveshaper");
-        distortionMenu.addItem (9, "Lossy");
-        distortionMenu.addItem ((int) ModuleType::mackity, "Mackity");
-
-        juce::PopupMenu filterEqMenu;
-        filterEqMenu.addItem (2, "Filter");
-        filterEqMenu.addItem ((int) ModuleType::nonlinearFilter, "Nonlinear Filter");
-        filterEqMenu.addItem (10, "EQ 8");
-        filterEqMenu.addItem (12, "EQ 3");
-        filterEqMenu.addItem ((int) ModuleType::multipass, "Multipass");
-
-        juce::PopupMenu dynamicsMenu;
-        dynamicsMenu.addItem (4, "Dynamics");
-
-        juce::PopupMenu modulationMenu;
-        modulationMenu.addItem (11, "Chorus/Flanger");
-        modulationMenu.addItem (7, "Ring Mod");
-        modulationMenu.addItem (8, "LFO");
-        modulationMenu.addItem ((int) ModuleType::lfoTable, "LFO Table");
-        modulationMenu.addItem ((int) ModuleType::envelope, "Envelope");
-        modulationMenu.addItem ((int) ModuleType::adsr, "ADSR");
-
-        juce::PopupMenu timeSpaceMenu;
-        timeSpaceMenu.addItem (3, "Delay");
-        timeSpaceMenu.addItem ((int) ModuleType::shimmerReverb, "Shimmer Reverb");
-        timeSpaceMenu.addItem (5, "Convolution");
-        timeSpaceMenu.addItem ((int) ModuleType::multibandConvolution, "Multiband Convolution");
-
-        juce::PopupMenu utilityMenu;
-        utilityMenu.addItem (6, "Utility");
-
-        // 3xOsc is a MIDI-driven synth generator, not an effect -- gets its own category rather
-        // than living in I/O (it's a graph source like Input structurally, but semantically an
-        // instrument, not a routing utility -- see ModuleType::threeOsc's class comment).
-        juce::PopupMenu generatorsMenu;
-        generatorsMenu.addItem ((int) ModuleType::threeOsc, "3xOsc");
-        generatorsMenu.addItem ((int) ModuleType::wavetableSynth, "WT Synth");
-
-        // Input/Output are ordinary addable module types like any other here -- adding another
-        // of either just gives you a second entry/exit point for another parallel rack sharing
-        // this canvas (see NodeComponent::isInputType/isOutputType), not something structurally
-        // special about this menu item.
-        juce::PopupMenu ioMenu;
-        ioMenu.addItem ((int) ModuleType::input, "Input");
-        ioMenu.addItem ((int) ModuleType::output, "Output");
-
-        menu.addSubMenu ("Distortion", distortionMenu);
-        menu.addSubMenu ("Filter & EQ", filterEqMenu);
-        menu.addSubMenu ("Dynamics", dynamicsMenu);
-        menu.addSubMenu ("Modulation", modulationMenu);
-        menu.addSubMenu ("Time & Space", timeSpaceMenu);
-        menu.addSubMenu ("Utility", utilityMenu);
-        menu.addSubMenu ("Generators", generatorsMenu);
-        menu.addSubMenu ("I/O", ioMenu);
+        // Spotlight/Start-menu-style search popup instead of nested submenus -- see
+        // AddModuleSearchPopup for the module list/category grouping (the single place that now
+        // needs updating when a new module type is added) and its own search/keyboard-nav
+        // behaviour. Hosted in a CallOutBox, which already handles dismiss-on-click-outside;
+        // Escape is forwarded explicitly since keyboard focus lives on the popup's own search
+        // box, not the CallOutBox itself.
+        auto content = std::make_unique<AddModuleSearchPopup>();
+        auto* contentPtr = content.get();
 
         const auto screenPos = localPointToGlobal (canvasPosition);
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (juce::Rectangle<int> (screenPos, screenPos)),
-            [this, canvasPosition] (int result)
-            {
-                if (result == 0)
-                    return;
-                addNode (static_cast<ModuleType> (result), canvasPosition);
-            });
+        auto& callOut = juce::CallOutBox::launchAsynchronously (std::move (content),
+            juce::Rectangle<int> (screenPos, screenPos), this);
+
+        contentPtr->onModuleChosen = [this, &callOut, canvasPosition] (ModuleType type)
+        {
+            addNode (type, canvasPosition);
+            callOut.dismiss();
+        };
+        contentPtr->onCancelled = [&callOut] { callOut.dismiss(); };
     }
 
     int NodeGraphEditor::findFirstSlotOfType (ModuleType wantedType) const

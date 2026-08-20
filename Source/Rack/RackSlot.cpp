@@ -11,6 +11,7 @@
 #include "../Modules/RingModModule.h"
 #include "../Modules/LFOModule.h"
 #include "../Modules/LossyModule.h"
+#include "../Modules/SpectralClipperModule.h"
 #include "../Modules/Eq8Module.h"
 #include "../Modules/ChorusModule.h"
 #include "../Modules/Eq3Module.h"
@@ -70,6 +71,9 @@ namespace GGrid
 
             case ModuleType::lossy:
                 return std::make_unique<LossyModule> (apvts, slotIndex);
+
+            case ModuleType::spectralClipper:
+                return std::make_unique<SpectralClipperModule> (apvts, slotIndex);
 
             case ModuleType::eq8:
                 return std::make_unique<Eq8Module> (apvts, slotIndex);

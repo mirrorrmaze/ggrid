@@ -9,6 +9,8 @@ knob with an LFO/Envelope/ADSR cable.
 **Distortion**
 - Waveshaper/Wavefolder -- 6 shapes, live transfer-curve preview
 - Lossy -- spectral STFT lo-fi/bitcrush degradation
+- Spectral Clipper -- clips per-bin magnitude in the frequency domain rather than the time-domain
+  waveform (Hard/Soft/Foldback/Sine Fold shapes), a cleaner-sounding alternative to a normal clipper
 - Mackity -- vintage small-console input-stage saturation with input drive, output pad, mix, and gain
 
 **Filter & EQ**
@@ -58,7 +60,8 @@ the incoming signal, so you can see what you're shaping.
 
 ## How it works
 
-- **Patch bay** -- right-click to add a node, drag cables between output nubs and input dots. Up
+- **Patch bay** -- right-click for a Spotlight-style search popup to add a node (type to filter,
+  arrow keys + Enter, or click), drag cables between output nubs and input dots. Up
   to 24 modules, 4 ports per side per node (Multipass and WT Synth expose genuinely independent
   output buses). Click-hold anywhere that is not a parameter to move a module; drag the lower-right
   resize handle to resize it; use the fold button to minimize. Left-drag empty canvas to pan;
