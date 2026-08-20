@@ -57,10 +57,14 @@ namespace GGrid
         {
         public:
             std::function<void (int)> onRowClicked;
+            // Fired as the mouse moves over a non-header row -- lets the highlight track the
+            // cursor the same way it tracks the arrow keys, matching ordinary menu behaviour.
+            std::function<void (int)> onRowHovered;
             void setRows (const std::vector<Row>* rowsIn);
             void setSelectedIndex (int index);
             void paint (juce::Graphics&) override;
             void mouseDown (const juce::MouseEvent&) override;
+            void mouseMove (const juce::MouseEvent&) override;
             int getContentHeight() const;
 
             static constexpr int rowHeight = 22;

@@ -83,6 +83,19 @@ namespace GGrid
             onRowClicked (index);
     }
 
+    void AddModuleSearchPopup::ResultsList::mouseMove (const juce::MouseEvent& e)
+    {
+        if (rows == nullptr)
+            return;
+
+        const int index = e.y / rowHeight;
+        if (index < 0 || index >= (int) rows->size() || (*rows)[(size_t) index].isHeader)
+            return;
+
+        if (index != selectedIndex && onRowHovered)
+            onRowHovered (index);
+    }
+
     const std::vector<AddModuleSearchPopup::Entry>& AddModuleSearchPopup::allEntries()
     {
         // Same module list and grouping the old right-click submenus used -- kept in this one
@@ -143,6 +156,12 @@ namespace GGrid
         {
             selectedIndex = index;
             commitSelection();
+        };
+
+        resultsList.onRowHovered = [this] (int index)
+        {
+            selectedIndex = index;
+            resultsList.setSelectedIndex (selectedIndex);
         };
 
         viewport.setViewedComponent (&resultsList, false);
