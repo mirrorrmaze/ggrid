@@ -50,8 +50,8 @@ Source: "{#MyBuildDir}\VST3\GGrid.vst3\*"; DestDir: "{code:GetVST3Dir}\GGrid.vst
 ; fallback, and both Standalone and VST3 need to find the exact same files. Unconditional (not
 ; tied to a Component) since either app needs it to do anything useful with Convolution.
 Source: "..\Resources\IRs\*"; DestDir: "{userdocs}\GGrid\IRs"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Bundled wavetable fallback library for LFO Table and WT Synth. User-installed Kilohearts tables
-; can still be discovered separately, but fresh installs need this local fallback.
+; Bundled factory wavetable library for LFO Table and WT Synth. This is the self-contained copy
+; the plugin reads after install, so fresh installs never depend on a local Kilohearts install.
 Source: "..\Resources\Wavetables\*"; DestDir: "{userdocs}\GGrid\Wavetables"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

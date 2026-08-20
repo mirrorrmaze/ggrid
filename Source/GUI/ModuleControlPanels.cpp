@@ -4,10 +4,209 @@
 #include "../Modules/MultibandConvolutionModule.h"
 #include "../Modules/MultipassModule.h"
 #include "../Modules/Eq8Module.h"
+#include <functional>
 #include <cmath>
 
 namespace GGrid
 {
+    namespace
+    {
+        class WavetableSearchPopup : public juce::Component
+        {
+        public:
+            struct Row { int tableIndex = 0; juce::String name; };
+
+            class SearchEditor : public juce::TextEditor
+            {
+            public:
+                std::function<void (int)> onArrowKey;
+                std::function<void()> onReturnPressed;
+                std::function<void()> onEscapePressed;
+
+                bool keyPressed (const juce::KeyPress& key) override
+                {
+                    if (key == juce::KeyPress::upKey)     { if (onArrowKey) onArrowKey (-1); return true; }
+                    if (key == juce::KeyPress::downKey)   { if (onArrowKey) onArrowKey (1);  return true; }
+                    if (key == juce::KeyPress::returnKey) { if (onReturnPressed) onReturnPressed();  return true; }
+                    if (key == juce::KeyPress::escapeKey) { if (onEscapePressed) onEscapePressed();  return true; }
+                    return juce::TextEditor::keyPressed (key);
+                }
+            };
+
+            class ResultsList : public juce::Component
+            {
+            public:
+                std::function<void (int)> onRowClicked;
+                std::function<void (int)> onRowHovered;
+
+                void setRows (const std::vector<Row>* rowsIn)
+                {
+                    rows = rowsIn;
+                    setSize (getWidth(), getContentHeight());
+                    repaint();
+                }
+
+                void setSelectedIndex (int index)
+                {
+                    selectedIndex = index;
+                    repaint();
+                }
+
+                int getContentHeight() const
+                {
+                    return rows == nullptr ? 0 : (int) rows->size() * rowHeight;
+                }
+
+                void paint (juce::Graphics& g) override
+                {
+                    g.fillAll (Palette::bg);
+                    if (rows == nullptr)
+                        return;
+
+                    for (int i = 0; i < (int) rows->size(); ++i)
+                    {
+                        const auto bounds = juce::Rectangle<int> (0, i * rowHeight, getWidth(), rowHeight);
+                        if (i == selectedIndex)
+                        {
+                            g.setColour (Palette::accent);
+                            g.fillRect (bounds);
+                        }
+
+                        const auto& row = (*rows)[(size_t) i];
+                        g.setColour (i == selectedIndex ? Palette::bright : Palette::dim);
+                        g.setFont (juce::Font (juce::FontOptions (13.0f)));
+                        g.drawText (row.name, bounds.reduced (10, 0), juce::Justification::centredLeft);
+                    }
+                }
+
+                void mouseDown (const juce::MouseEvent& e) override
+                {
+                    const int row = e.y / rowHeight;
+                    if (rows != nullptr && row >= 0 && row < (int) rows->size())
+                        if (onRowClicked) onRowClicked (row);
+                }
+
+                void mouseMove (const juce::MouseEvent& e) override
+                {
+                    const int row = e.y / rowHeight;
+                    if (rows != nullptr && row >= 0 && row < (int) rows->size() && row != selectedIndex)
+                        if (onRowHovered) onRowHovered (row);
+                }
+
+                static constexpr int rowHeight = 22;
+
+            private:
+                const std::vector<Row>* rows = nullptr;
+                int selectedIndex = -1;
+            };
+
+            WavetableSearchPopup (int currentIndexIn, std::function<void (int)> onSelectedIn)
+                : currentIndex (currentIndexIn), onSelected (std::move (onSelectedIn))
+            {
+                allNames = WavetableLibrary::getCatalogDisplayNames();
+
+                searchEditor.setTextToShowWhenEmpty ("Search wavetables...", Palette::dim);
+                searchEditor.setColour (juce::TextEditor::backgroundColourId, Palette::dimmer);
+                searchEditor.setColour (juce::TextEditor::textColourId, Palette::bright);
+                searchEditor.setColour (juce::TextEditor::outlineColourId, Palette::dim);
+                searchEditor.setColour (juce::TextEditor::focusedOutlineColourId, Palette::accent);
+                searchEditor.onTextChange = [this] { rebuildRows(); };
+                searchEditor.onArrowKey = [this] (int delta) { moveSelection (delta); };
+                searchEditor.onReturnPressed = [this] { commitSelection(); };
+                searchEditor.onEscapePressed = [this]
+                {
+                    if (auto* callout = findParentComponentOfClass<juce::CallOutBox>())
+                        callout->dismiss();
+                };
+                addAndMakeVisible (searchEditor);
+
+                resultsList.onRowClicked = [this] (int row) { selectedIndex = row; commitSelection(); };
+                resultsList.onRowHovered = [this] (int row)
+                {
+                    selectedIndex = row;
+                    resultsList.setSelectedIndex (selectedIndex);
+                };
+                viewport.setViewedComponent (&resultsList, false);
+                viewport.setScrollBarsShown (true, false);
+                addAndMakeVisible (viewport);
+
+                rebuildRows();
+                setSize (360, 360);
+            }
+
+            void visibilityChanged() override
+            {
+                if (isVisible())
+                    searchEditor.grabKeyboardFocus();
+            }
+
+            void resized() override
+            {
+                auto area = getLocalBounds().reduced (8);
+                searchEditor.setBounds (area.removeFromTop (30));
+                area.removeFromTop (8);
+                viewport.setBounds (area);
+                resultsList.setSize (viewport.getWidth() - 2, resultsList.getContentHeight());
+            }
+
+        private:
+            void rebuildRows()
+            {
+                rows.clear();
+                const auto query = searchEditor.getText().trim().toLowerCase();
+                for (int i = 0; i < allNames.size(); ++i)
+                    if (query.isEmpty() || allNames[i].toLowerCase().contains (query))
+                        rows.push_back ({ i, allNames[i] });
+
+                selectedIndex = rows.empty() ? -1 : 0;
+                for (int i = 0; i < (int) rows.size(); ++i)
+                    if (rows[(size_t) i].tableIndex == currentIndex)
+                    {
+                        selectedIndex = i;
+                        break;
+                    }
+
+                resultsList.setRows (&rows);
+                resultsList.setSelectedIndex (selectedIndex);
+                resized();
+            }
+
+            void moveSelection (int delta)
+            {
+                if (rows.empty())
+                    return;
+
+                selectedIndex = juce::jlimit (0, (int) rows.size() - 1, selectedIndex + delta);
+                resultsList.setSelectedIndex (selectedIndex);
+                viewport.setViewPosition (0, juce::jlimit (0, juce::jmax (0, resultsList.getContentHeight() - viewport.getHeight()),
+                                                           selectedIndex * ResultsList::rowHeight - viewport.getHeight() / 2));
+            }
+
+            void commitSelection()
+            {
+                if (selectedIndex < 0 || selectedIndex >= (int) rows.size())
+                    return;
+
+                if (onSelected)
+                    onSelected (rows[(size_t) selectedIndex].tableIndex);
+
+                if (auto* callout = findParentComponentOfClass<juce::CallOutBox>())
+                    callout->dismiss();
+            }
+
+            juce::StringArray allNames;
+            std::vector<Row> rows;
+            SearchEditor searchEditor;
+            juce::Viewport viewport;
+            ResultsList resultsList;
+            int currentIndex = 0;
+            int selectedIndex = -1;
+            std::function<void (int)> onSelected;
+
+            JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WavetableSearchPopup)
+        };
+    }
+
     WaveshaperControlsPanel::WaveshaperControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
     {
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
@@ -2692,44 +2891,140 @@ namespace GGrid
     void WavetableSynthPreviewComponent::paint (juce::Graphics& g)
     {
         auto bounds = getLocalBounds().toFloat();
-        g.setColour (Palette::bg);
+        g.setColour (Palette::bg.darker (0.35f));
         g.fillRect (bounds);
-        g.setColour (Palette::dim);
-        g.drawRect (bounds, 1.0f);
+        g.setColour (Palette::dim.withAlpha (0.55f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 6.0f, 1.0f);
 
         const auto currentTable = getTable();
         if (currentTable == nullptr || ! currentTable->isValid())
             return;
 
-        auto waveArea = bounds.reduced (8.0f, 8.0f);
+        auto waveArea = bounds.reduced (14.0f, 12.0f);
         const auto* frameParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, generatorIndex, WavetableSynthGenParam::frame));
         const auto* smoothParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, generatorIndex, WavetableSynthGenParam::smooth));
+        const auto* unisonParam = apvts.getRawParameterValue (wavetableSynthParamId (slotIndex, WavetableSynthParam::unison));
+        const auto* spreadParam = apvts.getRawParameterValue (wavetableSynthParamId (slotIndex, WavetableSynthParam::spread));
+        const auto* algorithmParam = apvts.getRawParameterValue (wavetableSynthParamId (slotIndex, WavetableSynthParam::algorithm));
+        const auto* multiplierParam = apvts.getRawParameterValue (wavetableSynthParamId (slotIndex, WavetableSynthParam::multiplier));
         const float frame = juce::jlimit (0.0f, (float) currentTable->numFrames - 1.0f, (frameParam != nullptr ? frameParam->load() : 1.0f) - 1.0f);
         const float smooth = (smoothParam != nullptr ? smoothParam->load() : 0.0f) / 100.0f;
+        const int unison = juce::jlimit (1, 16, unisonParam != nullptr ? (int) std::round (unisonParam->load()) : 1);
+        const float spread01 = juce::jlimit (0.0f, 1.0f, (spreadParam != nullptr ? spreadParam->load() : 0.0f) / 100.0f);
+        const int spreadMode = juce::jlimit (0, getWavetableSynthAlgorithmChoices().size() - 1, algorithmParam != nullptr ? (int) algorithmParam->load() : 0);
+        const int multiplier = juce::jlimit (1, 8, multiplierParam != nullptr ? (int) multiplierParam->load() + 1 : 1);
 
-        g.setColour (Palette::dimmer);
-        g.drawLine (waveArea.getX(), waveArea.getCentreY(), waveArea.getRight(), waveArea.getCentreY(), 1.0f);
+        auto stackArea = waveArea.removeFromTop (juce::jmax (80.0f, waveArea.getHeight() * 0.72f));
+        waveArea.removeFromTop (8.0f);
+        auto stripArea = waveArea;
+
+        g.setColour (Palette::dimmer.withAlpha (0.5f));
+        for (int i = 0; i < 5; ++i)
+        {
+            const float y = juce::jmap ((float) i, 0.0f, 4.0f, stackArea.getBottom(), stackArea.getY());
+            g.drawHorizontalLine ((int) y, stackArea.getX(), stackArea.getRight());
+        }
+
+        const float frame01Selected = currentTable->numFrames <= 1 ? 0.0f : frame / (float) (currentTable->numFrames - 1);
+        const int framesToDraw = juce::jlimit (8, 34, currentTable->numFrames);
+        for (int f = framesToDraw - 1; f >= 0; --f)
+        {
+            const float frame01 = framesToDraw <= 1 ? 0.0f : (float) f / (float) (framesToDraw - 1);
+            const float tableFrame = frame01 * (float) (currentTable->numFrames - 1);
+            const float xOffset = frame01 * stackArea.getWidth() * 0.28f;
+            const float yOffset = frame01 * stackArea.getHeight() * 0.30f;
+            const float alpha = f == 0 ? 0.95f : juce::jmap (frame01, 0.16f, 0.02f);
+            juce::Path path;
+            constexpr int points = 120;
+            for (int i = 0; i < points; ++i)
+            {
+                const float x01 = (float) i / (float) (points - 1);
+                const float y = currentTable->sample (tableFrame, x01, smooth);
+                const auto x = juce::jmap (x01, stackArea.getX() + xOffset, stackArea.getRight() - stackArea.getWidth() * 0.28f + xOffset);
+                const auto py = stackArea.getCentreY() - y * stackArea.getHeight() * 0.22f - yOffset + stackArea.getHeight() * 0.14f;
+                if (i == 0) path.startNewSubPath (x, py);
+                else        path.lineTo (x, py);
+            }
+
+            const bool selectedBand = std::abs (tableFrame - frame) < (float) currentTable->numFrames / (float) framesToDraw;
+            g.setColour ((selectedBand ? Palette::bright : Palette::bright.withMultipliedSaturation (0.7f)).withAlpha (selectedBand ? 0.85f : alpha));
+            g.strokePath (path, juce::PathStrokeType (selectedBand ? 2.0f : 0.8f));
+        }
+
+        const float markerX = juce::jmap (frame01Selected, stackArea.getX(), stackArea.getRight());
+        g.setColour (Palette::bright.withAlpha (0.75f));
+        g.drawLine (markerX, stackArea.getY(), markerX, stackArea.getBottom(), 1.4f);
+        g.setColour (Palette::bright.withAlpha (0.22f));
+        g.fillRect (juce::Rectangle<float> (markerX - 2.0f, stackArea.getY(), 4.0f, stackArea.getHeight()));
+
+        g.setColour (Palette::dim.withAlpha (0.7f));
+        g.drawRoundedRectangle (stripArea.reduced (0.5f), 4.0f, 1.0f);
 
         juce::Path path;
-        constexpr int points = 180;
+        constexpr int points = 220;
         for (int i = 0; i < points; ++i)
         {
             const float x01 = (float) i / (float) (points - 1);
             const float y = currentTable->sample (frame, x01, smooth);
-            const auto x = juce::jmap (x01, waveArea.getX(), waveArea.getRight());
-            const auto py = juce::jmap (y, -1.0f, 1.0f, waveArea.getBottom(), waveArea.getY());
+            const auto x = juce::jmap (x01, stripArea.getX() + 8.0f, stripArea.getRight() - 8.0f);
+            const auto py = juce::jmap (y, -1.0f, 1.0f, stripArea.getBottom() - 5.0f, stripArea.getY() + 5.0f);
             if (i == 0) path.startNewSubPath (x, py);
             else        path.lineTo (x, py);
         }
 
         g.setColour (Palette::bright);
         g.strokePath (path, juce::PathStrokeType (2.0f));
+
+        if (unison > 1 && spread01 > 0.0f)
+        {
+            auto laneVisualOffset = [] (int mode, int lane, int count, float amount, int mult)
+            {
+                const float lane01 = (float) lane / (float) juce::jmax (1, count - 1);
+                const float centred = lane01 * 2.0f - 1.0f;
+                if (mode == 1)  return std::sin (centred * juce::MathConstants<float>::halfPi) * amount * 8.0f;
+                if (mode == 2)  return std::copysign (centred * centred, centred) * amount * 10.0f;
+                if (mode == 3)  return lane01 * amount * 14.0f;
+                if (mode == 4)  return std::round (centred * (float) mult) * amount * 4.0f;
+                if (mode == 5 || mode >= 8) return std::round (centred * (float) juce::jmax (2, mult)) * amount * 6.0f;
+                if (mode == 6 || mode == 7) return std::round (centred * 5.0f) * amount * 3.0f;
+                return centred * amount * 10.0f;
+            };
+
+            for (int lane = 0; lane < unison; ++lane)
+            {
+                const float lane01 = (float) lane / (float) (unison - 1);
+                const float centered = lane01 * 2.0f - 1.0f;
+                const float yOffset = laneVisualOffset (spreadMode, lane, unison, spread01, multiplier);
+                const float phaseOffset = (spreadMode == 3 ? std::sin ((float) (lane + 1) * 12.9898f) : centered)
+                                          * spread01 * 0.0125f * (float) multiplier;
+                juce::Path lanePath;
+                for (int i = 0; i < points; ++i)
+                {
+                    const float x01 = (float) i / (float) (points - 1);
+                    const float y = currentTable->sample (frame, x01 + phaseOffset, smooth);
+                    const auto x = juce::jmap (x01, stripArea.getX() + 8.0f, stripArea.getRight() - 8.0f);
+                    const auto py = juce::jmap (y, -1.0f, 1.0f, stripArea.getBottom() - 5.0f, stripArea.getY() + 5.0f) + yOffset;
+                    if (i == 0) lanePath.startNewSubPath (x, py);
+                    else        lanePath.lineTo (x, py);
+                }
+                g.setColour (Palette::bright.withAlpha (0.14f));
+                g.strokePath (lanePath, juce::PathStrokeType (1.0f));
+            }
+        }
+
+        g.setColour (Palette::bright.withAlpha (0.9f));
+        g.fillEllipse (stripArea.getX() + 6.0f + frame01Selected * (stripArea.getWidth() - 12.0f) - 3.0f,
+                       stripArea.getBottom() - 9.0f, 6.0f, 6.0f);
     }
 
     WavetableSynthControlsPanel::WavetableSynthControlsPanel (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
         : preview (apvtsIn, slotIndexIn), apvts (apvtsIn), slotIndex (slotIndexIn)
     {
         addAndMakeVisible (preview);
+        addGeneratorButton.onClick = [this] { enableNextGenerator(); };
+        addGeneratorButton.setColour (juce::TextButton::buttonColourId, Palette::bg.darker (0.2f));
+        addGeneratorButton.setColour (juce::TextButton::buttonOnColourId, Palette::bright.withAlpha (0.18f));
+        addGeneratorButton.setColour (juce::TextButton::textColourOffId, Palette::bright);
 
         const auto genLabels = getWavetableSynthGeneratorLabels();
         for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
@@ -2738,21 +3033,30 @@ namespace GGrid
             button.setButtonText (genLabels[gen]);
             button.setClickingTogglesState (false);
             button.onClick = [this, gen] { selectGenerator (gen); };
-            addAndMakeVisible (button);
+            button.setColour (juce::TextButton::buttonColourId, Palette::bg.darker (0.1f));
+            button.setColour (juce::TextButton::buttonOnColourId, Palette::bright.withAlpha (0.16f));
+            button.setColour (juce::TextButton::textColourOffId, Palette::bright);
+            button.setColour (juce::TextButton::textColourOnId, Palette::bright);
         }
 
-        addAndMakeVisible (generatorEnabledButton);
+        generatorEnabledButton.setButtonText ("On");
         generatorEnabledButton.onClick = [this] { refreshGeneratorButtons(); };
 
         int itemId = 1;
         for (auto& name : WavetableLibrary::getCatalogDisplayNames())
             tableBox.addItem (name, itemId++);
-        addAndMakeVisible (tableBox);
         addAndMakeVisible (prevTableButton);
         addAndMakeVisible (nextTableButton);
+        addAndMakeVisible (searchTableButton);
         addAndMakeVisible (tableLabel);
+        addAndMakeVisible (tableBox);
+        tableLabel.setJustificationType (juce::Justification::centredLeft);
+        tableBox.setTextWhenNothingSelected ("Choose wavetable...");
+        tableNameLabel.setJustificationType (juce::Justification::centredLeft);
+        tableNameLabel.setColour (juce::Label::textColourId, Palette::bright);
         prevTableButton.onClick = [this] { stepSelectedTable (-1); };
         nextTableButton.onClick = [this] { stepSelectedTable (1); };
+        searchTableButton.onClick = [this] { showTableSearchPopup(); };
 
         const auto outputNames = getWavetableSynthOutputChoices();
         for (int out = 0; out < kNumWavetableSynthOutputs; ++out)
@@ -2761,23 +3065,39 @@ namespace GGrid
             button.setButtonText (outputNames[out]);
             button.setClickingTogglesState (false);
             button.onClick = [this, out] { setSelectedGeneratorOutput (out); };
-            addAndMakeVisible (button);
+            button.setColour (juce::TextButton::buttonColourId, Palette::bg.darker (0.1f));
+            button.setColour (juce::TextButton::buttonOnColourId, Palette::bright.withAlpha (0.18f));
+            button.setColour (juce::TextButton::textColourOffId, Palette::bright);
+            button.setColour (juce::TextButton::textColourOnId, Palette::bright);
         }
 
         int algorithmId = 1;
         for (auto& choice : getWavetableSynthAlgorithmChoices())
             algorithmBox.addItem (choice, algorithmId++);
+        int multiplierId = 1;
+        for (auto& choice : getWavetableSynthMultiplierChoices())
+            multiplierBox.addItem (choice, multiplierId++);
+        algorithmLabel.setText ("Algorithm", juce::dontSendNotification);
         algorithmLabel.setJustificationType (juce::Justification::centredLeft);
+        multiplierLabel.setText ("Multiply", juce::dontSendNotification);
+        multiplierLabel.setJustificationType (juce::Justification::centredLeft);
         algorithmHintLabel.setJustificationType (juce::Justification::centredLeft);
         algorithmHintLabel.setColour (juce::Label::textColourId, Palette::dim);
         algorithmBox.onChange = [this]
         {
-            static const juce::String hints[] = { "1>2>3>4>5>6>7>8", "1>2  3>4  5>6  7>8", "1>2>3>4  5>6>7>8", "1+2+3+4+5+6+7+8" };
-            algorithmHintLabel.setText (hints[(size_t) juce::jlimit (0, 3, algorithmBox.getSelectedItemIndex())], juce::dontSendNotification);
+            const int index = algorithmBox.getSelectedItemIndex();
+            juce::String hint;
+            if (index <= 2)       hint = "classic unison voice spread";
+            else if (index <= 5)  hint = "creative pitch/frequency stack";
+            else if (index <= 7)  hint = "scale-shaped oscillator stack";
+            else                  hint = "chord and overtone intervals";
+            algorithmHintLabel.setText (hint, juce::dontSendNotification);
         };
         addAndMakeVisible (algorithmLabel);
+        addAndMakeVisible (multiplierLabel);
         addAndMakeVisible (algorithmHintLabel);
         addAndMakeVisible (algorithmBox);
+        addAndMakeVisible (multiplierBox);
 
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
@@ -2790,17 +3110,32 @@ namespace GGrid
         };
 
         setupRotary (frameSlider, frameLabel, "Frame");
-        setupRotary (smoothSlider, smoothLabel, "Smooth");
+        setupRotary (smoothSlider, smoothLabel, "Warp");
         setupRotary (coarseSlider, coarseLabel, "Coarse");
         setupRotary (fineSlider, fineLabel, "Fine");
         setupRotary (panSlider, panLabel, "Pan");
         setupRotary (levelSlider, levelLabel, "Level");
+        setupRotary (unisonSlider, unisonLabel, "Unison");
+        setupRotary (spreadSlider, spreadLabel, "Spread");
         setupRotary (fmSlider, fmLabel, "FM");
-        setupRotary (attackSlider, attackLabel, "A");
-        setupRotary (decaySlider, decayLabel, "D");
-        setupRotary (sustainSlider, sustainLabel, "S");
-        setupRotary (releaseSlider, releaseLabel, "R");
+        fmSlider.setVisible (false);
+        fmLabel.setVisible (false);
+        setupRotary (attackSlider, attackLabel, "Amp Attack");
+        setupRotary (decaySlider, decayLabel, "Decay");
+        setupRotary (sustainSlider, sustainLabel, "Sustain");
+        setupRotary (releaseSlider, releaseLabel, "Amp Release");
+        setupRotary (polyphonySlider, polyphonyLabel, "Polyphony");
+        setupRotary (masterPitchSlider, masterPitchLabel, "Master Pitch");
+        setupRotary (bendRangeSlider, bendRangeLabel, "Bend Range");
         setupRotary (outputSlider, outputLabel, "Output");
+        attackSlider.setVisible (false);
+        attackLabel.setVisible (false);
+        decaySlider.setVisible (false);
+        decayLabel.setVisible (false);
+        sustainSlider.setVisible (false);
+        sustainLabel.setVisible (false);
+        releaseSlider.setVisible (false);
+        releaseLabel.setVisible (false);
 
         glideTimeSlider.setSliderStyle (juce::Slider::LinearHorizontal);
         glideTimeSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 56, 20);
@@ -2815,6 +3150,7 @@ namespace GGrid
         using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
         algorithmAttachment = std::make_unique<ComboBoxAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::algorithm), algorithmBox);
+        multiplierAttachment = std::make_unique<ComboBoxAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::multiplier), multiplierBox);
         attackAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::attack), attackSlider);
         decayAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::decay), decaySlider);
         sustainAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::sustain), sustainSlider);
@@ -2823,9 +3159,15 @@ namespace GGrid
         monoLegatoAttachment = std::make_unique<ButtonAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::monoLegato), monoLegatoButton);
         glideAttachment = std::make_unique<ButtonAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::glide), glideButton);
         glideTimeAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::glideTimeMs), glideTimeSlider);
+        polyphonyAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::polyphony), polyphonySlider);
+        masterPitchAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::masterPitch), masterPitchSlider);
+        bendRangeAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::bendRange), bendRangeSlider);
+        unisonAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::unison), unisonSlider);
+        spreadAttachment = std::make_unique<SliderAttachment> (apvts, wavetableSynthParamId (slotIndex, WavetableSynthParam::spread), spreadSlider);
 
         rebindGeneratorControls();
         refreshGeneratorButtons();
+        updateTableName();
         algorithmBox.onChange();
     }
 
@@ -2887,13 +3229,13 @@ namespace GGrid
         modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::fine),   label + " Fine",   &fineSlider });
         modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::pan),    label + " Pan",    &panSlider });
         modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::level),  label + " Level",  &levelSlider });
-        modTargets.push_back ({ wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::fm),     label + " FM",     &fmSlider });
-        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::attack), "Attack", &attackSlider });
-        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::decay), "Decay", &decaySlider });
-        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::sustain), "Sustain", &sustainSlider });
-        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::release), "Release", &releaseSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::spread), "Spread", &spreadSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::masterPitch), "Master Pitch", &masterPitchSlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::polyphony), "Polyphony", &polyphonySlider });
+        modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::bendRange), "Bend Range", &bendRangeSlider });
         modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::output), "Output", &outputSlider });
         modTargets.push_back ({ wavetableSynthParamId (slotIndex, WavetableSynthParam::glideTimeMs), "Glide Time", &glideTimeSlider });
+        updateTableName();
     }
 
     void WavetableSynthControlsPanel::refreshGeneratorButtons()
@@ -2905,7 +3247,8 @@ namespace GGrid
             const auto* output = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::output));
             const bool isOn = enabled != nullptr && enabled->load() >= 0.5f;
             const int out = output != nullptr ? (int) output->load() + 1 : 1;
-            generatorButtons[(size_t) gen].setButtonText (labels[gen] + (isOn ? " > " : " - ") + juce::String (out));
+            const auto state = isOn ? "  -> Out " : "  off  Out ";
+            generatorButtons[(size_t) gen].setButtonText (labels[gen] + state + juce::String (out));
             generatorButtons[(size_t) gen].setToggleState (gen == selectedGenerator, juce::dontSendNotification);
         }
 
@@ -2913,9 +3256,21 @@ namespace GGrid
         const int outIndex = selectedOut != nullptr ? (int) selectedOut->load() : 0;
         for (int out = 0; out < kNumWavetableSynthOutputs; ++out)
         {
+            juce::StringArray assigned;
+            for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+            {
+                const auto* enabled = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::enabled));
+                const auto* output = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::output));
+                if (enabled != nullptr && enabled->load() >= 0.5f && output != nullptr && (int) output->load() == out)
+                    assigned.add (labels[gen]);
+            }
+
+            outputButtons[(size_t) out].setButtonText ("Out " + juce::String (out + 1)
+                + (assigned.isEmpty() ? "  -" : "  " + assigned.joinIntoString (" + ")));
             outputButtons[(size_t) out].setToggleState (out == outIndex, juce::dontSendNotification);
             outputButtons[(size_t) out].repaint();
         }
+        repaint();
     }
 
     void WavetableSynthControlsPanel::setSelectedGeneratorOutput (int outputIndex)
@@ -2926,98 +3281,125 @@ namespace GGrid
         refreshGeneratorButtons();
     }
 
+    void WavetableSynthControlsPanel::enableNextGenerator()
+    {
+        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
+        {
+            auto* enabled = dynamic_cast<juce::AudioParameterBool*> (
+                apvts.getParameter (wavetableSynthGenParamId (slotIndex, gen, WavetableSynthGenParam::enabled)));
+            if (enabled != nullptr && ! enabled->get())
+            {
+                enabled->setValueNotifyingHost (1.0f);
+                selectGenerator (gen);
+                refreshGeneratorButtons();
+                return;
+            }
+        }
+
+        selectGenerator ((selectedGenerator + 1) % kNumWavetableSynthGenerators);
+    }
+
     void WavetableSynthControlsPanel::stepSelectedTable (int direction)
     {
         if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (
                 apvts.getParameter (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::table))))
+            setSelectedTableIndex (param->getIndex() + direction);
+        updateTableName();
+    }
+
+    void WavetableSynthControlsPanel::setSelectedTableIndex (int index)
+    {
+        if (auto* param = dynamic_cast<juce::AudioParameterChoice*> (
+                apvts.getParameter (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::table))))
         {
-            const int next = juce::jlimit (0, param->choices.size() - 1, param->getIndex() + direction);
+            const int next = juce::jlimit (0, param->choices.size() - 1, index);
             param->setValueNotifyingHost (param->convertTo0to1 ((float) next));
         }
+        updateTableName();
+    }
+
+    void WavetableSynthControlsPanel::showTableSearchPopup()
+    {
+        const auto* tableParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::table));
+        const int currentIndex = tableParam != nullptr ? (int) tableParam->load() : 0;
+        auto content = std::make_unique<WavetableSearchPopup> (currentIndex, [this] (int index) { setSelectedTableIndex (index); });
+        juce::CallOutBox::launchAsynchronously (std::move (content), searchTableButton.getScreenBounds(), nullptr);
+    }
+
+    void WavetableSynthControlsPanel::updateTableName()
+    {
+        const auto names = WavetableLibrary::getCatalogDisplayNames();
+        const auto* tableParam = apvts.getRawParameterValue (wavetableSynthGenParamId (slotIndex, selectedGenerator, WavetableSynthGenParam::table));
+        const int index = tableParam != nullptr ? juce::jlimit (0, names.size() - 1, (int) tableParam->load()) : 0;
+        tableNameLabel.setText (names.isEmpty() ? "No tables" : names[index], juce::dontSendNotification);
     }
 
     void WavetableSynthControlsPanel::resized()
     {
-        auto area = getLocalBounds().reduced (4);
-
-        auto genRow = area.removeFromTop (54);
-        const int genWidth = genRow.getWidth() / kNumWavetableSynthGenerators;
-        for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
-        {
-            auto cell = gen == kNumWavetableSynthGenerators - 1 ? genRow : genRow.removeFromLeft (genWidth);
-            generatorButtons[(size_t) gen].setBounds (cell.reduced (2, 6));
-        }
-
-        area.removeFromTop (4);
-        auto top = area.removeFromTop (152);
-        auto left = top.removeFromLeft (juce::jmax (190, top.getWidth() / 2));
-        preview.setBounds (left.reduced (0, 2));
-
-        auto browser = top.removeFromTop (28);
-        generatorEnabledButton.setBounds (browser.removeFromLeft (52));
-        browser.removeFromLeft (6);
-        tableLabel.setBounds (browser.removeFromLeft (40));
-        prevTableButton.setBounds (browser.removeFromLeft (24));
-        browser.removeFromLeft (2);
-        nextTableButton.setBounds (browser.removeFromLeft (24));
-        browser.removeFromLeft (6);
-        tableBox.setBounds (browser);
-
-        top.removeFromTop (8);
-        auto outputRow = top.removeFromTop (32);
-        const int outputWidth = outputRow.getWidth() / kNumWavetableSynthOutputs;
-        for (int out = 0; out < kNumWavetableSynthOutputs; ++out)
-            outputButtons[(size_t) out].setBounds ((out == kNumWavetableSynthOutputs - 1 ? outputRow : outputRow.removeFromLeft (outputWidth)).reduced (2, 3));
-
-        top.removeFromTop (8);
-        auto algorithmRow = top.removeFromTop (28);
-        algorithmLabel.setBounds (algorithmRow.removeFromLeft (64));
-        algorithmBox.setBounds (algorithmRow.removeFromLeft (120));
-        algorithmRow.removeFromLeft (8);
-        algorithmHintLabel.setBounds (algorithmRow);
-
-        top.removeFromTop (6);
-        auto tuneRow = top.removeFromTop (38);
-        const int tuneWidth = tuneRow.getWidth() / 3;
-        auto layoutCompact = [] (juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
-        {
-            label.setBounds (cell.removeFromTop (16));
-            slider.setBounds (cell);
-        };
-        layoutCompact (tuneRow.removeFromLeft (tuneWidth), coarseLabel, coarseSlider);
-        layoutCompact (tuneRow.removeFromLeft (tuneWidth), fineLabel, fineSlider);
-        layoutCompact (tuneRow, fmLabel, fmSlider);
+        auto area = getLocalBounds().reduced (8);
+        const int reservedBelowPreview = 430;
+        preview.setBounds (area.removeFromTop (juce::jmax (120, area.getHeight() - reservedBelowPreview)));
 
         area.removeFromTop (8);
-        auto oscRow = area.removeFromTop (98);
-        const int oscWidth = oscRow.getWidth() / 4;
+        auto browser = area.removeFromTop (30);
+        tableLabel.setBounds (browser.removeFromLeft (42));
+        prevTableButton.setBounds (browser.removeFromLeft (26));
+        browser.removeFromLeft (3);
+        nextTableButton.setBounds (browser.removeFromLeft (26));
+        browser.removeFromLeft (8);
+        searchTableButton.setBounds (browser.removeFromRight (62));
+        browser.removeFromRight (6);
+        tableBox.setBounds (browser);
+        tableNameLabel.setBounds (tableBox.getBounds());
+
+        area.removeFromTop (10);
+        auto genControls = area.removeFromTop (96);
+        const int genControlWidth = genControls.getWidth() / 6;
         auto layoutKnob = [] (juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
         {
             label.setBounds (cell.removeFromTop (16));
-            cell.removeFromTop (16);
             slider.setBounds (cell);
         };
-        layoutKnob (oscRow.removeFromLeft (oscWidth), frameLabel, frameSlider);
-        layoutKnob (oscRow.removeFromLeft (oscWidth), smoothLabel, smoothSlider);
-        layoutKnob (oscRow.removeFromLeft (oscWidth), panLabel, panSlider);
-        layoutKnob (oscRow, levelLabel, levelSlider);
+        layoutKnob (genControls.removeFromLeft (genControlWidth), frameLabel, frameSlider);
+        layoutKnob (genControls.removeFromLeft (genControlWidth), smoothLabel, smoothSlider);
+        layoutKnob (genControls.removeFromLeft (genControlWidth), coarseLabel, coarseSlider);
+        layoutKnob (genControls.removeFromLeft (genControlWidth), fineLabel, fineSlider);
+        layoutKnob (genControls.removeFromLeft (genControlWidth), panLabel, panSlider);
+        layoutKnob (genControls, levelLabel, levelSlider);
 
-        area.removeFromTop (8);
-        auto envRow = area.removeFromTop (98);
-        const int envWidth = envRow.getWidth() / 5;
-        layoutKnob (envRow.removeFromLeft (envWidth), attackLabel, attackSlider);
-        layoutKnob (envRow.removeFromLeft (envWidth), decayLabel, decaySlider);
-        layoutKnob (envRow.removeFromLeft (envWidth), sustainLabel, sustainSlider);
-        layoutKnob (envRow.removeFromLeft (envWidth), releaseLabel, releaseSlider);
-        layoutKnob (envRow, outputLabel, outputSlider);
+        area.removeFromTop (10);
+        auto spreadRow = area.removeFromTop (96);
+        const int spreadKnobWidth = juce::jmax (58, spreadRow.getWidth() / 5);
+        layoutKnob (spreadRow.removeFromLeft (spreadKnobWidth), unisonLabel, unisonSlider);
+        layoutKnob (spreadRow.removeFromLeft (spreadKnobWidth), spreadLabel, spreadSlider);
+        auto multiplierArea = spreadRow.removeFromRight (juce::jmax (78, spreadRow.getWidth() / 4));
+        multiplierLabel.setBounds (multiplierArea.removeFromTop (16));
+        multiplierArea.removeFromTop (16);
+        multiplierBox.setBounds (multiplierArea.removeFromTop (26));
+        spreadRow.removeFromRight (8);
+        auto algorithmArea = spreadRow;
+        algorithmLabel.setBounds (algorithmArea.removeFromTop (16));
+        algorithmArea.removeFromTop (16);
+        auto algoTop = algorithmArea.removeFromTop (26);
+        algorithmBox.setBounds (algoTop);
+        algorithmArea.removeFromTop (4);
+        algorithmHintLabel.setBounds (algorithmArea.removeFromTop (18));
 
-        area.removeFromTop (6);
-        auto monoRow = area.removeFromTop (24);
-        monoLegatoButton.setBounds (monoRow.removeFromLeft (76));
-        monoRow.removeFromLeft (6);
-        glideButton.setBounds (monoRow.removeFromLeft (76));
-        monoRow.removeFromLeft (8);
-        glideTimeLabel.setBounds (monoRow.removeFromLeft (42));
-        glideTimeSlider.setBounds (monoRow.removeFromLeft (180));
+        area.removeFromTop (10);
+        auto modeRow = area.removeFromTop (62);
+        monoLegatoButton.setBounds (modeRow.removeFromLeft (82).removeFromTop (28));
+        modeRow.removeFromLeft (6);
+        glideButton.setBounds (modeRow.removeFromLeft (76).removeFromTop (28));
+        modeRow.removeFromLeft (10);
+        glideTimeLabel.setBounds (modeRow.removeFromLeft (56).removeFromTop (18));
+        glideTimeSlider.setBounds (modeRow.removeFromTop (26));
+
+        area.removeFromTop (10);
+        auto voiceKnobs = area.removeFromTop (96);
+        const int voiceKnobWidth = voiceKnobs.getWidth() / 4;
+        layoutKnob (voiceKnobs.removeFromLeft (voiceKnobWidth), polyphonyLabel, polyphonySlider);
+        layoutKnob (voiceKnobs.removeFromLeft (voiceKnobWidth), masterPitchLabel, masterPitchSlider);
+        layoutKnob (voiceKnobs.removeFromLeft (voiceKnobWidth), bendRangeLabel, bendRangeSlider);
+        layoutKnob (voiceKnobs, outputLabel, outputSlider);
     }
 }

@@ -5,25 +5,69 @@ namespace GGrid
 {
     namespace
     {
-        int modulatorForGenerator (int algorithm, int gen)
+        float intervalFromPattern (const int* intervals, int count, int lane, int unison)
         {
-            switch (algorithm)
-            {
-                case 0: // Series: 1 > 2 > 3 > ... > 8
-                    return gen > 0 ? gen - 1 : -1;
+            if (count <= 0)
+                return 0.0f;
 
-                case 1: // Pairs: 1 > 2, 3 > 4, 5 > 6, 7 > 8
-                    return (gen % 2 == 1) ? gen - 1 : -1;
-
-                case 2: // Two Stacks: 1 > 2 > 3 > 4, 5 > 6 > 7 > 8
-                    return (gen % 4 != 0) ? gen - 1 : -1;
-
-                case 3: // Carriers: every generator outputs directly, no internal FM routing.
-                default:
-                    return -1;
-            }
+            const int centre = unison / 2;
+            const int relative = lane - centre;
+            const int octave = std::abs (relative) / count;
+            const int degree = std::abs (relative) % count;
+            const float semis = (float) intervals[degree] + (float) octave * 12.0f;
+            return relative < 0 ? -semis : semis;
         }
 
+        float unisonOffsetSemis (int mode, int lane, int unison, float spreadCents, int multiplier)
+        {
+            if (unison <= 1 || spreadCents <= 0.0f)
+                return 0.0f;
+
+            const float spreadSemis = spreadCents * (float) multiplier / 100.0f;
+            const float lane01 = (float) lane / (float) (unison - 1);
+            const float centred = lane01 * 2.0f - 1.0f;
+            constexpr int pentatonicMaj[] = { 0, 2, 4, 7, 9 };
+            constexpr int pentatonicMin[] = { 0, 3, 5, 7, 10 };
+            constexpr int octaves[]       = { 0, 12 };
+            constexpr int fifths[]        = { 0, 7 };
+            constexpr int minor[]         = { 0, 3, 7 };
+            constexpr int minorMin7[]     = { 0, 3, 7, 10 };
+            constexpr int minorMaj7[]     = { 0, 3, 7, 11 };
+            constexpr int major[]         = { 0, 4, 7 };
+            constexpr int majorMin7[]     = { 0, 4, 7, 10 };
+            constexpr int majorMaj7[]     = { 0, 4, 7, 11 };
+            constexpr int sus2[]          = { 0, 2, 7 };
+            constexpr int sus4[]          = { 0, 5, 7 };
+            constexpr int dim[]           = { 0, 3, 6 };
+            constexpr int dim7[]          = { 0, 3, 6, 9 };
+            constexpr int harmonics[]     = { 0, 12, 19, 24, 28, 31, 34, 36 };
+
+            switch (mode)
+            {
+                case 1:  return std::sin (centred * juce::MathConstants<float>::halfPi) * spreadSemis; // Smooth
+                case 2:  return std::copysign (centred * centred, centred) * spreadSemis;              // Synthetic
+                case 3:  return lane01 * spreadSemis * 2.0f;                                           // Freq Stack
+                case 4:  return std::round (centred * (float) multiplier) * spreadSemis;               // Pitch Stack
+                case 5:  return std::round (centred * 4.0f) * 12.0f * spreadSemis;                     // Shepard
+                case 6:  return intervalFromPattern (pentatonicMaj, 5, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 7:  return intervalFromPattern (pentatonicMin, 5, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 8:  return intervalFromPattern (octaves,       2, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 9:  return intervalFromPattern (fifths,        2, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 10: return intervalFromPattern (minor,         3, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 11: return intervalFromPattern (minorMin7,     4, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 12: return intervalFromPattern (minorMaj7,     4, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 13: return intervalFromPattern (major,         3, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 14: return intervalFromPattern (majorMin7,     4, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 15: return intervalFromPattern (majorMaj7,     4, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 16: return intervalFromPattern (sus2,          3, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 17: return intervalFromPattern (sus4,          3, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 18: return intervalFromPattern (dim,           3, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 19: return intervalFromPattern (dim7,          4, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 20: return intervalFromPattern (harmonics,     8, lane, unison) * (float) multiplier * juce::jlimit (0.0f, 1.0f, spreadCents / 100.0f);
+                case 0:
+                default: return centred * spreadSemis; // Hard
+            }
+        }
     }
 
     WavetableSynthModule::WavetableSynthModule (juce::AudioProcessorValueTreeState& apvtsIn, int slotIndexIn)
@@ -36,7 +80,13 @@ namespace GGrid
           algorithmParam   (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::algorithm))),
           monoLegatoParam  (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::monoLegato))),
           glideParam       (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::glide))),
-          glideTimeMsParam (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::glideTimeMs)))
+          glideTimeMsParam (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::glideTimeMs))),
+          polyphonyParam   (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::polyphony))),
+          masterPitchParam (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::masterPitch))),
+          bendRangeParam   (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::bendRange))),
+          unisonParam      (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::unison))),
+          spreadParam      (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::spread))),
+          multiplierParam  (apvtsIn.getRawParameterValue (wavetableSynthParamId (slotIndexIn, WavetableSynthParam::multiplier)))
     {
         loadedTableIndices.fill (-1);
         for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
@@ -60,7 +110,8 @@ namespace GGrid
         for (auto& voice : voices)
         {
             voice.active = false;
-            voice.phase.fill (0.0);
+            for (auto& genPhases : voice.phase)
+                genPhases.fill (0.0);
             voice.envelope.setSampleRate (sampleRate);
             voice.envelope.reset();
         }
@@ -79,7 +130,8 @@ namespace GGrid
         {
             voice.active = false;
             voice.envelope.reset();
-            voice.phase.fill (0.0);
+            for (auto& genPhases : voice.phase)
+                genPhases.fill (0.0);
         }
         heldNoteStackSize = 0;
         for (auto& bus : outputBusBuffers)
@@ -118,7 +170,15 @@ namespace GGrid
             + modMatrix.getOffsetForParam (wavetableSynthParamId (slotIndex, WavetableSynthParam::release), 1.0f));
         r.outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load()
             + modMatrix.getOffsetForParam (wavetableSynthParamId (slotIndex, WavetableSynthParam::output), 12.0f)));
-        r.algorithm = juce::jlimit (0, getWavetableSynthAlgorithmChoices().size() - 1, (int) algorithmParam->load());
+        r.polyphony = juce::jlimit (1, kMaxWavetableSynthVoices, (int) std::round (polyphonyParam->load()));
+        r.masterPitch = juce::jlimit (-48.0f, 48.0f, masterPitchParam->load()
+            + modMatrix.getOffsetForParam (wavetableSynthParamId (slotIndex, WavetableSynthParam::masterPitch), 12.0f));
+        r.bendRange = juce::jlimit (0.0f, 24.0f, bendRangeParam->load());
+        r.unison = juce::jlimit (1, kMaxUnison, (int) std::round (unisonParam->load()));
+        r.spreadCents = juce::jlimit (0.0f, 100.0f, spreadParam->load()
+            + modMatrix.getOffsetForParam (wavetableSynthParamId (slotIndex, WavetableSynthParam::spread), 50.0f));
+        r.spreadMode = juce::jlimit (0, getWavetableSynthAlgorithmChoices().size() - 1, (int) algorithmParam->load());
+        r.spreadMultiplier = juce::jlimit (1, 8, multiplierParam != nullptr ? (int) multiplierParam->load() + 1 : 1);
         r.monoLegato = monoLegatoParam->load() >= 0.5f;
         r.glide = glideParam->load() >= 0.5f;
         r.glideTimeMs = juce::jmax (1.0f, glideTimeMsParam->load());
@@ -147,18 +207,19 @@ namespace GGrid
         return r;
     }
 
-    int WavetableSynthModule::findVoiceForNoteOn()
+    int WavetableSynthModule::findVoiceForNoteOn (int maxPolyphony)
     {
+        const int lastVoice = juce::jlimit (1, kMaxWavetableSynthVoices - 1, maxPolyphony);
         // Index 0 is reserved exclusively for Mono/Legato (handleMonoNoteOn/Off) -- if poly could
         // also land a note on it, a note-off arriving after a mode switch couldn't tell which path
         // owns voices[0], and note-off routing (see handleMidiEvent below) needs that to be
         // unambiguous to avoid ever orphaning a still-sounding voice.
-        for (int i = 1; i < kMaxWavetableSynthVoices; ++i)
+        for (int i = 1; i <= lastVoice; ++i)
             if (! voices[(size_t) i].active)
                 return i;
 
         int oldest = 1;
-        for (int i = 2; i < kMaxWavetableSynthVoices; ++i)
+        for (int i = 2; i <= lastVoice; ++i)
             if (voices[(size_t) i].triggerOrder < voices[(size_t) oldest].triggerOrder)
                 oldest = i;
         return oldest;
@@ -174,13 +235,14 @@ namespace GGrid
                 return;
             }
 
-            auto& voice = voices[(size_t) findVoiceForNoteOn()];
+            auto& voice = voices[(size_t) findVoiceForNoteOn (resolved.polyphony)];
             voice.envelope.reset();
             voice.active = true;
             voice.noteNumber = message.getNoteNumber();
             voice.velocity = message.getFloatVelocity();
             voice.triggerOrder = nextTriggerOrder++;
-            voice.phase.fill (0.0);
+            for (auto& genPhases : voice.phase)
+                genPhases.fill (0.0);
             voice.envelope.setSampleRate (sampleRate);
             voice.envelope.setParameters ({ resolved.attack, resolved.decay, resolved.sustain / 100.0f, resolved.release });
             voice.envelope.noteOn();
@@ -208,6 +270,10 @@ namespace GGrid
                 if (voice.active)
                     voice.envelope.noteOff();
             heldNoteStackSize = 0;
+        }
+        else if (message.isPitchWheel())
+        {
+            currentPitchBendSemis = ((float) message.getPitchWheelValue() - 8192.0f) * resolved.bendRange / 8192.0f;
         }
     }
 
@@ -245,7 +311,8 @@ namespace GGrid
             voice.envelope.reset();
             voice.active = true;
             voice.triggerOrder = nextTriggerOrder++;
-            voice.phase.fill (0.0);
+            for (auto& genPhases : voice.phase)
+                genPhases.fill (0.0);
             voice.envelope.setSampleRate (sampleRate);
             voice.envelope.setParameters ({ resolved.attack, resolved.decay, resolved.sustain / 100.0f, resolved.release });
             voice.envelope.noteOn();
@@ -305,10 +372,11 @@ namespace GGrid
         return 440.0f * std::pow (2.0f, (fractionalNoteNumber - 69.0f) / 12.0f);
     }
 
-    void WavetableSynthModule::renderRange (juce::dsp::AudioBlock<float>& block, int startSample, int endSample, const ResolvedParams& resolved)
+    void WavetableSynthModule::renderRange (juce::dsp::AudioBlock<float>& block, int startSample, int endSample,
+                                            const ResolvedParams& resolved, const juce::AudioBuffer<float>* externalFm)
     {
         const int numChannels = (int) block.getNumChannels();
-        const int voiceCount = resolved.monoLegato ? 1 : kMaxWavetableSynthVoices;
+        const int voiceCount = resolved.monoLegato ? 1 : juce::jlimit (2, kMaxWavetableSynthVoices, resolved.polyphony + 1);
 
         for (int i = startSample; i < endSample; ++i)
         {
@@ -324,35 +392,18 @@ namespace GGrid
                 float voiceBusL[kNumWavetableSynthOutputs] {};
                 float voiceBusR[kNumWavetableSynthOutputs] {};
 
-                const double baseFreq = resolved.monoLegato
-                    ? (double) noteNumberToHz (monoNoteNumberSmoothed.getNextValue())
-                    : juce::MidiMessage::getMidiNoteInHertz (voice.noteNumber);
+                const float noteNumber = (resolved.monoLegato ? monoNoteNumberSmoothed.getNextValue() : (float) voice.noteNumber)
+                    + resolved.masterPitch + currentPitchBendSemis;
+                const double baseFreq = (double) noteNumberToHz (noteNumber);
 
-                const auto isLastEnabledGeneratorInRange = [&resolved] (int gen, int endGen)
+                float externalFmSample = 0.0f;
+                if (externalFm != nullptr && externalFm->getNumSamples() > i)
                 {
-                    for (int candidate = gen + 1; candidate <= endGen; ++candidate)
-                    {
-                        const auto& laterParams = resolved.gens[(size_t) candidate];
-                        if (laterParams.enabled && laterParams.level > 0.0f)
-                            return false;
-                    }
+                    for (int ch = 0; ch < externalFm->getNumChannels(); ++ch)
+                        externalFmSample += externalFm->getReadPointer (ch)[i];
+                    externalFmSample /= (float) juce::jmax (1, externalFm->getNumChannels());
+                }
 
-                    return true;
-                };
-
-                const auto isCarrierGenerator = [&resolved, &isLastEnabledGeneratorInRange] (int gen)
-                {
-                    switch (resolved.algorithm)
-                    {
-                        case 0:  return isLastEnabledGeneratorInRange (gen, kNumWavetableSynthGenerators - 1);
-                        case 1:  return isLastEnabledGeneratorInRange (gen, juce::jmin ((gen / 2) * 2 + 1, kNumWavetableSynthGenerators - 1));
-                        case 2:  return isLastEnabledGeneratorInRange (gen, juce::jmin ((gen / 4) * 4 + 3, kNumWavetableSynthGenerators - 1));
-                        case 3:  return true;
-                        default: return true;
-                    }
-                };
-
-                float genSamples[kNumWavetableSynthGenerators] {};
                 for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)
                 {
                     const auto& params = resolved.gens[(size_t) gen];
@@ -361,24 +412,29 @@ namespace GGrid
 
                     const auto table = getTable (gen);
                     const float frame = table != nullptr ? juce::jlimit (0.0f, (float) table->numFrames - 1.0f, params.frame) : 0.0f;
-                    const int modulator = modulatorForGenerator (resolved.algorithm, gen);
-                    const float modSample = modulator >= 0 ? genSamples[modulator] : 0.0f;
-                    const float phaseMod = modSample * params.fm * kFmModIndexScale;
-                    const float sample = table != nullptr ? table->sample (frame, (float) voice.phase[(size_t) gen] + phaseMod, params.smooth) : 0.0f;
-                    genSamples[gen] = sample;
-
-                    if (isCarrierGenerator (gen))
+                    float genL = 0.0f, genR = 0.0f;
+                    for (int lane = 0; lane < resolved.unison; ++lane)
                     {
-                        const float panL = std::sqrt (0.5f * (1.0f - params.pan));
-                        const float panR = std::sqrt (0.5f * (1.0f + params.pan));
-                        const float scaled = sample * params.level;
-                        voiceBusL[params.output] += scaled * panL;
-                        voiceBusR[params.output] += scaled * panR;
+                        const float lanePan = resolved.unison <= 1 ? 0.0f : ((float) lane / (float) (resolved.unison - 1)) * 2.0f - 1.0f;
+                        const float pan = juce::jlimit (-1.0f, 1.0f, params.pan + lanePan * juce::jlimit (0.0f, 1.0f, resolved.spreadCents / 100.0f));
+                        const float phaseMod = externalFmSample * kFmModIndexScale;
+                        const float sample = table != nullptr ? table->sample (frame, (float) voice.phase[(size_t) gen][(size_t) lane] + phaseMod, params.smooth) : 0.0f;
+                        const float panL = std::sqrt (0.5f * (1.0f - pan));
+                        const float panR = std::sqrt (0.5f * (1.0f + pan));
+                        genL += sample * panL;
+                        genR += sample * panR;
+
+                        const float detuneSemis = unisonOffsetSemis (resolved.spreadMode, lane, resolved.unison,
+                                                                      resolved.spreadCents, resolved.spreadMultiplier);
+                        const double detuneMul = std::pow (2.0, (double) detuneSemis / 12.0);
+                        const double dt = (baseFreq * (double) params.freqMultiplier * detuneMul) / sampleRate;
+                        voice.phase[(size_t) gen][(size_t) lane] += dt;
+                        voice.phase[(size_t) gen][(size_t) lane] -= std::floor (voice.phase[(size_t) gen][(size_t) lane]);
                     }
 
-                    const double dt = (baseFreq * (double) params.freqMultiplier) / sampleRate;
-                    voice.phase[(size_t) gen] += dt;
-                    voice.phase[(size_t) gen] -= std::floor (voice.phase[(size_t) gen]);
+                    const float scale = params.level / std::sqrt ((float) resolved.unison);
+                    voiceBusL[params.output] += genL * scale;
+                    voiceBusR[params.output] += genR * scale;
                 }
 
                 const float envGain = voice.envelope.getNextSample() * voice.velocity * resolved.outputGain;
@@ -421,16 +477,35 @@ namespace GGrid
             bus.clear();
         }
 
+        const bool hasExternalFm = [&block]
+        {
+            for (int ch = 0; ch < (int) block.getNumChannels(); ++ch)
+                for (int i = 0; i < (int) block.getNumSamples(); ++i)
+                    if (std::abs (block.getSample (ch, i)) > 0.000001f)
+                        return true;
+            return false;
+        }();
+
+        const juce::AudioBuffer<float>* externalFm = nullptr;
+        if (hasExternalFm)
+        {
+            externalFmBuffer.setSize ((int) block.getNumChannels(), (int) block.getNumSamples(), false, false, true);
+            for (int ch = 0; ch < (int) block.getNumChannels(); ++ch)
+                externalFmBuffer.copyFrom (ch, 0, block.getChannelPointer ((size_t) ch), (int) block.getNumSamples());
+            externalFm = &externalFmBuffer;
+            block.clear();
+        }
+
         const auto resolved = resolveParams (modMatrix);
         int samplePos = 0;
         for (const auto metadata : midi)
         {
             const int eventPos = juce::jlimit (0, (int) block.getNumSamples(), metadata.samplePosition);
             if (eventPos > samplePos)
-                renderRange (block, samplePos, eventPos, resolved);
+                renderRange (block, samplePos, eventPos, resolved, externalFm);
             handleMidiEvent (metadata.getMessage(), resolved);
             samplePos = eventPos;
         }
-        renderRange (block, samplePos, (int) block.getNumSamples(), resolved);
+        renderRange (block, samplePos, (int) block.getNumSamples(), resolved, externalFm);
     }
 }

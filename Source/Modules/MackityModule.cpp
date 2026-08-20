@@ -55,7 +55,7 @@ namespace GGrid
         return output;
     }
 
-    double MackityModule::processChannel (int channel, double input, double inTrim, double outPad)
+    double MackityModule::processChannel (int channel, double input, double inTrim, double smash, double outPad)
     {
         const double overallScale = sampleRate / 44100.0;
         const double iirAmountA = 0.001860867 / overallScale;
@@ -68,10 +68,32 @@ namespace GGrid
 
         input = processBiquad (biquadA, channel, input);
 
-        input = juce::jlimit (-1.0, 1.0, input);
-        input -= std::pow (input, 5.0) * 0.1768;
+        smash = juce::jlimit (0.0, 1.0, smash);
+        const double limited = juce::jlimit (-12.0, 12.0, input);
+        const double bridged = std::sin (juce::jlimit (-juce::MathConstants<double>::halfPi,
+                                                       juce::MathConstants<double>::halfPi,
+                                                       limited * (0.65 + smash * 1.85)));
+        const double chewed = std::tanh (limited * (1.2 + smash * 5.5));
+        const double folded = std::sin (limited * (0.35 + smash * 2.4)) * (0.25 + smash * 0.75);
+        const double asymmetry = std::tanh ((limited + limited * limited * 0.18 * smash) * (0.8 + smash * 2.2));
+        const double shrapnel = std::sin (limited * (4.0 + smash * 18.0))
+                              * std::sin (limited * (0.5 + smash * 0.7))
+                              * smash;
+        input = bridged * (0.48 - smash * 0.12)
+              + chewed * (0.28 + smash * 0.22)
+              + folded * (smash * 0.22)
+              + asymmetry * (0.24 + smash * 0.08)
+              + shrapnel * (0.05 + smash * 0.55);
+
+        input -= std::pow (juce::jlimit (-1.6, 1.6, input), 5.0) * (0.12 + smash * 0.18);
+        input = std::tanh (input * (1.0 + smash * 1.55)) * (1.0 + smash * 0.95);
 
         input = processBiquad (biquadB, channel, input);
+
+        const double edge = juce::jlimit (-1.0, 1.0, limited * (0.32 + smash * 0.9));
+        const double hardEdge = edge - std::pow (edge, 3.0) * 0.18 + std::pow (edge, 5.0) * 0.08;
+        input += hardEdge * smash * 0.85;
+        input = juce::jlimit (-3.2, 3.2, input);
 
         auto& hpB = iirB[(size_t) channel];
         hpB = hpB * (1.0 - iirAmountB) + input * iirAmountB;
@@ -91,8 +113,8 @@ namespace GGrid
         const float outputOffset = modMatrix.getOffsetForParam (mackityParamId (slotIndex, MackityParam::output), 12.0f);
 
         const double input01 = juce::jlimit (0.0f, 100.0f, inputParam->load() + inputOffset) / 100.0;
-        double inTrim = input01 * 10.0;
-        inTrim *= inTrim;
+        const double inTrim = std::pow (1.0 + input01 * 15.0, 2.0);
+        const double smash = std::pow (input01, 3.0);
         const double outPad = juce::jlimit (0.0f, 100.0f, padParam->load() + padOffset) / 100.0;
         const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
         const float outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
@@ -110,7 +132,7 @@ namespace GGrid
 
             for (size_t i = 0; i < numSamples; ++i)
             {
-                const double wet = processChannel ((int) ch, (double) data[i], inTrim, outPad);
+                const double wet = processChannel ((int) ch, (double) data[i], inTrim, smash, outPad);
                 data[i] = (float) (wet * outputGain * mix + dry[i] * (1.0f - mix));
             }
         }

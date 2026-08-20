@@ -11,7 +11,8 @@ knob with an LFO/Envelope/ADSR cable.
 - Lossy -- spectral STFT lo-fi/bitcrush degradation
 - Spectral Clipper -- clips per-bin magnitude in the frequency domain rather than the time-domain
   waveform (Hard/Soft/Foldback/Sine Fold shapes), a cleaner-sounding alternative to a normal clipper
-- Mackity -- vintage small-console input-stage saturation with input drive, output pad, mix, and gain
+- Mackity -- vintage small-console input-stage saturation with a much hotter input drive curve,
+  spongy slam/edge overload, output pad, mix, and gain
 
 **Filter & EQ**
 - Filter -- 10 types: biquads, comb/allpass, saturating Ladder Low/High Pass, vowel-sweep Formant
@@ -47,9 +48,12 @@ knob with an LFO/Envelope/ADSR cable.
 
 **Generators**
 - 3xOsc -- 16-voice polyphonic synth, 3 FM-linked oscillators per voice, Mono/Legato + Glide
-- WT Synth -- wavetable generator with built-in Sine/Triangle/Saw/Square waves, Kilohearts/Phase
-  Plant wavetable loading, generator tabs, waveform preview, four output buses, Mono/Legato + Glide,
-  and Operator-style FM routing algorithms
+- WT Synth -- Phase Plant-inspired wavetable generator with built-in Sine/Triangle/Saw/Square
+  waves, searchable bundled factory wavetable browser, live wavetable preview, external FM by
+  patching one WT Synth into another, parallel stacking through normal graph routing, Polyphony,
+  Master Pitch, Bend Range, Mono/Legato + Glide, plus Unison/Spread algorithms: Hard, Smooth,
+  Synthetic, Freq Stack, Pitch Stack, Shepard, Pentatonic Major/Minor, Octaves, Fifths, Minor,
+  Major, Sus2/Sus4, Dim, Harmonics, and 1x-8x multipliers
 
 **I/O**
 - Input / Output -- any number of each; nothing reaches the speakers unless wired all the way
@@ -70,11 +74,13 @@ the incoming signal, so you can see what you're shaping.
   ADSR/LFO Table's single output nub onto any knob's destination dot. A destination can take more
   than one cable at once -- e.g. two LFOs, or an LFO and an Envelope, both stacking onto the same
   knob -- their contributions sum rather than one replacing the other.
-- **LFO Table / Wavetable Synth tables** -- GGrid ships its own copy of a Kilohearts-style factory
-  wavetable set (`Resources/Wavetables/Kilohearts`, installed to `Documents/GGrid/Wavetables`) --
-  self-contained, doesn't look for or depend on Kilohearts (or anything else) being installed.
-- **WT Synth wavetables** -- uses the same wavetable catalog, starts with built-in basic waves,
-  and can route individual generators to one of four output ports for separate downstream chains.
+- **LFO Table / WT Synth tables** -- GGrid ships its own copy of a Kilohearts-style factory
+  wavetable set (`Resources/Wavetables/Kilohearts`, installed to `Documents/GGrid/Wavetables`).
+  It is self-contained: nothing reads from your local Kilohearts install path, so teammates and
+  CI builds get the same catalog from the repo/installer.
+- **WT Synth routing** -- FM is graph-first: route the audio output from one WT Synth into another
+  WT Synth's `FM In`. For parallel layers, route multiple WT Synth modules to the same downstream
+  module or Output.
 - **MIDI Mod Matrix** -- its own tab: 6 fixed routes (Note Pitch/Velocity/Mod Wheel/2 CC lanes) to
   a handful of destinations, plus the always-on Safety Limiter (brickwall, protects your ears/gear
   from an aggressively-driven chain).
@@ -87,8 +93,8 @@ the incoming signal, so you can see what you're shaping.
 
 **Mac**: built via GitHub Actions (`.github/workflows/macos-build.yml`) as a universal binary --
 trigger it manually and download the artifact zip. Unsigned/not notarized, so right-click ->
-Open to get past Gatekeeper, and copy the zip's `IRs/` folder to `~/Documents/GGrid/IRs` (no
-installer yet, so this step is manual).
+Open to get past Gatekeeper, then copy the zip's `IRs/` folder to `~/Documents/GGrid/IRs` and
+`Wavetables/` to `~/Documents/GGrid/Wavetables` (no installer yet, so this step is manual).
 
 ## Building from source
 
@@ -139,8 +145,8 @@ Installer/                             Inno Setup installer script
 - **Modulation cables and the MIDI Mod Matrix are two separate, additive systems** -- see
   `ModulationMatrix`.
 - **Modules with multiple outputs publish per-output audio buses from the module itself** --
-  Multipass exposes Low/Mid/High bands, and WT Synth exposes four generator output buses that can
-  be patched into separate downstream effects.
+  Multipass exposes Low/Mid/High bands. WT Synth is intentionally graph-first with a single audio
+  output and a single `FM In`; build FM/parallel stacks by patching multiple WT modules together.
 - Design reasoning for specific choices lives in code comments near the relevant code, not
   duplicated here.
 
@@ -150,4 +156,4 @@ Installer/                             Inno Setup installer script
   drag-anywhere movement, resizing, folding, copy/paste, and duplication.
 - Each node caps at 4 in / 4 out connections, and the graph must stay acyclic -- no feedback loop
   *across* nodes (a module's own internal feedback, like Delay's, is unaffected).
-- macOS build has no installer yet -- IRs need manual copying.
+- macOS build has no installer yet -- IRs and Wavetables need manual copying from the artifact zip.

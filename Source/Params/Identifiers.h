@@ -572,12 +572,10 @@ namespace GGrid
         static const juce::String level    = "level";
     }
 
-    // A Phase Plant-inspired wavetable generator. GGrid's graph has 4 physical output ports per
-    // node, so this module exposes 4 routable output buses and a bank of internal generators that
-    // can each be assigned to any bus. The fixed parameter bank keeps DAW automation stable while
-    // still feeling expandable in use: turn on more generator rows as needed, choose built-in
-    // sine/triangle/saw/square or the bundled Kilohearts tables, then patch output ports 1-4 to
-    // different lanes/effects. FM routing is picked with an Operator-style algorithm selector.
+    // A graph-first wavetable oscillator. The user-facing module presents one clean carrier
+    // surface; incoming audio is treated as the external FM source, so richer stacks are built by
+    // patching WT Synth modules together on the canvas. The older fixed generator/output
+    // parameters remain allocated so existing sessions and DAW automation stay loadable.
     constexpr int kNumWavetableSynthGenerators = 8;
     constexpr int kNumWavetableSynthOutputs = 4;
     constexpr int kMaxWavetableSynthVoices = 16;
@@ -594,7 +592,16 @@ namespace GGrid
 
     inline juce::StringArray getWavetableSynthAlgorithmChoices()
     {
-        return { "Series", "Pairs", "Two Stacks", "Carriers" };
+        return { "Hard", "Smooth", "Synthetic",
+                 "Freq Stack", "Pitch Stack", "Shepard",
+                 "Pentatonic Maj", "Pentatonic Min",
+                 "Octaves", "Fifths", "Minor", "Minor Min7", "Minor Maj7",
+                 "Major", "Major Min7", "Major Maj7", "Sus2", "Sus4", "Dim", "Dim 7", "Harmonics" };
+    }
+
+    inline juce::StringArray getWavetableSynthMultiplierChoices()
+    {
+        return { "1x", "2x", "3x", "4x", "5x", "6x", "7x", "8x" };
     }
 
     inline juce::String wavetableSynthParamId (int slotIndex, const juce::String& paramName)
@@ -613,6 +620,12 @@ namespace GGrid
         static const juce::String monoLegato  = "monoLegato";
         static const juce::String glide       = "glide";
         static const juce::String glideTimeMs = "glideTimeMs";
+        static const juce::String polyphony   = "polyphony";
+        static const juce::String masterPitch = "masterPitch";
+        static const juce::String bendRange   = "bendRange";
+        static const juce::String unison      = "unison";
+        static const juce::String spread      = "spread";
+        static const juce::String multiplier  = "multiplier";
     }
 
     inline juce::String wavetableSynthGenParamId (int slotIndex, int genIndex, const juce::String& paramName)
@@ -675,8 +688,8 @@ namespace GGrid
     }
 
     // A wavetable-backed modulation source inspired by Kilohearts' LFO Table: select a table
-    // from Kilohearts' installed factory_wavetables folder (or GGrid's own Wavetables folders),
-    // choose a frame, then cycle through that frame as an LFO. Kilohearts factory tables are
+    // from GGrid's bundled Resources/Wavetables catalog, choose a frame, then cycle through that
+    // frame as an LFO. Kilohearts-style factory tables are
     // 256 frames x 2048 samples; the loader infers frame count from file length so compatible
     // user tables still work if they use a smaller/larger frame count. Like LFO/Envelope/ADSR,
     // LFO Table is a modulation source only: no audio ports, one violet output nub.

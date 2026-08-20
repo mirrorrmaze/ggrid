@@ -92,9 +92,10 @@ namespace GGrid
         bool hasFourOutputBuses() const;
 
         // No input ports at all: Input (a source of the raw dry signal) and ThreeOsc (a source of
-        // its own MIDI-generated audio) alike -- see isInputType()/isThreeOscType(). Used to hide
+        // its own MIDI-generated audio) alike -- see isInputType()/isThreeOscType(). WT Synth
+        // keeps its input ports because incoming audio acts as external FM. Used to hide
         // the input-side connector dots and exclude a node from being a valid cable-drop target.
-        bool hasNoInputPorts() const { return isInputType() || isThreeOscType() || isWavetableSynthType(); }
+        bool hasNoInputPorts() const { return isInputType() || isThreeOscType(); }
 
         juce::Point<int> getModOutputPosition() const;
 

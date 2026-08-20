@@ -535,7 +535,7 @@ namespace GGrid
         // has no output ports (only its incoming edges are still valid) -- prune whichever side
         // just became invalid for the new type. Iterated backward since removeConnection shifts
         // later entries down.
-        if (newType == ModuleType::input || newType == ModuleType::threeOsc || newType == ModuleType::wavetableSynth)
+        if (newType == ModuleType::input || newType == ModuleType::threeOsc)
         {
             for (int c = processor.numConnections - 1; c >= 0; --c)
                 if (processor.connections[(size_t) c].to == slotIndex)
@@ -983,7 +983,8 @@ namespace GGrid
             if (i == excludeSlot || ! candidate->isVisible() || candidate->isModulationSourceType() || candidate->hasNoInputPorts())
                 continue;
 
-            for (int port = 0; port < kMaxPortsPerSide; ++port)
+            const int inputPortCount = candidate->isWavetableSynthType() ? 1 : kMaxPortsPerSide;
+            for (int port = 0; port < inputPortCount; ++port)
             {
                 const auto inputPos = (candidate->getPosition() + candidate->getInputConnectorPosition (port)).toFloat();
                 if (inputPos.getDistanceFrom (canvasPoint) < 20.0f)
@@ -1059,6 +1060,10 @@ namespace GGrid
     int NodeGraphEditor::outputPortIndexForConnection (int connectionIndex) const
     {
         const auto& conn = processor.connections[(size_t) connectionIndex];
+        if (auto* fromNode = nodes[(size_t) conn.from].get())
+            if (fromNode->isWavetableSynthType())
+                return 0;
+
         // A pinned port (multi-bus module, e.g. Multipass) always draws/hit-tests at its own
         // specific dot -- never the cosmetic ordinal auto-spread below.
         if (conn.fromPort >= 0)
@@ -1074,6 +1079,10 @@ namespace GGrid
     int NodeGraphEditor::inputPortIndexForConnection (int connectionIndex) const
     {
         const int toSlot = processor.connections[(size_t) connectionIndex].to;
+        if (auto* toNode = nodes[(size_t) toSlot].get())
+            if (toNode->isWavetableSynthType())
+                return 0;
+
         int ordinal = 0;
         for (int i = 0; i < connectionIndex; ++i)
             if (processor.connections[(size_t) i].to == toSlot)

@@ -7,13 +7,12 @@ namespace GGrid
     void NodeComponent::OutputNub::paint (juce::Graphics& g)
     {
         const bool isMultipassBandPort = ! isMod && owner.isMultipassType() && portIndex >= 0 && portIndex < kNumMultipassBands;
-        const bool isWavetableBusPort = ! isMod && owner.isWavetableSynthType() && portIndex >= 0 && portIndex < kNumWavetableSynthOutputs;
         const auto colour = isMod ? Palette::modAccent : owner.outputPortColour (portIndex);
 
         g.setColour (colour);
         g.fillEllipse (getLocalBounds().toFloat().reduced (isMultipassBandPort ? 1.0f : 2.0f));
 
-        if (isMultipassBandPort || isWavetableBusPort)
+        if (isMultipassBandPort)
         {
             g.setColour (Palette::bg.withAlpha (0.72f));
             g.drawEllipse (getLocalBounds().toFloat().reduced (4.0f), 1.0f);
@@ -300,7 +299,7 @@ namespace GGrid
                 contentHeight = 714; break; // 3x[waveformRow(24)+gap(6)+knobRow(106)+gap(10)] + envRow(106)+gap(6)+fmRow(106)
                                              // + gap(6)+monoRow(24)+gap(4)+glideTimeRow(24)
             case ModuleType::wavetableSynth:
-                contentHeight = 460; break; // generator tabs + preview/browser/output/tune area + oscillator row + ADSR/output row + voice row
+                contentHeight = 568; break; // preview/browser + oscillator row + unison/spread algorithm row + voice/output rows
             case ModuleType::adsr:        contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::envelope:
                 contentHeight = 276; break; // editor(160) + gap(10) + knobRow(106)
@@ -324,30 +323,22 @@ namespace GGrid
 
     int NodeComponent::getMinimumWidth() const
     {
+        if (isWavetableSynthType())
+            return 360;
         return (isInputType() || isOutputType()) ? 120 : 240;
     }
 
     int NodeComponent::getMinimumExpandedHeight() const
     {
+        if (isWavetableSynthType())
+            return 600;
         return (isInputType() || isOutputType()) ? 72 : 118;
     }
 
     juce::Colour NodeComponent::outputPortColour (int portIndex) const
     {
-        if (! isMultipassType() && ! isWavetableSynthType())
+        if (! isMultipassType())
             return Palette::accent;
-
-        if (isWavetableSynthType())
-        {
-            switch (portIndex)
-            {
-                case 0:  return juce::Colour (0xff4fc3f7);
-                case 1:  return juce::Colour (0xffa0e85a);
-                case 2:  return juce::Colour (0xffffd166);
-                case 3:  return juce::Colour (0xffff6b6b);
-                default: return Palette::accent;
-            }
-        }
 
         switch (portIndex)
         {
@@ -360,11 +351,15 @@ namespace GGrid
 
     juce::Point<int> NodeComponent::getInputConnectorPosition (int portIndex) const
     {
+        if (isWavetableSynthType())
+            return { 0, getHeight() / 2 };
         return { 0, getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
     juce::Point<int> NodeComponent::getOutputConnectorPosition (int portIndex) const
     {
+        if (isWavetableSynthType())
+            return { getWidth(), getHeight() / 2 };
         return { getWidth(), getHeight() * (portIndex + 1) / (kMaxPortsPerSide + 1) };
     }
 
@@ -400,7 +395,7 @@ namespace GGrid
 
     bool NodeComponent::hasFourOutputBuses() const
     {
-        return isWavetableSynthType();
+        return false;
     }
 
     juce::Point<int> NodeComponent::getModOutputPosition() const
@@ -526,8 +521,16 @@ namespace GGrid
         if (! isModulationSourceType() && ! hasNoInputPorts())
         {
             g.setColour (Palette::accent);
-            for (int port = 0; port < kMaxPortsPerSide; ++port)
+            const int inputPortCount = isWavetableSynthType() ? 1 : kMaxPortsPerSide;
+            for (int port = 0; port < inputPortCount; ++port)
                 g.fillEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (getInputConnectorPosition (port).toFloat()));
+
+            if (isWavetableSynthType())
+            {
+                g.setColour (Palette::bright.withAlpha (0.78f));
+                g.setFont (juce::Font (juce::FontOptions (11.0f)));
+                g.drawText ("FM In", 14, getInputConnectorPosition (0).y - 9, 42, 18, juce::Justification::centredLeft);
+            }
         }
 
         const int modTargetCount = isFoldedFlag ? 0 : getModTargetCount();
@@ -538,9 +541,9 @@ namespace GGrid
                 g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (getModTargetPosition (i).toFloat()));
         }
 
-        if (isMultipassType() || isWavetableSynthType())
+        if (isMultipassType())
         {
-            const int portCount = isWavetableSynthType() ? kNumWavetableSynthOutputs : kNumMultipassBands;
+            const int portCount = kNumMultipassBands;
             for (int port = 0; port < portCount; ++port)
             {
                 const auto pos = getOutputConnectorPosition (port).toFloat();
@@ -628,11 +631,13 @@ namespace GGrid
         const bool hideOutputPorts = modSource || isOutputType();
         // Multipass has exactly 3 meaningful output buses (Low/Mid/High) -- the 4th dot would be
         // silence if wired (see RackModule::getOutputBusBuffer's out-of-range nullptr fallback),
-        // so it's hidden entirely rather than left as a footgun.
-        const bool hideFourthOutputPort = isMultipassType() && ! hasFourOutputBuses();
+        // so it's hidden entirely rather than left as a footgun. WT Synth is a single-output
+        // oscillator; incoming audio is FM, not a multi-bus lane system.
+        const bool singleOutputOnly = isWavetableSynthType();
+        const bool hideFourthOutputPort = (isMultipassType() && ! hasFourOutputBuses()) || singleOutputOnly;
         outputNub0.setVisible (! hideOutputPorts);
-        outputNub1.setVisible (! hideOutputPorts);
-        outputNub2.setVisible (! hideOutputPorts);
+        outputNub1.setVisible (! hideOutputPorts && ! singleOutputOnly);
+        outputNub2.setVisible (! hideOutputPorts && ! singleOutputOnly);
         outputNub3.setVisible (! hideOutputPorts && ! hideFourthOutputPort);
         modOutputNub.setVisible (modSource);
 

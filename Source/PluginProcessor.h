@@ -129,12 +129,14 @@ namespace GGrid
             if (from < 0 || to < 0 || from == to) return false;
             if (from >= kMaxSlots || to >= kMaxSlots) return false;
             // Input/ThreeOsc-type slots have no input ports at all (they're both graph sources --
-            // Input the raw dry signal, ThreeOsc its own MIDI-generated audio); Output-type slots
+            // Input the raw dry signal, ThreeOsc its own MIDI-generated audio); WT Synth accepts
+            // incoming audio as an external FM source while still acting as a source when unpatched.
+            // Output-type slots
             // have no output ports at all (their summed input is what reaches the final mix) --
             // matches their port sets in the GUI (see NodeComponent::isInputType/isOutputType/
             // isThreeOscType).
             const auto toType = slots[(size_t) to]->getActiveType();
-            if (toType == ModuleType::input || toType == ModuleType::threeOsc || toType == ModuleType::wavetableSynth) return false;
+            if (toType == ModuleType::input || toType == ModuleType::threeOsc) return false;
             if (slots[(size_t) from]->getActiveType() == ModuleType::output) return false;
             if (numConnections >= kMaxConnections) return false;
             if (getOutDegree (from) >= kMaxPortsPerSide || getInDegree (to) >= kMaxPortsPerSide) return false;

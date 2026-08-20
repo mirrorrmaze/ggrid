@@ -24,7 +24,7 @@ namespace GGrid
 
         void updateBiquad (Biquad& b, double cutoffHz, double q);
         double processBiquad (Biquad& b, int channel, double input);
-        double processChannel (int channel, double input, double inTrim, double outPad);
+        double processChannel (int channel, double input, double inTrim, double smash, double outPad);
 
         int slotIndex;
         double sampleRate = 44100.0;

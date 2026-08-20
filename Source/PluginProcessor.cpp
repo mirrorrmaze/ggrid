@@ -117,6 +117,7 @@ namespace GGrid
         std::array<bool, kMaxSlots> active {};
         std::array<bool, kMaxSlots> isInputRole {};
         std::array<bool, kMaxSlots> isOutputRole {};
+        std::array<bool, kMaxSlots> hasIncomingAudio {};
         // Topological roots: both Input (raw dry passthrough) and ThreeOsc (MIDI-driven
         // generator) start the processing order and seed graph reachability -- see
         // buildProcessingOrder's isRootRole parameter. They differ in what happens once a root's
@@ -131,9 +132,18 @@ namespace GGrid
             active[(size_t) i] = (type != ModuleType::none) && ! isModulationSourceType (type);
             isInputRole[(size_t) i] = (type == ModuleType::input);
             isOutputRole[(size_t) i] = (type == ModuleType::output);
+        }
+
+        for (int c = 0; c < numConnections; ++c)
+            if (connections[(size_t) c].to >= 0 && connections[(size_t) c].to < kMaxSlots)
+                hasIncomingAudio[(size_t) connections[(size_t) c].to] = true;
+
+        for (int i = 0; i < kMaxSlots; ++i)
+        {
+            const auto type = slots[(size_t) i]->getActiveType();
             isSourceRole[(size_t) i] = isInputRole[(size_t) i]
                 || type == ModuleType::threeOsc
-                || type == ModuleType::wavetableSynth;
+                || (type == ModuleType::wavetableSynth && ! hasIncomingAudio[(size_t) i]);
         }
 
         // Tick every active modulation-source slot (LFO/Envelope/ADSR) once per block, before the

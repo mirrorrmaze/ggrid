@@ -1023,7 +1023,7 @@ namespace GGrid
 
         layout.add (std::make_unique<AudioParameterChoice> (
             ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::algorithm), 1 },
-            "Slot " + String (slotIndex + 1) + " WT Synth Algorithm",
+            "Slot " + String (slotIndex + 1) + " WT Synth Spread Algorithm",
             getWavetableSynthAlgorithmChoices(), 0));
 
         layout.add (std::make_unique<AudioParameterBool> (
@@ -1041,6 +1041,38 @@ namespace GGrid
             "Slot " + String (slotIndex + 1) + " WT Synth Glide Time",
             skewedRange (1.0f, 2000.0f, 100.0f), 50.0f,
             AudioParameterFloatAttributes().withLabel ("ms")));
+
+        layout.add (std::make_unique<AudioParameterInt> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::polyphony), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Polyphony",
+            1, kMaxWavetableSynthVoices, 8));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::masterPitch), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Master Pitch",
+            NormalisableRange<float> (-48.0f, 48.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("st")));
+
+        layout.add (std::make_unique<AudioParameterInt> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::bendRange), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Bend Range",
+            0, 24, 2));
+
+        layout.add (std::make_unique<AudioParameterInt> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::unison), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Unison",
+            1, 16, 1));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::spread), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Spread",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("ct")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { wavetableSynthParamId (slotIndex, WavetableSynthParam::multiplier), 1 },
+            "Slot " + String (slotIndex + 1) + " WT Synth Spread Multiplier",
+            getWavetableSynthMultiplierChoices(), 0));
 
         const auto genLabels = getWavetableSynthGeneratorLabels();
         for (int gen = 0; gen < kNumWavetableSynthGenerators; ++gen)

@@ -860,31 +860,42 @@ namespace GGrid
         void refreshGeneratorButtons();
         void setSelectedGeneratorOutput (int outputIndex);
         void stepSelectedTable (int direction);
+        void enableNextGenerator();
+        void updateTableName();
+        void showTableSearchPopup();
+        void setSelectedTableIndex (int index);
 
         WavetableSynthPreviewComponent preview;
 
+        juce::TextButton addGeneratorButton { "+  Add Generator" };
         std::array<juce::TextButton, kNumWavetableSynthGenerators> generatorButtons;
         juce::ToggleButton generatorEnabledButton { "On" };
-        juce::TextButton prevTableButton { "<" }, nextTableButton { ">" };
+        juce::TextButton prevTableButton { "<" }, nextTableButton { ">" }, searchTableButton { "Search" };
         juce::ComboBox tableBox;
-        juce::Label tableLabel { {}, "Table" };
+        juce::Label tableLabel { {}, "Table" }, tableNameLabel;
         std::array<juce::TextButton, kNumWavetableSynthOutputs> outputButtons;
-        juce::Label algorithmLabel { {}, "Algorithm" }, algorithmHintLabel;
-        juce::ComboBox algorithmBox;
+        juce::Label algorithmLabel { {}, "Algorithm" }, algorithmHintLabel, multiplierLabel { {}, "Multiply" };
+        juce::ComboBox algorithmBox, multiplierBox;
 
         juce::Label frameLabel { {}, "Frame" }, smoothLabel { {}, "Smooth" }, coarseLabel { {}, "Coarse" }, fineLabel { {}, "Fine" },
                     panLabel { {}, "Pan" }, levelLabel { {}, "Level" }, fmLabel { {}, "FM" };
         juce::Slider frameSlider, smoothSlider, coarseSlider, fineSlider, panSlider, levelSlider, fmSlider;
 
         juce::Label attackLabel { {}, "A" }, decayLabel { {}, "D" }, sustainLabel { {}, "S" }, releaseLabel { {}, "R" },
-                    outputLabel { {}, "Output" }, glideTimeLabel { {}, "Glide" };
-        juce::Slider attackSlider, decaySlider, sustainSlider, releaseSlider, outputSlider, glideTimeSlider;
+                    outputLabel { {}, "Output" }, glideTimeLabel { {}, "Glide" },
+                    polyphonyLabel { {}, "Polyphony" }, masterPitchLabel { {}, "Master Pitch" }, bendRangeLabel { {}, "Bend Range" },
+                    unisonLabel { {}, "Unison" }, spreadLabel { {}, "Spread" };
+        juce::Slider attackSlider, decaySlider, sustainSlider, releaseSlider, outputSlider, glideTimeSlider,
+                     polyphonySlider, masterPitchSlider, bendRangeSlider, unisonSlider, spreadSlider;
         juce::ToggleButton monoLegatoButton { "Mono" }, glideButton { "Glide" };
 
+        juce::Rectangle<int> generatorColumnBounds, previewBounds, outputColumnBounds, voiceStripBounds;
+
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
-            attackAttachment, decayAttachment, sustainAttachment, releaseAttachment, outputAttachment, glideTimeAttachment;
+            attackAttachment, decayAttachment, sustainAttachment, releaseAttachment, outputAttachment, glideTimeAttachment,
+            polyphonyAttachment, masterPitchAttachment, bendRangeAttachment, unisonAttachment, spreadAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoLegatoAttachment, glideAttachment;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algorithmAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algorithmAttachment, multiplierAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> generatorEnabledAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> tableAttachment;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
