@@ -18,10 +18,7 @@ with an LFO via a separate cable type.
 - **Source:** `D:\Claude Projects\GGrid`
 - **GitHub repo:** [`mirrorrmaze/ggrid`](https://github.com/mirrorrmaze/ggrid) (public)
 - **Ships as:** VST3 plugin + standalone app, Windows and macOS
-- **Distribution:** loose files in `VST PROJECT ALPHA INSTALLERS\GGrid` on the shared Dropbox
-  (`Install GGrid.exe`, `GGrid-macOS.zip`, `README.txt`) — not zipped together, not
-  version-baked-into-filenames (each of the team's plugin projects uses a different convention
-  here; this one hasn't been unified with the others on purpose)
+- **Distribution:** GitHub Releases only
 
 ## Effect modules (12 so far)
 
@@ -124,17 +121,14 @@ project's development. If you're working on GGrid with an AI assistant, these ar
 it up front (or codifying in a `CLAUDE.md` in the repo, which doesn't exist yet as of this
 writing).
 
-1. **Proactively refresh the Dropbox installer folder whenever a version is verified and ready
-   for testers** — don't wait to be asked. "Verified" means: it builds clean, the offline test
-   suite passes, and (for GUI changes) it's been functionally confirmed. This applies across this
-   user's plugin projects generally (GGrid, plus two sibling JUCE projects), each of which uses
-   its own distribution convention in its own Dropbox subfolder — don't try to unify them.
+1. **Proactively publish a GitHub Release whenever a version is verified and ready for testers**
+   — don't wait to be asked. "Verified" means: it builds clean, the offline test suite passes, and
+   (for GUI changes) it's been functionally confirmed.
 
-2. **Always keep the macOS build in Dropbox in sync with Windows, not just Windows.** Every time
-   the Windows installer gets refreshed for testers, also trigger the macOS GitHub Actions
-   workflow and pull down the resulting artifact to replace `GGrid-macOS.zip`. Never leave a
-   "macOS is a few versions behind" caveat in the README as a substitute for actually rebuilding
-   it.
+2. **Always keep the macOS build in sync with Windows in the same release, not just Windows.**
+   Every time the Windows installer gets rebuilt for a release, also trigger the macOS GitHub
+   Actions workflow and attach the resulting artifact to the same release. Never leave a "macOS is
+   a few versions behind" caveat in the README as a substitute for actually rebuilding it.
 
 3. **Don't attempt synthetic UI-click automation or screenshot-based verification for this
    native desktop app.** Coordinate/handle-based window capture and synthetic input have proven
