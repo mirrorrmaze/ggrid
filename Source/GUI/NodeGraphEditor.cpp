@@ -398,9 +398,28 @@ namespace GGrid
         auto content = std::make_unique<AddModuleSearchPopup>();
         auto* contentPtr = content.get();
 
+        // Anchored to the top-level editor window, not `this` (NodeGraphEditor) and not nullptr:
+        //   - `this` doesn't work as the parent for a screen-coordinate target area -- CallOutBox
+        //     treats its target rectangle as being in the PARENT's own LOCAL coordinate space
+        //     when a parent is given, so anchoring to `this` with a raw screen coordinate (as a
+        //     first attempt at this did) put the popup at (screenPos.x, screenPos.y) *within
+        //     NodeGraphEditor's own local space* instead of on screen -- hence it landing far off
+        //     to the left/up. `this` is also the wrong parent regardless of coordinates: it's the
+        //     huge (6000x4000) canvas living inside a scrolling, clipping Viewport, not something
+        //     that can host an overlay that needs to render outside the currently-scrolled area.
+        //   - nullptr parent (an unparented top-level desktop window) fixed the position, but
+        //     broke the popup outright in Bitwig -- a plugin creating a genuinely detached
+        //     top-level window isn't something every host's VST3 embedding handles, apparently
+        //     including Bitwig's. A real window parent avoids that class of problem entirely.
+        // getTopLevelComponent() gives the actual editor window (spans the whole plugin UI, not
+        // clipped by the canvas Viewport), and getLocalPoint converts the screen position into
+        // THAT component's local space, matching what CallOutBox expects from a parented target.
+        auto* topLevel = getTopLevelComponent();
         const auto screenPos = localPointToGlobal (canvasPosition);
+        const auto anchorPos = topLevel != nullptr ? topLevel->getLocalPoint (nullptr, screenPos) : screenPos;
+
         auto& callOut = juce::CallOutBox::launchAsynchronously (std::move (content),
-            juce::Rectangle<int> (screenPos, screenPos), this);
+            juce::Rectangle<int> (anchorPos, anchorPos), topLevel);
 
         contentPtr->onModuleChosen = [this, &callOut, canvasPosition] (ModuleType type)
         {
