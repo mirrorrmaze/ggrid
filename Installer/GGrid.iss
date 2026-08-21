@@ -7,7 +7,7 @@
 ; (run from the repo root, or adjust the relative Source paths below if not)
 
 #define MyAppName "GGrid"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.0.6"
 #define MyAppPublisher "Mirror Maze"
 #define MyBuildDir "..\build\GGrid_artefacts\Release"
 

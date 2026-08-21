@@ -102,9 +102,6 @@ namespace GGrid
         // place now instead of scattered across per-category PopupMenu::addItem calls, so this
         // is the only spot that needs updating when a new module type is added.
         static const std::vector<Entry> entries = {
-            { ModuleType::input,                 "Input",                 "I/O" },
-            { ModuleType::output,                "Output",                "I/O" },
-
             { ModuleType::threeOsc,              "3xOsc",                 "Generators" },
             { ModuleType::wavetableSynth,        "WT Synth",              "Generators" },
 
@@ -134,6 +131,9 @@ namespace GGrid
             { ModuleType::dynamics,              "Dynamics",              "Dynamics" },
 
             { ModuleType::utility,               "Utility",               "Utility" },
+
+            { ModuleType::input,                 "Input",                 "I/O" },
+            { ModuleType::output,                "Output",                "I/O" },
         };
 
         return entries;
