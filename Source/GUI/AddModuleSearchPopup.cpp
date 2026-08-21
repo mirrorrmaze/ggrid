@@ -102,10 +102,11 @@ namespace GGrid
         // place now instead of scattered across per-category PopupMenu::addItem calls, so this
         // is the only spot that needs updating when a new module type is added.
         static const std::vector<Entry> entries = {
-            { ModuleType::waveshaper,            "Waveshaper",            "Distortion" },
-            { ModuleType::lossy,                 "Lossy",                 "Distortion" },
-            { ModuleType::mackity,               "Mackity",               "Distortion" },
-            { ModuleType::spectralClipper,       "Spectral Clipper",      "Distortion" },
+            { ModuleType::input,                 "Input",                 "I/O" },
+            { ModuleType::output,                "Output",                "I/O" },
+
+            { ModuleType::threeOsc,              "3xOsc",                 "Generators" },
+            { ModuleType::wavetableSynth,        "WT Synth",              "Generators" },
 
             { ModuleType::filter,                "Filter",                "Filter & EQ" },
             { ModuleType::nonlinearFilter,        "Nonlinear Filter",      "Filter & EQ" },
@@ -113,7 +114,15 @@ namespace GGrid
             { ModuleType::eq3,                   "EQ 3",                  "Filter & EQ" },
             { ModuleType::multipass,             "Multipass",             "Filter & EQ" },
 
-            { ModuleType::dynamics,              "Dynamics",              "Dynamics" },
+            { ModuleType::waveshaper,            "Waveshaper",            "Distortion" },
+            { ModuleType::lossy,                 "Lossy",                 "Distortion" },
+            { ModuleType::mackity,               "Mackity",               "Distortion" },
+            { ModuleType::spectralClipper,       "Spectral Clipper",      "Distortion" },
+
+            { ModuleType::delay,                 "Delay",                 "Time & Space" },
+            { ModuleType::shimmerReverb,         "Shimmer Reverb",        "Time & Space" },
+            { ModuleType::convolution,           "Convolution",           "Time & Space" },
+            { ModuleType::multibandConvolution,  "Multiband Convolution", "Time & Space" },
 
             { ModuleType::chorus,                "Chorus/Flanger",        "Modulation" },
             { ModuleType::ringMod,               "Ring Mod",              "Modulation" },
@@ -122,18 +131,9 @@ namespace GGrid
             { ModuleType::envelope,              "Envelope",              "Modulation" },
             { ModuleType::adsr,                  "ADSR",                  "Modulation" },
 
-            { ModuleType::delay,                 "Delay",                 "Time & Space" },
-            { ModuleType::shimmerReverb,         "Shimmer Reverb",        "Time & Space" },
-            { ModuleType::convolution,           "Convolution",           "Time & Space" },
-            { ModuleType::multibandConvolution,  "Multiband Convolution", "Time & Space" },
+            { ModuleType::dynamics,              "Dynamics",              "Dynamics" },
 
             { ModuleType::utility,               "Utility",               "Utility" },
-
-            { ModuleType::threeOsc,              "3xOsc",                 "Generators" },
-            { ModuleType::wavetableSynth,        "WT Synth",              "Generators" },
-
-            { ModuleType::input,                 "Input",                 "I/O" },
-            { ModuleType::output,                "Output",                "I/O" },
         };
 
         return entries;
