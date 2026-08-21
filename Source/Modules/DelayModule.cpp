@@ -78,10 +78,8 @@ namespace GGrid
 
     void DelayModule::process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer&, const ModulationMatrix& modMatrix)
     {
-        const float timeOffsetMs = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::delayTime))
-                                  + modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::time), 500.0f);
-        const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::delayFeedback))
-                                    + modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::feedback), 0.9f);
+        const float timeOffsetMs = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::time), 500.0f);
+        const float feedbackOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::feedback), 0.9f);
         const float saturationOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::saturation), 0.5f);
         const float lowCutOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::lowCut), 300.0f);
         const float hiCutOffset = modMatrix.getOffsetForParam (delayParamId (slotIndex, DelayParam::hiCut), 3000.0f);

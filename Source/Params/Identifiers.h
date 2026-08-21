@@ -43,7 +43,22 @@ namespace GGrid
         mackity = 23,
         shimmerReverb = 24,
         spectralClipper = 25,
+        compressor = 26,
+        limiter = 27,
     };
+
+    // Retired -- Dynamics (index 4, a combined Compressor/Limiter-mode module) was replaced by
+    // separate Compressor and Limiter module types. The enum value and its "Dynamics" entry in
+    // getModuleTypeChoices() below stay put forever (append-only, see ModuleType's own values --
+    // removing or renumbering either would corrupt any saved project whose slot indices/choice
+    // parameters point at what's now a different type); this just keeps it out of the UI so
+    // nothing new can be created as one. Any slot loaded from an old save that was Dynamics-typed
+    // shows as an empty/unselected type box -- RackSlot::createModuleForType has no case for it,
+    // matching how ModuleType::input/output/none already have none (no RackModule to construct).
+    inline bool isRetiredModuleType (ModuleType type)
+    {
+        return type == ModuleType::dynamics;
+    }
 
     // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
     // aren't part of the audio ConnectionGraph (see GGridAudioProcessor::processBlock's active[]
@@ -61,7 +76,7 @@ namespace GGrid
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
                  "Envelope", "ADSR", "Multipass", "LFO Table", "WT Synth", "Nonlinear Filter", "Mackity", "Shimmer Reverb",
-                 "Spectral Clipper" };
+                 "Spectral Clipper", "Compressor", "Limiter" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -224,19 +239,42 @@ namespace GGrid
         return multipliers[(size_t) juce::jlimit (0, 11, index)];
     }
 
-    inline juce::String dynamicsParamId (int slotIndex, const juce::String& paramName)
+    inline juce::String compressorParamId (int slotIndex, const juce::String& paramName)
     {
-        return "slot" + juce::String (slotIndex) + "_dynamics_" + paramName;
+        return "slot" + juce::String (slotIndex) + "_compressor_" + paramName;
     }
 
-    namespace DynamicsParam
+    // A feed-forward downward compressor modeled on Ableton Live's Compressor -- see
+    // CompressorModule for the actual soft-knee/decoupled-ballistics DSP.
+    namespace CompressorParam
     {
-        static const juce::String threshold = "threshold";
-        static const juce::String ratio     = "ratio";
-        static const juce::String attack    = "attack";
-        static const juce::String release   = "release";
-        static const juce::String makeup    = "makeup";
-        static const juce::String mix       = "mix";
+        static const juce::String threshold  = "threshold";
+        static const juce::String ratio      = "ratio";
+        static const juce::String attack     = "attack";
+        static const juce::String release    = "release";
+        static const juce::String knee       = "knee";
+        static const juce::String makeup     = "makeup";
+        static const juce::String mix        = "mix";
+        static const juce::String detection  = "detection";
+    }
+
+    inline juce::StringArray getCompressorDetectionChoices()
+    {
+        return { "Peak", "RMS" };
+    }
+
+    inline juce::String limiterParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_limiter_" + paramName;
+    }
+
+    // A brickwall peak limiter -- Gain (input trim)/Ceiling/Release, the same core knobs
+    // Ableton Live's Limiter exposes. See LimiterModule.
+    namespace LimiterParam
+    {
+        static const juce::String gain    = "gain";
+        static const juce::String ceiling = "ceiling";
+        static const juce::String release = "release";
     }
 
     inline juce::String convolutionParamId (int slotIndex, const juce::String& paramName)
@@ -746,8 +784,4 @@ namespace GGrid
         static const juce::String gain = "gain";
     }
 
-    // Master safety limiter -- always the last stage after the rack chain, not a rack slot
-    // itself (it must never be reorderable away from "last", or it stops protecting anything).
-    inline juce::String masterLimiterEnabledParamId() { return "master_limiterEnabled"; }
-    inline juce::String masterLimiterCeilingParamId() { return "master_limiterCeiling"; }
 }

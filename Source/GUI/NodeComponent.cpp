@@ -110,9 +110,15 @@ namespace GGrid
         titleLabel.setInterceptsMouseClicks (false, false); // let drags started on the label through to titleBar
         addAndMakeVisible (titleLabel);
 
-        int itemId = 1;
-        for (auto& choice : getModuleTypeChoices())
-            typeBox.addItem (choice, itemId++);
+        // itemId stays positional (index + 1) even for a skipped retired type, matching
+        // getModuleTypeChoices()'s own array positions exactly -- ComboBoxAttachment maps
+        // getSelectedId() - 1 straight to the underlying AudioParameterChoice's index, so
+        // renumbering after a skip would desync every later entry from what selecting it
+        // actually writes to the parameter.
+        const auto moduleTypeChoices = getModuleTypeChoices();
+        for (int i = 0; i < moduleTypeChoices.size(); ++i)
+            if (! isRetiredModuleType (static_cast<ModuleType> (i)))
+                typeBox.addItem (moduleTypeChoices[i], i + 1);
         addAndMakeVisible (typeBox);
 
         foldButton.onClick = [this]
@@ -148,7 +154,8 @@ namespace GGrid
         mackityPanel     = std::make_unique<MackityControlsPanel> (apvtsIn, slotIndex);
         shimmerReverbPanel = std::make_unique<ShimmerReverbControlsPanel> (apvtsIn, slotIndex);
         delayPanel       = std::make_unique<DelayControlsPanel> (apvtsIn, slotIndex);
-        dynamicsPanel    = std::make_unique<DynamicsControlsPanel> (apvtsIn, slotIndex);
+        compressorPanel  = std::make_unique<CompressorControlsPanel> (apvtsIn, slotIndex);
+        limiterPanel     = std::make_unique<LimiterControlsPanel> (apvtsIn, slotIndex);
         convolutionPanel = std::make_unique<ConvolutionControlsPanel> (apvtsIn, slotIndex, rackSlot);
         utilityPanel     = std::make_unique<UtilityControlsPanel> (apvtsIn, slotIndex);
         ringModPanel     = std::make_unique<RingModControlsPanel> (apvtsIn, slotIndex);
@@ -180,7 +187,8 @@ namespace GGrid
         mackityPanel->setInterceptsMouseClicks (false, true);
         shimmerReverbPanel->setInterceptsMouseClicks (false, true);
         delayPanel->setInterceptsMouseClicks (false, true);
-        dynamicsPanel->setInterceptsMouseClicks (false, true);
+        compressorPanel->setInterceptsMouseClicks (false, true);
+        limiterPanel->setInterceptsMouseClicks (false, true);
         convolutionPanel->setInterceptsMouseClicks (false, true);
         utilityPanel->setInterceptsMouseClicks (false, true);
         ringModPanel->setInterceptsMouseClicks (false, true);
@@ -204,7 +212,8 @@ namespace GGrid
         letDirectLabelsPassThrough (*mackityPanel);
         letDirectLabelsPassThrough (*shimmerReverbPanel);
         letDirectLabelsPassThrough (*delayPanel);
-        letDirectLabelsPassThrough (*dynamicsPanel);
+        letDirectLabelsPassThrough (*compressorPanel);
+        letDirectLabelsPassThrough (*limiterPanel);
         letDirectLabelsPassThrough (*convolutionPanel);
         letDirectLabelsPassThrough (*utilityPanel);
         letDirectLabelsPassThrough (*ringModPanel);
@@ -226,7 +235,8 @@ namespace GGrid
         addAndMakeVisible (*mackityPanel);
         addAndMakeVisible (*shimmerReverbPanel);
         addAndMakeVisible (*delayPanel);
-        addAndMakeVisible (*dynamicsPanel);
+        addAndMakeVisible (*compressorPanel);
+        addAndMakeVisible (*limiterPanel);
         addAndMakeVisible (*convolutionPanel);
         addAndMakeVisible (*utilityPanel);
         addAndMakeVisible (*ringModPanel);
@@ -277,7 +287,6 @@ namespace GGrid
             case ModuleType::waveshaper:             return slotPrefix + "waveshaper_";
             case ModuleType::filter:                 return slotPrefix + "filter_";
             case ModuleType::delay:                  return slotPrefix + "delay_";
-            case ModuleType::dynamics:               return slotPrefix + "dynamics_";
             case ModuleType::convolution:            return slotPrefix + "convolution_";
             case ModuleType::utility:                return slotPrefix + "utility_";
             case ModuleType::ringMod:                return slotPrefix + "ringMod_";
@@ -297,9 +306,12 @@ namespace GGrid
             case ModuleType::mackity:                return slotPrefix + "mackity_";
             case ModuleType::shimmerReverb:          return slotPrefix + "shimmer_reverb_";
             case ModuleType::spectralClipper:        return slotPrefix + "spectralClipper_";
+            case ModuleType::compressor:              return slotPrefix + "compressor_";
+            case ModuleType::limiter:                 return slotPrefix + "limiter_";
             case ModuleType::none:
             case ModuleType::input:
             case ModuleType::output:
+            case ModuleType::dynamics: // retired -- see isRetiredModuleType()
                 break;
         }
 
@@ -336,7 +348,8 @@ namespace GGrid
         mackityPanel->setVisible (showPanel && type == ModuleType::mackity);
         shimmerReverbPanel->setVisible (showPanel && type == ModuleType::shimmerReverb);
         delayPanel->setVisible (showPanel && type == ModuleType::delay);
-        dynamicsPanel->setVisible (showPanel && type == ModuleType::dynamics);
+        compressorPanel->setVisible (showPanel && type == ModuleType::compressor);
+        limiterPanel->setVisible (showPanel && type == ModuleType::limiter);
         convolutionPanel->setVisible (showPanel && type == ModuleType::convolution);
         utilityPanel->setVisible (showPanel && type == ModuleType::utility);
         ringModPanel->setVisible (showPanel && type == ModuleType::ringMod);
@@ -384,7 +397,8 @@ namespace GGrid
             case ModuleType::shimmerReverb:
                 contentHeight = 374; break; // 3 knob rows + selector row
             case ModuleType::delay:       contentHeight = 248; break; // knobRow(106) + gap(6) + filterRow(106) + gap(6) + bottomRow(24)
-            case ModuleType::dynamics:    contentHeight = 218; break; // topRow(106) + gap(6) + bottomRow(106)
+            case ModuleType::compressor:  contentHeight = 268; break; // topRow(106) + gap(6) + bottomRow(106) + gap(6) + detectionRow(44)
+            case ModuleType::limiter:     contentHeight = 106; break; // knobRow(106), no bottom row
             case ModuleType::convolution: contentHeight = 324; break; // irRow(24)+gap+waveform(70)+gap+2 knob rows(106 each)
             case ModuleType::utility:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
             case ModuleType::ringMod:     contentHeight = 156; break; // knobRow(106) + gap(6) + bottomRow(44)
@@ -521,7 +535,8 @@ namespace GGrid
             case ModuleType::mackity:     return mackityPanel->getModTargetCount();
             case ModuleType::shimmerReverb: return shimmerReverbPanel->getModTargetCount();
             case ModuleType::delay:       return delayPanel->getModTargetCount();
-            case ModuleType::dynamics:    return dynamicsPanel->getModTargetCount();
+            case ModuleType::compressor:  return compressorPanel->getModTargetCount();
+            case ModuleType::limiter:     return limiterPanel->getModTargetCount();
             case ModuleType::convolution: return convolutionPanel->getModTargetCount();
             case ModuleType::utility:     return utilityPanel->getModTargetCount();
             case ModuleType::ringMod:     return ringModPanel->getModTargetCount();
@@ -548,7 +563,8 @@ namespace GGrid
             case ModuleType::mackity:     return mackityPanel->getModTarget (index).paramId;
             case ModuleType::shimmerReverb: return shimmerReverbPanel->getModTarget (index).paramId;
             case ModuleType::delay:       return delayPanel->getModTarget (index).paramId;
-            case ModuleType::dynamics:    return dynamicsPanel->getModTarget (index).paramId;
+            case ModuleType::compressor:  return compressorPanel->getModTarget (index).paramId;
+            case ModuleType::limiter:     return limiterPanel->getModTarget (index).paramId;
             case ModuleType::convolution: return convolutionPanel->getModTarget (index).paramId;
             case ModuleType::utility:     return utilityPanel->getModTarget (index).paramId;
             case ModuleType::ringMod:     return ringModPanel->getModTarget (index).paramId;
@@ -576,7 +592,8 @@ namespace GGrid
             case ModuleType::mackity:     slider = mackityPanel->getModTarget (index).slider; break;
             case ModuleType::shimmerReverb: slider = shimmerReverbPanel->getModTarget (index).slider; break;
             case ModuleType::delay:       slider = delayPanel->getModTarget (index).slider; break;
-            case ModuleType::dynamics:    slider = dynamicsPanel->getModTarget (index).slider; break;
+            case ModuleType::compressor:  slider = compressorPanel->getModTarget (index).slider; break;
+            case ModuleType::limiter:     slider = limiterPanel->getModTarget (index).slider; break;
             case ModuleType::convolution: slider = convolutionPanel->getModTarget (index).slider; break;
             case ModuleType::utility:     slider = utilityPanel->getModTarget (index).slider; break;
             case ModuleType::ringMod:     slider = ringModPanel->getModTarget (index).slider; break;
@@ -738,7 +755,8 @@ namespace GGrid
         mackityPanel->setBounds (contentArea);
         shimmerReverbPanel->setBounds (contentArea);
         delayPanel->setBounds (contentArea);
-        dynamicsPanel->setBounds (contentArea);
+        compressorPanel->setBounds (contentArea);
+        limiterPanel->setBounds (contentArea);
         convolutionPanel->setBounds (contentArea);
         utilityPanel->setBounds (contentArea);
         ringModPanel->setBounds (contentArea);

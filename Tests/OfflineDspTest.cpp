@@ -6,7 +6,8 @@
 #include "Modules/MackityModule.h"
 #include "Modules/ShimmerReverbModule.h"
 #include "Modules/DelayModule.h"
-#include "Modules/DynamicsModule.h"
+#include "Modules/CompressorModule.h"
+#include "Modules/LimiterModule.h"
 #include "Modules/ConvolutionModule.h"
 #include "Modules/MultibandConvolutionModule.h"
 #include "Modules/UtilityModule.h"
@@ -161,7 +162,7 @@ int main()
     // All routes default to Source=None/Destination=None, so this contributes zero offset
     // everywhere until a test explicitly sets up a route -- safe to pass into every module
     // below without affecting their existing assertions.
-    ModulationMatrix modMatrix (apvts);
+    ModulationMatrix modMatrix;
 
     juce::dsp::ConvolutionMessageQueue convolutionQueue;
     IRReshapeWorker irReshapeWorker;
@@ -776,16 +777,18 @@ int main()
                     + juce::String (bypassHigh, 5) + ", shimmer " + juce::String (shimmerHigh, 5) + ")");
     }
 
-    // --- Dynamics: compressor reduces steady-state level of a signal driven above threshold ---
+    // --- Compressor: reduces steady-state level of a signal driven above threshold ---
     {
-        apvts.getRawParameterValue (dynamicsParamId (0, DynamicsParam::threshold))->store (-20.0f);
-        apvts.getRawParameterValue (dynamicsParamId (0, DynamicsParam::ratio))->store (8.0f);
-        apvts.getRawParameterValue (dynamicsParamId (0, DynamicsParam::attack))->store (1.0f);
-        apvts.getRawParameterValue (dynamicsParamId (0, DynamicsParam::release))->store (50.0f);
-        apvts.getRawParameterValue (dynamicsParamId (0, DynamicsParam::makeup))->store (0.0f);
-        apvts.getRawParameterValue (dynamicsParamId (0, DynamicsParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::threshold))->store (-20.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::ratio))->store (8.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::attack))->store (1.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::release))->store (50.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::knee))->store (0.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::makeup))->store (0.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (compressorParamId (0, CompressorParam::detection))->store (0.0f); // Peak
 
-        DynamicsModule module (apvts, 0);
+        CompressorModule module (apvts, 0);
         module.prepare (spec);
 
         const int numChunks = 8;
@@ -807,8 +810,121 @@ int main()
         const double expectedUncompressedRms = 0.9 * std::sqrt (0.5);
 
         expect (outputRms < expectedUncompressedRms * 0.85,
-                "compressor reduces steady-state level of a signal driven well above threshold (uncompressed RMS ~"
+                "Compressor reduces steady-state level of a signal driven well above threshold (uncompressed RMS ~"
                     + juce::String (expectedUncompressedRms, 4) + ", compressed RMS " + juce::String (outputRms, 4) + ")");
+    }
+
+    // --- Compressor: Knee softens the onset -- right AT Threshold, Knee=0 (hard) applies no
+    //     reduction yet (the classic sharp corner: static characteristic is 0 for x<=0), while a
+    //     wide Knee already applies some reduction there (the smooth ramp-in a soft knee is
+    //     known for -- the quadratic knee region starts kneeDb/2 below the threshold) ---
+    {
+        auto runKnee = [&] (float kneeDb) -> double
+        {
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::threshold))->store (-20.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::ratio))->store (4.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::attack))->store (0.5f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::release))->store (50.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::knee))->store (kneeDb);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::makeup))->store (0.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::detection))->store (0.0f); // Peak
+
+            CompressorModule module (apvts, 0);
+            module.prepare (spec);
+
+            const int numChunks = 8;
+            const float amplitudeAtThreshold = 0.1f * std::sqrt (2.0f); // Peak level lands right at -20dBFS
+            auto fullBuffer = makeTestSignal (blockSize * numChunks, amplitudeAtThreshold, 220.0f, sampleRate);
+            juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+            for (int chunk = 0; chunk < numChunks; ++chunk)
+            {
+                auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+                juce::MidiBuffer midi;
+                module.process (sub, midi, modMatrix);
+            }
+
+            juce::AudioBuffer<float> lastChunk (1, blockSize);
+            lastChunk.copyFrom (0, 0, fullBuffer, 0, blockSize * (numChunks - 1), blockSize);
+            return rms (lastChunk, 0);
+        };
+
+        const double hardKneeRms = runKnee (0.0f);
+        const double softKneeRms = runKnee (24.0f);
+
+        expect (softKneeRms < hardKneeRms * 0.98,
+                "Compressor with a wide Knee (24dB) already reduces gain right at Threshold, unlike Knee=0's sharp "
+                "corner (hard-knee RMS " + juce::String (hardKneeRms, 5) + ", soft-knee RMS " + juce::String (softKneeRms, 5) + ")");
+    }
+
+    // --- Compressor: Peak vs RMS detection modes react differently to the same signal -- for a
+    //     steady sine, Peak reads ~3dB hotter than RMS does (the fixed sqrt(2) peak/RMS ratio),
+    //     so a threshold sitting between the two only trips real gain reduction in Peak mode ---
+    {
+        auto runDetection = [&] (int detectionChoice) -> double
+        {
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::threshold))->store (-2.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::ratio))->store (8.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::attack))->store (0.5f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::release))->store (50.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::knee))->store (0.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::makeup))->store (0.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::mix))->store (100.0f);
+            apvts.getRawParameterValue (compressorParamId (0, CompressorParam::detection))->store ((float) detectionChoice);
+
+            CompressorModule module (apvts, 0);
+            module.prepare (spec);
+
+            const int numChunks = 8;
+            auto fullBuffer = makeTestSignal (blockSize * numChunks, 0.9f, 220.0f, sampleRate);
+            juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+            for (int chunk = 0; chunk < numChunks; ++chunk)
+            {
+                auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+                juce::MidiBuffer midi;
+                module.process (sub, midi, modMatrix);
+            }
+
+            juce::AudioBuffer<float> lastChunk (1, blockSize);
+            lastChunk.copyFrom (0, 0, fullBuffer, 0, blockSize * (numChunks - 1), blockSize);
+            return rms (lastChunk, 0);
+        };
+
+        const double peakModeRms = runDetection (0);
+        const double rmsModeRms = runDetection (1);
+
+        expect (peakModeRms < rmsModeRms * 0.95,
+                "Compressor in Peak detection mode reduces a steady tone more than RMS mode does, since Peak reads "
+                "~3dB hotter than RMS for the same sine (Peak-mode RMS " + juce::String (peakModeRms, 5) + ", RMS-mode RMS "
+                    + juce::String (rmsModeRms, 5) + ")");
+    }
+
+    // --- Limiter: caps output near its Ceiling regardless of how hard Gain drives the input ---
+    {
+        apvts.getRawParameterValue (limiterParamId (0, LimiterParam::gain))->store (24.0f);
+        apvts.getRawParameterValue (limiterParamId (0, LimiterParam::ceiling))->store (-3.0f);
+        apvts.getRawParameterValue (limiterParamId (0, LimiterParam::release))->store (50.0f);
+
+        LimiterModule module (apvts, 0);
+        module.prepare (spec);
+
+        const int numChunks = 8;
+        auto fullBuffer = makeTestSignal (blockSize * numChunks, 0.9f, 220.0f, sampleRate);
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            module.process (sub, midi, modMatrix);
+        }
+
+        const float ceilingLinear = juce::Decibels::decibelsToGain (-3.0f);
+        const int settleSamples = blockSize * (numChunks - 2);
+        const float peak = fullBuffer.getMagnitude (0, settleSamples, fullBuffer.getNumSamples() - settleSamples);
+
+        expect (peak < ceilingLinear * 1.05f,
+                "Limiter caps output near its Ceiling (-3dB, linear " + juce::String (ceilingLinear, 4)
+                    + ") even when driven hard by Gain (+24dB) -- measured peak " + juce::String (peak, 4));
     }
 
     // --- IRLibrary: factory catalog resolves and loads correctly ---
@@ -985,9 +1101,8 @@ int main()
 
         // Bound set generously above the ~28x peak this legitimately reaches at these settings (3
         // bands simultaneously at +24dB output/100% mix/no dry blend, matching ConvolutionModule's
-        // own per-slot headroom -- the master safety limiter downstream is what protects the user's
-        // ears/gear at that point, not this module) -- this check is for NaN/Inf/runaway growth,
-        // not for clamping legitimate gain-stacking headroom.
+        // own per-slot headroom) -- this check is for NaN/Inf/runaway growth, not for clamping
+        // legitimate gain-stacking headroom.
         expect (isFiniteAndBounded (fullBuffer, 60.0f), "Multiband Convolution stays finite/bounded at extreme split points/tone/stretch/fade/output");
     }
 
@@ -1133,59 +1248,6 @@ int main()
         expect (allFinite, "Multipass stays finite/bounded on every band's output bus at extreme split-point settings");
     }
 
-    // --- Mod matrix: a note-pitch -> filter frequency route actually shifts the cutoff ---
-    {
-        // Route 0: Note Pitch -> Slot 0 Filter Frequency, full positive depth.
-        apvts.getRawParameterValue (modRouteSourceParamId (0))->store ((float) ModSource::notePitch);
-        apvts.getRawParameterValue (modRouteDestinationParamId (0))->store (
-            (float) (modDestinationIndex (0, ModDestinationParam::filterFrequency) + 1));
-        apvts.getRawParameterValue (modRouteDepthParamId (0))->store (1.0f);
-
-        apvts.getRawParameterValue (filterParamId (0, FilterParam::type))->store (0.0f); // Low Pass
-        apvts.getRawParameterValue (filterParamId (0, FilterParam::frequency))->store (300.0f);
-        apvts.getRawParameterValue (filterParamId (0, FilterParam::resonance))->store (0.707f);
-        apvts.getRawParameterValue (filterParamId (0, FilterParam::feedback))->store (0.0f);
-        apvts.getRawParameterValue (filterParamId (0, FilterParam::mix))->store (100.0f);
-        apvts.getRawParameterValue (filterParamId (0, FilterParam::output))->store (0.0f);
-
-        ModulationMatrix routedMatrix (apvts);
-
-        FilterModule moduleLowNote (apvts, 0);
-        moduleLowNote.prepare (spec);
-        {
-            juce::MidiBuffer noteMidi;
-            noteMidi.addEvent (juce::MidiMessage::noteOn (1, 0, (juce::uint8) 100), 0);
-            routedMatrix.processMidi (noteMidi);
-        }
-        auto lowNoteBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
-        {
-            juce::dsp::AudioBlock<float> block (lowNoteBuffer);
-            juce::MidiBuffer midi;
-            moduleLowNote.process (block, midi, routedMatrix);
-        }
-
-        FilterModule moduleHighNote (apvts, 0);
-        moduleHighNote.prepare (spec);
-        {
-            juce::MidiBuffer noteMidi;
-            noteMidi.addEvent (juce::MidiMessage::noteOn (1, 127, (juce::uint8) 100), 0);
-            routedMatrix.processMidi (noteMidi);
-        }
-        auto highNoteBuffer = makeTestSignal (blockSize, 0.5f, 8000.0f, sampleRate);
-        {
-            juce::dsp::AudioBlock<float> block (highNoteBuffer);
-            juce::MidiBuffer midi;
-            moduleHighNote.process (block, midi, routedMatrix);
-        }
-
-        const double lowNoteRms = rms (lowNoteBuffer, 0);
-        const double highNoteRms = rms (highNoteBuffer, 0);
-
-        expect (highNoteRms > lowNoteRms * 1.5,
-                "mod matrix note-pitch route raises the filter cutoff for a higher note, passing more 8kHz energy through (low-note RMS "
-                    + juce::String (lowNoteRms, 4) + ", high-note RMS " + juce::String (highNoteRms, 4) + ")");
-    }
-
     // --- ConnectionGraph: slot 10 (root role) -> 0 -> 1 -> 2 -> slot 11 (sink role) topologically orders correctly ---
     {
         std::array<Connection, kMaxConnections> conns {};
@@ -1274,7 +1336,7 @@ int main()
 
         apvts.getRawParameterValue (slotTypeParamId (0))->store (1.0f); // Waveshaper
         apvts.getRawParameterValue (slotTypeParamId (1))->store (1.0f); // Waveshaper
-        apvts.getRawParameterValue (slotTypeParamId (2))->store (4.0f); // Dynamics
+        apvts.getRawParameterValue (slotTypeParamId (2))->store ((float) ModuleType::compressor);
         apvts.getRawParameterValue (slotBypassParamId (0))->store (0.0f);
         apvts.getRawParameterValue (slotBypassParamId (1))->store (0.0f);
         apvts.getRawParameterValue (slotBypassParamId (2))->store (0.0f);
@@ -1291,12 +1353,14 @@ int main()
         apvts.getRawParameterValue (waveshaperParamId (1, WaveshaperParam::oversample))->store (0.0f);
         apvts.getRawParameterValue (waveshaperParamId (1, WaveshaperParam::output))->store (0.0f);
 
-        apvts.getRawParameterValue (dynamicsParamId (2, DynamicsParam::threshold))->store (-18.0f);
-        apvts.getRawParameterValue (dynamicsParamId (2, DynamicsParam::ratio))->store (4.0f);
-        apvts.getRawParameterValue (dynamicsParamId (2, DynamicsParam::attack))->store (1.0f);
-        apvts.getRawParameterValue (dynamicsParamId (2, DynamicsParam::release))->store (50.0f);
-        apvts.getRawParameterValue (dynamicsParamId (2, DynamicsParam::makeup))->store (0.0f);
-        apvts.getRawParameterValue (dynamicsParamId (2, DynamicsParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::threshold))->store (-18.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::ratio))->store (4.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::attack))->store (1.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::release))->store (50.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::knee))->store (6.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::makeup))->store (0.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (compressorParamId (2, CompressorParam::detection))->store (0.0f); // Peak
 
         slotRoot.prepare (spec);
         slotBranchA.prepare (spec);
@@ -1843,7 +1907,7 @@ int main()
         apvts.getRawParameterValue (filterParamId (1, FilterParam::mix))->store (100.0f);
         apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
 
-        ModulationMatrix cableMatrix (apvts);
+        ModulationMatrix cableMatrix;
         const bool added = cableMatrix.addModConnection (0, 1, filterParamId (1, FilterParam::frequency));
         expect (added, "a modulation cable from an LFO slot to Filter Frequency is accepted");
 
@@ -1903,7 +1967,7 @@ int main()
         apvts.getRawParameterValue (filterParamId (1, FilterParam::type))->store (0.0f);
         apvts.getRawParameterValue (filterParamId (1, FilterParam::frequency))->store (1000.0f);
 
-        ModulationMatrix stackMatrix (apvts);
+        ModulationMatrix stackMatrix;
         const auto destParamId = filterParamId (1, FilterParam::frequency);
 
         const bool addedFirst = stackMatrix.addModConnection (0, 1, destParamId);
@@ -3391,7 +3455,7 @@ int main()
         apvts.getRawParameterValue (filterParamId (1, FilterParam::mix))->store (100.0f);
         apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
 
-        ModulationMatrix cableMatrix (apvts);
+        ModulationMatrix cableMatrix;
         const bool added = cableMatrix.addModConnection (0, 1, filterParamId (1, FilterParam::frequency));
         expect (added, "a modulation cable from an ADSR slot to Filter Frequency is accepted");
 
@@ -3583,7 +3647,7 @@ int main()
         apvts.getRawParameterValue (filterParamId (1, FilterParam::mix))->store (100.0f);
         apvts.getRawParameterValue (filterParamId (1, FilterParam::output))->store (0.0f);
 
-        ModulationMatrix cableMatrix (apvts);
+        ModulationMatrix cableMatrix;
         const bool added = cableMatrix.addModConnection (0, 1, filterParamId (1, FilterParam::frequency));
         expect (added, "a modulation cable from an Envelope slot to Filter Frequency is accepted");
 

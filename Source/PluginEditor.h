@@ -2,21 +2,19 @@
 
 #include "PluginProcessor.h"
 #include "GUI/NodeGraphEditor.h"
-#include "GUI/ModMatrixPanel.h"
 #include "GUI/GGridLookAndFeel.h"
 #include "UpdateChecker.h"
 #include <juce_gui_basics/juce_gui_basics.h>
 
 namespace GGrid
 {
-    // A slim header strip (tab buttons + live output scope) stays fixed at the top; below it,
-    // the tab buttons switch the content area between the node-based patch-bay canvas (Rack) and
-    // the MIDI mod matrix. The safety limiter used to live in its own box in this header, but
-    // it's an on-and-forget setting for most users, so it now lives at the bottom of the Mod
-    // Matrix tab instead (see ModMatrixPanel) -- freeing the header down to just the tabs + scope,
-    // and freeing the canvas from the space the old master box used to take. Styled to match
-    // SPANDEX (D:\Claude Projects\RepitchDeck) via GGridLookAndFeel -- flat/hairline/two-tone, no
-    // gradients or rounded corners.
+    // A slim header strip (File/Edit menus + live output scope) stays fixed at the top; below it,
+    // the node-based patch-bay canvas fills the rest of the window -- there's no other page/tab
+    // to switch to (the old MIDI Mod Matrix tab and its fixed 6-route system, plus the master
+    // safety limiter it had ended up hosting, are gone; limiting is now just the Limiter module,
+    // a real rack module you place like any other alongside Compressor -- see LimiterModule/
+    // CompressorModule). Styled to match SPANDEX (D:\Claude Projects\RepitchDeck) via
+    // GGridLookAndFeel -- flat/hairline/two-tone, no gradients or rounded corners.
     class GGridAudioProcessorEditor : public juce::AudioProcessorEditor
     {
     public:
@@ -28,7 +26,6 @@ namespace GGrid
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
-        void setActiveTab (bool showModMatrix);
         void updateZoomLabel (float zoom);
         void showFileMenu();
         void showEditMenu();
@@ -66,9 +63,6 @@ namespace GGrid
         // enabled-state reflects NodeGraphEditor::hasSelection()/hasClipboardContent() each time
         // it opens, same as any other program's Edit menu.
         juce::TextButton fileMenuButton { "File" }, editMenuButton { "Edit" };
-
-        juce::TextButton rackTabButton { "Rack" }, modMatrixTabButton { "Mod Matrix" };
-        ModMatrixPanel modMatrixPanel;
 
         juce::Viewport nodeCanvasViewport;
         NodeGraphEditor nodeGraphEditor;

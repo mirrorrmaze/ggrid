@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(GGrid VERSION 1.0.6)
+project(GGrid VERSION 1.0.7)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,7 +42,8 @@ target_sources(GGrid
         Source/Modules/MackityModule.cpp
         Source/Modules/ShimmerReverbModule.cpp
         Source/Modules/DelayModule.cpp
-        Source/Modules/DynamicsModule.cpp
+        Source/Modules/CompressorModule.cpp
+        Source/Modules/LimiterModule.cpp
         Source/Modules/ConvolutionModule.cpp
         Source/Modules/UtilityModule.cpp
         Source/Modules/RingModModule.cpp
@@ -71,9 +72,7 @@ target_sources(GGrid
         Source/GUI/NodeComponent.cpp
         Source/GUI/NodeGraphEditor.cpp
         Source/GUI/AddModuleSearchPopup.cpp
-        Source/GUI/MasterControlsPanel.cpp
         Source/GUI/GGridLookAndFeel.cpp
-        Source/GUI/ModMatrixPanel.cpp
         Source/GUI/IRWaveformComponent.cpp
 )
 
@@ -112,7 +111,8 @@ add_executable(OfflineDspTest
     Source/Modules/MackityModule.cpp
     Source/Modules/ShimmerReverbModule.cpp
     Source/Modules/DelayModule.cpp
-    Source/Modules/DynamicsModule.cpp
+    Source/Modules/CompressorModule.cpp
+    Source/Modules/LimiterModule.cpp
     Source/Modules/ConvolutionModule.cpp
     Source/Modules/UtilityModule.cpp
     Source/Modules/RingModModule.cpp

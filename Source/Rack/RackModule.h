@@ -18,10 +18,9 @@ namespace GGrid
         virtual void prepare (const juce::dsp::ProcessSpec& spec) = 0;
         virtual void reset() = 0;
 
-        // modMatrix is already up to date for this block (PluginProcessor calls
-        // ModulationMatrix::processMidi before running the chain) -- modules that expose a
-        // modulatable destination read their own offset via modMatrix.getOffsetForDestination().
-        // Modules with nothing modulatable (e.g. WaveshaperModule) just ignore it.
+        // modMatrix is already up to date for this block -- modules that expose a modulation-
+        // cable destination read their own offset via modMatrix.getOffsetForParam(paramId, range).
+        // Modules with nothing modulatable just ignore it.
         virtual void process (juce::dsp::AudioBlock<float>& block, juce::MidiBuffer& midi, const ModulationMatrix& modMatrix) = 0;
 
         // Modulation-source modules (LFO/Envelope/ADSR -- see isModulationSourceType() in

@@ -179,8 +179,7 @@ namespace GGrid
             }
         }
 
-        const float mixOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::convolutionMix))
-                               + modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::mix), 50.0f);
+        const float mixOffset = modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::mix), 50.0f);
         const float mix = juce::jlimit (0.0f, 100.0f, mixParam->load() + mixOffset) / 100.0f;
 
         const float outputOffset = modMatrix.getOffsetForParam (convolutionParamId (slotIndex, ConvolutionParam::output), 12.0f);

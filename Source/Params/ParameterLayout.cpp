@@ -314,42 +314,75 @@ namespace GGrid
             AudioParameterFloatAttributes().withLabel ("dB")));
     }
 
-    static void addDynamicsParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    static void addCompressorParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
     {
         using namespace juce;
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { dynamicsParamId (slotIndex, DynamicsParam::threshold), 1 },
-            "Slot " + String (slotIndex + 1) + " Dynamics Threshold",
+            ParameterID { compressorParamId (slotIndex, CompressorParam::threshold), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Threshold",
             NormalisableRange<float> (-60.0f, 0.0f, 0.01f), -18.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { dynamicsParamId (slotIndex, DynamicsParam::ratio), 1 },
-            "Slot " + String (slotIndex + 1) + " Dynamics Ratio",
+            ParameterID { compressorParamId (slotIndex, CompressorParam::ratio), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Ratio",
             skewedRange (1.0f, 20.0f, 4.0f), 4.0f, AudioParameterFloatAttributes().withLabel (":1")));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { dynamicsParamId (slotIndex, DynamicsParam::attack), 1 },
-            "Slot " + String (slotIndex + 1) + " Dynamics Attack",
+            ParameterID { compressorParamId (slotIndex, CompressorParam::attack), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Attack",
             skewedRange (0.1f, 200.0f, 10.0f), 10.0f, AudioParameterFloatAttributes().withLabel ("ms")));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { dynamicsParamId (slotIndex, DynamicsParam::release), 1 },
-            "Slot " + String (slotIndex + 1) + " Dynamics Release",
+            ParameterID { compressorParamId (slotIndex, CompressorParam::release), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Release",
             skewedRange (5.0f, 1000.0f, 100.0f), 100.0f, AudioParameterFloatAttributes().withLabel ("ms")));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { dynamicsParamId (slotIndex, DynamicsParam::makeup), 1 },
-            "Slot " + String (slotIndex + 1) + " Dynamics Makeup",
+            ParameterID { compressorParamId (slotIndex, CompressorParam::knee), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Knee",
+            NormalisableRange<float> (0.0f, 24.0f, 0.01f), 6.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { compressorParamId (slotIndex, CompressorParam::makeup), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Makeup",
             NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
 
         layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { dynamicsParamId (slotIndex, DynamicsParam::mix), 1 },
-            "Slot " + String (slotIndex + 1) + " Dynamics Mix",
+            ParameterID { compressorParamId (slotIndex, CompressorParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Mix",
             NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
             AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterChoice> (
+            ParameterID { compressorParamId (slotIndex, CompressorParam::detection), 1 },
+            "Slot " + String (slotIndex + 1) + " Compressor Detection",
+            getCompressorDetectionChoices(), 0));
+    }
+
+    static void addLimiterParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { limiterParamId (slotIndex, LimiterParam::gain), 1 },
+            "Slot " + String (slotIndex + 1) + " Limiter Gain",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { limiterParamId (slotIndex, LimiterParam::ceiling), 1 },
+            "Slot " + String (slotIndex + 1) + " Limiter Ceiling",
+            NormalisableRange<float> (-12.0f, 0.0f, 0.01f), -0.3f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { limiterParamId (slotIndex, LimiterParam::release), 1 },
+            "Slot " + String (slotIndex + 1) + " Limiter Release",
+            skewedRange (1.0f, 1000.0f, 50.0f), 50.0f, AudioParameterFloatAttributes().withLabel ("ms")));
     }
 
     static void addConvolutionParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
@@ -1157,7 +1190,8 @@ namespace GGrid
             addWaveshaperParams (layout, slot);
             addFilterParams (layout, slot);
             addDelayParams (layout, slot);
-            addDynamicsParams (layout, slot);
+            addCompressorParams (layout, slot);
+            addLimiterParams (layout, slot);
             addConvolutionParams (layout, slot);
             addUtilityParams (layout, slot);
             addRingModParams (layout, slot);
@@ -1177,39 +1211,6 @@ namespace GGrid
             addNonlinearFilterParams (layout, slot);
             addMackityParams (layout, slot);
             addShimmerReverbParams (layout, slot);
-        }
-
-        // Master safety limiter -- not per-slot, always runs last. Default ON: the goal is to
-        // stop an aggressively-pushed waveshaper from turning into a speaker/headphone hazard,
-        // without capping how hard the waveshaper itself can be driven.
-        layout.add (std::make_unique<AudioParameterBool> (
-            ParameterID { masterLimiterEnabledParamId(), 1 },
-            "Safety Limiter",
-            true));
-
-        layout.add (std::make_unique<AudioParameterFloat> (
-            ParameterID { masterLimiterCeilingParamId(), 1 },
-            "Safety Limiter Ceiling",
-            NormalisableRange<float> (-12.0f, 0.0f, 0.01f), -0.3f,
-            AudioParameterFloatAttributes().withLabel ("dB")));
-
-        // MIDI mod matrix -- not per-slot, kNumModRoutes fixed routes.
-        for (int r = 0; r < kNumModRoutes; ++r)
-        {
-            layout.add (std::make_unique<AudioParameterChoice> (
-                ParameterID { modRouteSourceParamId (r), 1 },
-                "Mod Route " + String (r + 1) + " Source",
-                getModSourceChoices(), 0));
-
-            layout.add (std::make_unique<AudioParameterChoice> (
-                ParameterID { modRouteDestinationParamId (r), 1 },
-                "Mod Route " + String (r + 1) + " Destination",
-                getModDestinationChoices(), 0));
-
-            layout.add (std::make_unique<AudioParameterFloat> (
-                ParameterID { modRouteDepthParamId (r), 1 },
-                "Mod Route " + String (r + 1) + " Depth",
-                NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
         }
 
         return layout;

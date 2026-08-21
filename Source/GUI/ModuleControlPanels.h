@@ -255,11 +255,13 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DelayControlsPanel)
     };
 
-    // Dynamics module controls: Threshold/Ratio/Attack/Release/Makeup/Mix.
-    class DynamicsControlsPanel : public juce::Component
+    // Compressor module controls: Threshold/Ratio/Attack/Release/Knee/Makeup/Mix, plus a Peak/RMS
+    // Detection dropdown -- see CompressorModule for the actual soft-knee/decoupled-ballistics
+    // DSP this drives.
+    class CompressorControlsPanel : public juce::Component
     {
     public:
-        DynamicsControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        CompressorControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
 
         void resized() override;
 
@@ -268,16 +270,43 @@ namespace GGrid
 
     private:
         juce::Label thresholdLabel { {}, "Threshold" }, ratioLabel { {}, "Ratio" }, attackLabel { {}, "Attack" },
-                    releaseLabel { {}, "Release" }, makeupLabel { {}, "Makeup" }, mixLabel { {}, "Mix" };
+                    releaseLabel { {}, "Release" }, kneeLabel { {}, "Knee" }, makeupLabel { {}, "Makeup" },
+                    mixLabel { {}, "Mix" }, detectionLabel { {}, "Detection" };
 
-        juce::Slider thresholdSlider, ratioSlider, attackSlider, releaseSlider, makeupSlider, mixSlider;
+        juce::Slider thresholdSlider, ratioSlider, attackSlider, releaseSlider, kneeSlider, makeupSlider, mixSlider;
+        juce::ComboBox detectionBox;
 
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
-            thresholdAttachment, ratioAttachment, attackAttachment, releaseAttachment, makeupAttachment, mixAttachment;
+            thresholdAttachment, ratioAttachment, attackAttachment, releaseAttachment, kneeAttachment, makeupAttachment, mixAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> detectionAttachment;
 
         std::vector<ModTarget> modTargets;
 
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DynamicsControlsPanel)
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CompressorControlsPanel)
+    };
+
+    // Limiter module controls: Gain/Ceiling/Release -- see LimiterModule.
+    class LimiterControlsPanel : public juce::Component
+    {
+    public:
+        LimiterControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        juce::Label gainLabel { {}, "Gain" }, ceilingLabel { {}, "Ceiling" }, releaseLabel { {}, "Release" };
+
+        juce::Slider gainSlider, ceilingSlider, releaseSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            gainAttachment, ceilingAttachment, releaseAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LimiterControlsPanel)
     };
 
     // Convolution module controls: pick an IR from the curated factory library (or anything

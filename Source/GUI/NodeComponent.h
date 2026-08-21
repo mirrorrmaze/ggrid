@@ -230,7 +230,8 @@ namespace GGrid
         std::unique_ptr<MackityControlsPanel> mackityPanel;
         std::unique_ptr<ShimmerReverbControlsPanel> shimmerReverbPanel;
         std::unique_ptr<DelayControlsPanel> delayPanel;
-        std::unique_ptr<DynamicsControlsPanel> dynamicsPanel;
+        std::unique_ptr<CompressorControlsPanel> compressorPanel;
+        std::unique_ptr<LimiterControlsPanel> limiterPanel;
         std::unique_ptr<ConvolutionControlsPanel> convolutionPanel;
         std::unique_ptr<UtilityControlsPanel> utilityPanel;
         std::unique_ptr<RingModControlsPanel> ringModPanel;

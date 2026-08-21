@@ -203,10 +203,8 @@ namespace GGrid
         const float outputOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::output), 12.0f);
         const float outputGain = juce::Decibels::decibelsToGain (juce::jlimit (-24.0f, 24.0f, outputParam->load() + outputOffset));
 
-        const float freqOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFrequency))
-                                + modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::frequency), 3000.0f);
-        const float feedbackOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::filterFeedback))
-                                    + modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::feedback), 0.9f);
+        const float freqOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::frequency), 3000.0f);
+        const float feedbackOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::feedback), 0.9f);
         const float resonanceOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::resonance), 3.0f);
         const float driveOffset = modMatrix.getOffsetForParam (filterParamId (slotIndex, FilterParam::drive), 18.0f);
         const float driveGain = juce::Decibels::decibelsToGain (juce::jlimit (0.0f, 36.0f, driveParam->load() + driveOffset));

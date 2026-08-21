@@ -63,13 +63,13 @@ summing predecessor outputs before running each module. New connections are reje
 if they'd exceed capacity, duplicate an edge, or create a cycle — block-based processing has no
 notion of a same-block feedback loop.
 
-**Modulation cables:** a second, separate graph (`ModulationMatrix::modConnections`) — LFO nodes
-have no audio ports, just a single output nub you drag onto a destination dot on essentially any
-knob on any other module. Rendered in violet, distinct from the orange audio cables, with a
-glowing pulse riding the cable positioned by the LFO's live output. This coexists with an older,
-smaller **MIDI Mod Matrix** (6 fixed routes: Note Pitch/Velocity/Mod Wheel/2 CC lanes → a handful
-of fixed destinations) that was deliberately left in place rather than unified, so a knob that's
-targeted by both just gets both offsets summed.
+**Modulation cables:** a graph (`ModulationMatrix::modConnections`) — LFO nodes have no audio
+ports, just a single output nub you drag onto a destination dot on essentially any knob on any
+other module. Rendered in violet, distinct from the orange audio cables, with a glowing pulse
+riding the cable positioned by the LFO's live output. The older, smaller fixed 6-route MIDI Mod
+Matrix (and its own tab, and the master Safety Limiter it had ended up hosting) is gone — limiting
+is now just the Dynamics module's own Limiter mode, a real rack module rather than a fixed
+always-on-last-stage effect.
 
 **Save/Load patches:** reuses the same `getStateInformation`/`setStateInformation` pair a DAW
 host calls for its own presets — `.ggridpatch` files (binary-encoded XML), default location

@@ -128,7 +128,8 @@ namespace GGrid
             { ModuleType::envelope,              "Envelope",              "Modulation" },
             { ModuleType::adsr,                  "ADSR",                  "Modulation" },
 
-            { ModuleType::dynamics,              "Dynamics",              "Dynamics" },
+            { ModuleType::compressor,            "Compressor",            "Dynamics" },
+            { ModuleType::limiter,               "Limiter",               "Dynamics" },
 
             { ModuleType::utility,               "Utility",               "Utility" },
 

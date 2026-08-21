@@ -197,8 +197,8 @@ namespace GGrid
 
         // Owned here (not by the editor) so it keeps accumulating/rendering correctly across
         // editor open/close -- the editor just adds it as a child component when it exists.
-        // Fed with the true final output (post rack chain, post safety limiter) at the end of
-        // processBlock, so what you see is exactly what reaches your speakers.
+        // Fed with the true final output (post rack chain) at the end of processBlock, so what
+        // you see is exactly what reaches your speakers.
         juce::AudioVisualiserComponent outputScope { 2 };
 
         // For GUI actions that need direct access to a slot's live module (e.g. Convolution's
@@ -247,14 +247,9 @@ namespace GGrid
         // proper (nodeBuffers/connections above) since they aren't audio processors.
         juce::AudioBuffer<float> lfoScratchBuffer;
 
-        // Master safety limiter -- always the last stage, not a rack slot (see
-        // Identifiers::masterLimiterEnabledParamId for why it can't be reorderable).
-        juce::dsp::Limiter<float> masterLimiter;
-        std::atomic<float>* limiterEnabledParam = nullptr;
-        std::atomic<float>* limiterCeilingParam = nullptr;
-
-        // Updated from incoming MIDI once per block, before the rack chain runs, then handed to
-        // every slot's process() so Filter/Delay modules can read their modulation offsets.
+        // Handed to every slot's process() so modules can read their modulation-cable offsets
+        // (see ModulationMatrix::getOffsetForParam) -- ticked from live LFO/Envelope/ADSR slots
+        // once per block before the rack chain runs.
         ModulationMatrix modulationMatrix;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GGridAudioProcessor)

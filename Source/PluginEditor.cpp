@@ -25,7 +25,7 @@ namespace GGrid
     }
 
     GGridAudioProcessorEditor::GGridAudioProcessorEditor (GGridAudioProcessor& p)
-        : AudioProcessorEditor (&p), processorRef (p), modMatrixPanel (p.apvts),
+        : AudioProcessorEditor (&p), processorRef (p),
           nodeGraphEditor (p)
     {
         setLookAndFeel (&lookAndFeel);
@@ -37,19 +37,6 @@ namespace GGrid
         editMenuButton.onClick = [this] { showEditMenu(); };
         addAndMakeVisible (fileMenuButton);
         addAndMakeVisible (editMenuButton);
-
-        rackTabButton.setClickingTogglesState (true);
-        modMatrixTabButton.setClickingTogglesState (true);
-        rackTabButton.setRadioGroupId (1);
-        modMatrixTabButton.setRadioGroupId (1);
-        rackTabButton.setToggleState (true, juce::dontSendNotification);
-        rackTabButton.onClick = [this] { setActiveTab (false); };
-        modMatrixTabButton.onClick = [this] { setActiveTab (true); };
-        addAndMakeVisible (rackTabButton);
-        addAndMakeVisible (modMatrixTabButton);
-
-        addAndMakeVisible (modMatrixPanel);
-        modMatrixPanel.setVisible (false); // Rack tab is active by default
 
         nodeCanvasViewport.setViewedComponent (&nodeGraphEditor, false);
         // Scrollbars hidden -- panning is click-drag on blank canvas (see
@@ -224,33 +211,18 @@ namespace GGrid
             });
     }
 
-    void GGridAudioProcessorEditor::setActiveTab (bool showModMatrix)
-    {
-        modMatrixPanel.setVisible (showModMatrix);
-
-        nodeCanvasViewport.setVisible (! showModMatrix);
-        zoomOutButton.setVisible (! showModMatrix);
-        zoomInButton.setVisible (! showModMatrix);
-        zoomResetButton.setVisible (! showModMatrix);
-        zoomLabel.setVisible (! showModMatrix);
-    }
-
     void GGridAudioProcessorEditor::resized()
     {
-        // Slim header row: tab buttons on the left, live output scope filling the rest. The
-        // safety limiter used to anchor this row (see MasterControlsPanel) but now lives at the
-        // bottom of the Mod Matrix tab, so the header only needs to be tall enough for the tabs
-        // + a usable scope strip -- everything below it goes to whichever page is active.
-        constexpr int tabButtonHeight = 24;
-        const int tabButtonTop = margin + (headerHeight - tabButtonHeight) / 2;
-        rackTabButton.setBounds (margin, tabButtonTop, 80, tabButtonHeight);
-        modMatrixTabButton.setBounds (margin + 80 + 4, tabButtonTop, 110, tabButtonHeight);
+        // Slim header row: File/Edit menus on the right, live output scope filling the rest of
+        // the space to their left.
+        constexpr int menuButtonHeight = 24;
+        const int menuButtonTop = margin + (headerHeight - menuButtonHeight) / 2;
 
         constexpr int menuButtonWidth = 40, menuButtonGap = 2;
-        editMenuButton.setBounds (getWidth() - margin - menuButtonWidth, tabButtonTop, menuButtonWidth, tabButtonHeight);
-        fileMenuButton.setBounds (editMenuButton.getX() - menuButtonGap - menuButtonWidth, tabButtonTop, menuButtonWidth, tabButtonHeight);
+        editMenuButton.setBounds (getWidth() - margin - menuButtonWidth, menuButtonTop, menuButtonWidth, menuButtonHeight);
+        fileMenuButton.setBounds (editMenuButton.getX() - menuButtonGap - menuButtonWidth, menuButtonTop, menuButtonWidth, menuButtonHeight);
 
-        const int scopeLeft = margin + 80 + 4 + 110 + gap;
+        const int scopeLeft = margin;
         const int scopeRight = fileMenuButton.getX() - gap;
         processorRef.outputScope.setBounds (scopeLeft, margin, scopeRight - scopeLeft, headerHeight);
 
@@ -258,7 +230,6 @@ namespace GGrid
         const int contentHeight = getHeight() - contentTop;
 
         nodeCanvasViewport.setBounds (0, contentTop, getWidth(), contentHeight);
-        modMatrixPanel.setBounds (margin, contentTop, getWidth() - margin * 2, contentHeight);
 
         // Zoom controls float in the canvas area's top-right corner, added after the viewport so
         // they're always in front of it and never scroll away with the canvas content.

@@ -23,7 +23,9 @@ knob with an LFO/Envelope/ADSR cable.
 - EQ 3 -- simple 3-band tone shaping
 
 **Dynamics**
-- Dynamics -- compressor with parallel Mix
+- Compressor -- feed-forward downward compressor modeled on Ableton Live's: Threshold/Ratio/
+  Attack/Release, a soft Knee, a Peak/RMS Detection switch, Makeup gain, and parallel Mix
+- Limiter -- brickwall peak limiter: Gain (input trim), Ceiling, Release
 
 **Time & Space**
 - Delay -- tempo sync, ping-pong, saturating feedback with its own filtering
@@ -81,9 +83,6 @@ the incoming signal, so you can see what you're shaping.
 - **WT Synth routing** -- FM is graph-first: route the audio output from one WT Synth into another
   WT Synth's `FM In`. For parallel layers, route multiple WT Synth modules to the same downstream
   module or Output.
-- **MIDI Mod Matrix** -- its own tab: 6 fixed routes (Note Pitch/Velocity/Mod Wheel/2 CC lanes) to
-  a handful of destinations, plus the always-on Safety Limiter (brickwall, protects your ears/gear
-  from an aggressively-driven chain).
 - **File/Edit menus** -- Init Patch, Save/Load Patch (`.ggridpatch`), Copy/Paste/Duplicate.
 - **Update checker** -- checks this repo's GitHub Releases in the background on launch.
 
@@ -142,7 +141,7 @@ Installer/                             Inno Setup installer script
 - **Every slot pre-declares parameters for every module type it could become**
   (`slot{n}_{moduleType}_{param}`), so a slot's automation/preset identity never moves when you
   change what's in it.
-- **Modulation cables and the MIDI Mod Matrix are two separate, additive systems** -- see
+- **Modulation cables are additive** -- a destination can take more than one cable at once, see
   `ModulationMatrix`.
 - **Modules with multiple outputs publish per-output audio buses from the module itself** --
   Multipass exposes Low/Mid/High bands. WT Synth is intentionally graph-first with a single audio

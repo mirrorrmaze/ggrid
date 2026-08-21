@@ -1046,7 +1046,7 @@ namespace GGrid
         pingPongButton.setBounds (bottomRow);
     }
 
-    DynamicsControlsPanel::DynamicsControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    CompressorControlsPanel::CompressorControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
     {
         auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
         {
@@ -1062,29 +1062,43 @@ namespace GGrid
         setupRotary (ratioSlider, ratioLabel, "Ratio");
         setupRotary (attackSlider, attackLabel, "Attack");
         setupRotary (releaseSlider, releaseLabel, "Release");
+        setupRotary (kneeSlider, kneeLabel, "Knee");
         setupRotary (makeupSlider, makeupLabel, "Makeup");
         setupRotary (mixSlider, mixLabel, "Mix");
 
-        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        detectionLabel.setJustificationType (juce::Justification::centred);
 
-        thresholdAttachment = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::threshold), thresholdSlider);
-        ratioAttachment     = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::ratio), ratioSlider);
-        attackAttachment    = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::attack), attackSlider);
-        releaseAttachment   = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::release), releaseSlider);
-        makeupAttachment    = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::makeup), makeupSlider);
-        mixAttachment       = std::make_unique<SliderAttachment> (apvts, dynamicsParamId (slotIndex, DynamicsParam::mix), mixSlider);
+        int itemId = 1;
+        for (auto& choice : getCompressorDetectionChoices())
+            detectionBox.addItem (choice, itemId++);
+
+        addAndMakeVisible (detectionBox);
+        addAndMakeVisible (detectionLabel);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+        thresholdAttachment = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::threshold), thresholdSlider);
+        ratioAttachment     = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::ratio), ratioSlider);
+        attackAttachment    = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::attack), attackSlider);
+        releaseAttachment   = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::release), releaseSlider);
+        kneeAttachment      = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::knee), kneeSlider);
+        makeupAttachment    = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::makeup), makeupSlider);
+        mixAttachment       = std::make_unique<SliderAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::mix), mixSlider);
+        detectionAttachment = std::make_unique<ComboBoxAttachment> (apvts, compressorParamId (slotIndex, CompressorParam::detection), detectionBox);
 
         modTargets = {
-            { dynamicsParamId (slotIndex, DynamicsParam::threshold), "Threshold", &thresholdSlider },
-            { dynamicsParamId (slotIndex, DynamicsParam::ratio),     "Ratio",     &ratioSlider },
-            { dynamicsParamId (slotIndex, DynamicsParam::attack),    "Attack",    &attackSlider },
-            { dynamicsParamId (slotIndex, DynamicsParam::release),   "Release",   &releaseSlider },
-            { dynamicsParamId (slotIndex, DynamicsParam::makeup),    "Makeup",    &makeupSlider },
-            { dynamicsParamId (slotIndex, DynamicsParam::mix),       "Mix",       &mixSlider },
+            { compressorParamId (slotIndex, CompressorParam::threshold), "Threshold", &thresholdSlider },
+            { compressorParamId (slotIndex, CompressorParam::ratio),     "Ratio",     &ratioSlider },
+            { compressorParamId (slotIndex, CompressorParam::attack),    "Attack",    &attackSlider },
+            { compressorParamId (slotIndex, CompressorParam::release),   "Release",   &releaseSlider },
+            { compressorParamId (slotIndex, CompressorParam::knee),      "Knee",      &kneeSlider },
+            { compressorParamId (slotIndex, CompressorParam::makeup),    "Makeup",    &makeupSlider },
+            { compressorParamId (slotIndex, CompressorParam::mix),       "Mix",       &mixSlider },
         };
     }
 
-    void DynamicsControlsPanel::resized()
+    void CompressorControlsPanel::resized()
     {
         auto area = getLocalBounds().reduced (4);
 
@@ -1096,18 +1110,74 @@ namespace GGrid
         };
 
         auto topRow = area.removeFromTop (106);
-        const int topKnobWidth = topRow.getWidth() / 3;
+        const int topKnobWidth = topRow.getWidth() / 4;
         layoutKnob (topRow.removeFromLeft (topKnobWidth), thresholdLabel, thresholdSlider);
         layoutKnob (topRow.removeFromLeft (topKnobWidth), ratioLabel, ratioSlider);
-        layoutKnob (topRow, attackLabel, attackSlider);
+        layoutKnob (topRow.removeFromLeft (topKnobWidth), attackLabel, attackSlider);
+        layoutKnob (topRow, releaseLabel, releaseSlider);
 
         area.removeFromTop (6);
 
         auto bottomRow = area.removeFromTop (106);
         const int bottomKnobWidth = bottomRow.getWidth() / 3;
-        layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), releaseLabel, releaseSlider);
+        layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), kneeLabel, kneeSlider);
         layoutKnob (bottomRow.removeFromLeft (bottomKnobWidth), makeupLabel, makeupSlider);
         layoutKnob (bottomRow, mixLabel, mixSlider);
+
+        area.removeFromTop (6);
+        auto detectionRow = area.removeFromTop (44);
+        auto left = detectionRow.removeFromLeft (detectionRow.getWidth() / 2).reduced (4, 0);
+
+        detectionLabel.setBounds (left.removeFromTop (16));
+        detectionBox.setBounds (left.removeFromTop (24));
+    }
+
+    LimiterControlsPanel::LimiterControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (gainSlider, gainLabel, "Gain");
+        setupRotary (ceilingSlider, ceilingLabel, "Ceiling");
+        setupRotary (releaseSlider, releaseLabel, "Release");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+
+        gainAttachment    = std::make_unique<SliderAttachment> (apvts, limiterParamId (slotIndex, LimiterParam::gain), gainSlider);
+        ceilingAttachment = std::make_unique<SliderAttachment> (apvts, limiterParamId (slotIndex, LimiterParam::ceiling), ceilingSlider);
+        releaseAttachment = std::make_unique<SliderAttachment> (apvts, limiterParamId (slotIndex, LimiterParam::release), releaseSlider);
+
+        modTargets = {
+            { limiterParamId (slotIndex, LimiterParam::gain),    "Gain",    &gainSlider },
+            { limiterParamId (slotIndex, LimiterParam::ceiling), "Ceiling", &ceilingSlider },
+            { limiterParamId (slotIndex, LimiterParam::release), "Release", &releaseSlider },
+        };
+    }
+
+    void LimiterControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        auto knobRow = area.removeFromTop (106);
+        const int knobWidth = knobRow.getWidth() / 3;
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16); // room for a mod-destination nub, clear of both the label and the knob
+            slider.setBounds (col);
+        };
+
+        layoutKnob (knobRow.removeFromLeft (knobWidth), gainLabel, gainSlider);
+        layoutKnob (knobRow.removeFromLeft (knobWidth), ceilingLabel, ceilingSlider);
+        layoutKnob (knobRow, releaseLabel, releaseSlider);
     }
 
     ConvolutionControlsPanel::ConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)

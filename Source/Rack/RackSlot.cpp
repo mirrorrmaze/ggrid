@@ -5,7 +5,8 @@
 #include "../Modules/MackityModule.h"
 #include "../Modules/ShimmerReverbModule.h"
 #include "../Modules/DelayModule.h"
-#include "../Modules/DynamicsModule.h"
+#include "../Modules/CompressorModule.h"
+#include "../Modules/LimiterModule.h"
 #include "../Modules/ConvolutionModule.h"
 #include "../Modules/UtilityModule.h"
 #include "../Modules/RingModModule.h"
@@ -54,8 +55,11 @@ namespace GGrid
             case ModuleType::delay:
                 return std::make_unique<DelayModule> (apvts, slotIndex, services);
 
-            case ModuleType::dynamics:
-                return std::make_unique<DynamicsModule> (apvts, slotIndex);
+            case ModuleType::compressor:
+                return std::make_unique<CompressorModule> (apvts, slotIndex);
+
+            case ModuleType::limiter:
+                return std::make_unique<LimiterModule> (apvts, slotIndex);
 
             case ModuleType::convolution:
                 return std::make_unique<ConvolutionModule> (apvts, slotIndex, services);

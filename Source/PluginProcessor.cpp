@@ -8,8 +8,7 @@ namespace GGrid
         : AudioProcessor (BusesProperties()
                              .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
                              .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-          apvts (*this, nullptr, "PARAMETERS", createParameterLayout()),
-          modulationMatrix (apvts)
+          apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
     {
         for (int i = 0; i < kMaxSlots; ++i)
         {
@@ -37,9 +36,6 @@ namespace GGrid
             *inputType = (int) ModuleType::input;
         if (auto* outputType = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (slotTypeParamId (1))))
             *outputType = (int) ModuleType::output;
-
-        limiterEnabledParam = apvts.getRawParameterValue (masterLimiterEnabledParamId());
-        limiterCeilingParam = apvts.getRawParameterValue (masterLimiterCeilingParamId());
 
         // Matches GGridLookAndFeel's Palette::bg/accent (see Source/GUI/GGridLookAndFeel.h) --
         // hardcoded rather than pulling in a GUI header from the processor, but keep these two
@@ -69,8 +65,6 @@ namespace GGrid
         for (auto& slot : slots)
             slot->prepare (spec);
 
-        masterLimiter.prepare (spec);
-
         for (auto& nodeBuffer : nodeBuffers)
             nodeBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
         lfoScratchBuffer.setSize ((int) spec.numChannels, (int) spec.maximumBlockSize, false, false, true);
@@ -89,8 +83,6 @@ namespace GGrid
     {
         for (auto& slot : slots)
             slot->reset();
-
-        masterLimiter.reset();
     }
 
     void GGridAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -108,8 +100,6 @@ namespace GGrid
                     currentBpm.store (*bpm);
             }
         }
-
-        modulationMatrix.processMidi (midiMessages);
 
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
@@ -237,19 +227,6 @@ namespace GGrid
             for (int i = 0; i < kMaxSlots; ++i)
                 if (isInputRole[(size_t) i] || isOutputRole[(size_t) i])
                     nodeScopes[(size_t) i]->pushBuffer (nodeBuffers[(size_t) i]);
-        }
-
-        juce::dsp::AudioBlock<float> block (buffer);
-
-        // Safety limiter always runs last, after the full rack graph, regardless of routing --
-        // it exists to protect ears/speakers/gear from an aggressively-pushed waveshaper (which
-        // deliberately has no ceiling of its own), not to shape the sound.
-        if (limiterEnabledParam->load() >= 0.5f)
-        {
-            masterLimiter.setThreshold (limiterCeilingParam->load());
-            masterLimiter.setRelease (50.0f);
-            juce::dsp::ProcessContextReplacing<float> context (block);
-            masterLimiter.process (context);
         }
 
         outputScope.pushBuffer (buffer);

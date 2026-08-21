@@ -99,8 +99,7 @@ namespace GGrid
         const int shapeIndex        = (int) shapeParam->load();
         const int oversampleChoice  = (int) oversampleParam->load(); // 0 = Off, 1 = 2x, 2 = 4x
 
-        const float driveOffset = modMatrix.getOffsetForDestination (modDestinationIndex (slotIndex, ModDestinationParam::waveshaperDrive))
-                                 + modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::drive), 20.0f);
+        const float driveOffset = modMatrix.getOffsetForParam (waveshaperParamId (slotIndex, WaveshaperParam::drive), 20.0f);
         const float driveDb = juce::jlimit (0.0f, 40.0f, driveParam->load() + driveOffset);
         const float driveGain       = juce::Decibels::decibelsToGain (driveDb);
 
