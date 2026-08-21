@@ -5,6 +5,7 @@
 #include "../Params/Identifiers.h"
 #include "../Rack/RackSlot.h"
 #include "../Modules/LFOModule.h"
+#include "../Modules/SamplerModule.h"
 #include "../Wavetable/WavetableLibrary.h"
 #include "IRWaveformComponent.h"
 #include "CrossoverSplitBar.h"
@@ -307,6 +308,150 @@ namespace GGrid
         std::vector<ModTarget> modTargets;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LimiterControlsPanel)
+    };
+
+    // Sampler module controls: drag-and-drop a zone strip (click a zone to select it for
+    // editing, drop audio files to create new ones), a waveform display of the selected zone
+    // with Start/End/Loop markers, a knob row for the selected zone's key/velocity range, root/
+    // start/end/loop, and a global knob row (Voices/Glide/amp envelope/Output). Zone data isn't
+    // an APVTS parameter (see SamplerModule's own comment) -- the zone knobs below read/write
+    // SamplerModule::getZone/setZone directly instead of using SliderAttachment, polled/pushed
+    // via this panel's own Timer, the same reconciliation approach IRWaveformComponent already
+    // uses for RackSlot's live module instance.
+    class SamplerControlsPanel : public juce::Component, private juce::Timer
+    {
+    public:
+        SamplerControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot);
+        ~SamplerControlsPanel() override;
+
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        void timerCallback() override;
+        void refreshFromModule();
+        void pushZoneEdit();
+        void selectZone (int zoneIndex);
+
+        // The zone key-range strip: click a zone bar to select it, drop audio files onto it to
+        // create new zones (auto-spread across the full key range if dropped with no existing
+        // zones, otherwise each new zone starts full-range and is narrowed via the Key Lo/Hi
+        // knobs below).
+        class ZoneStrip : public juce::Component, public juce::FileDragAndDropTarget
+        {
+        public:
+            explicit ZoneStrip (RackSlot& rackSlotIn) : rackSlot (rackSlotIn) {}
+
+            std::function<void (int)> onZoneSelected;
+            std::function<void (const juce::StringArray&)> onFilesDropped;
+            // Fired continuously while a drag-edit (resize/move) is in progress, so the owning
+            // panel's zone knobs can mirror the live edit instead of only updating once the mouse
+            // is released.
+            std::function<void()> onZoneEdited;
+
+            int selectedZoneIndex = -1;
+
+            void paint (juce::Graphics&) override;
+            void mouseDown (const juce::MouseEvent&) override;
+            void mouseDrag (const juce::MouseEvent&) override;
+            void mouseUp (const juce::MouseEvent&) override;
+            void mouseMove (const juce::MouseEvent&) override;
+
+            bool isInterestedInFileDrag (const juce::StringArray&) override;
+            void fileDragEnter (const juce::StringArray&, int, int) override { hovering = true; repaint(); }
+            void fileDragExit (const juce::StringArray&) override { hovering = false; repaint(); }
+            void filesDropped (const juce::StringArray&, int, int) override;
+
+        private:
+            // Piano-reference band pinned to the bottom of the strip -- everything above it is
+            // the zone-bar area proper (see paint()/mouseDown()'s own key-position math, which
+            // both use getHeight() minus this).
+            static constexpr int keyReferenceHeight = 14;
+            static constexpr int edgeGrabPixels = 5; // how close to a bar's edge counts as "grab the edge" vs. "grab the body"
+
+            int noteForX (int x) const { return juce::jlimit (0, 127, (int) ((float) x / (float) getWidth() * 128.0f)); }
+            int xForNote (int note) const { return (int) ((float) getWidth() * ((float) note / 128.0f)); }
+
+            enum class DragMode { none, resizeLeft, resizeRight, move };
+            DragMode dragMode = DragMode::none;
+            int dragZoneIndex = -1;
+            int dragStartNote = 0;
+            int dragStartKeyLow = 0, dragStartKeyHigh = 0;
+
+            RackSlot& rackSlot;
+            bool hovering = false;
+        };
+
+        // Direct min/max-per-pixel waveform draw of the selected zone's loaded sample, plus
+        // draggable Start/End/Loop markers -- same non-AudioThumbnail approach as
+        // IRWaveformComponent (see that class's own comment on why: these buffers are small
+        // enough that disk-backed thumbnail caching would be pure overhead).
+        class WaveformDisplay : public juce::Component
+        {
+        public:
+            explicit WaveformDisplay (RackSlot& rackSlotIn) : rackSlot (rackSlotIn) {}
+
+            int zoneIndex = -1;
+            std::function<void()> onZoneEdited;
+
+            void paint (juce::Graphics&) override;
+            void mouseDown (const juce::MouseEvent&) override;
+            void mouseDrag (const juce::MouseEvent&) override;
+            void mouseUp (const juce::MouseEvent&) override;
+            void mouseMove (const juce::MouseEvent&) override;
+
+        private:
+            static constexpr int markerGrabPixels = 5;
+
+            int sampleForX (int x, int numSamples) const;
+            int xForSample (int sample, int numSamples) const;
+
+            enum class DragMode { none, start, end, loopStart, loopEnd };
+            DragMode dragMode = DragMode::none;
+
+            RackSlot& rackSlot;
+        };
+
+        juce::AudioProcessorValueTreeState& apvtsRef;
+        int slotIndexValue;
+        RackSlot& rackSlotRef;
+
+        int selectedZoneIndex = -1;
+        bool suppressZoneCallbacks = false;
+
+        ZoneStrip zoneStrip;
+        WaveformDisplay waveformDisplay;
+
+        juce::Label keyLoLabel { {}, "Key Lo" }, keyHiLabel { {}, "Key Hi" }, velLoLabel { {}, "Vel Lo" }, velHiLabel { {}, "Vel Hi" },
+                    rootLabel { {}, "Root" }, startLabel { {}, "Start" }, endLabel { {}, "End" },
+                    loopStartLabel { {}, "Loop Start" }, loopEndLabel { {}, "Loop End" };
+        juce::Slider keyLoSlider, keyHiSlider, velLoSlider, velHiSlider, rootSlider, startSlider, endSlider,
+                     loopStartSlider, loopEndSlider;
+        juce::ToggleButton loopEnabledButton { "Loop" };
+        juce::TextButton removeZoneButton { "Remove Zone" };
+
+        juce::Label voicesLabel { {}, "Voices" }, attackLabel { {}, "Attack" }, decayLabel { {}, "Decay" },
+                    sustainLabel { {}, "Sustain" }, releaseLabel { {}, "Release" }, outputLabel { {}, "Output" },
+                    glideTimeLabel { {}, "Glide Time" };
+        juce::Slider voicesSlider, attackSlider, decaySlider, sustainSlider, releaseSlider, outputSlider, glideTimeSlider;
+        juce::ToggleButton glideButton { "Glide" };
+
+        // Live scrub depth for the loop window (-1..1, see SamplerParam::startMod/endMod's own
+        // comment) -- a plain automatable knob like any other, so it can be set as a static offset
+        // or, more interestingly, driven by an LFO/Envelope mod cable for granular-style scanning.
+        juce::Label startModLabel { {}, "Start Mod" }, endModLabel { {}, "End Mod" };
+        juce::Slider startModSlider, endModSlider;
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            voicesAttachment, attackAttachment, decayAttachment, sustainAttachment, releaseAttachment,
+            outputAttachment, glideTimeAttachment, startModAttachment, endModAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> glideAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SamplerControlsPanel)
     };
 
     // Convolution module controls: pick an IR from the curated factory library (or anything

@@ -24,12 +24,14 @@
 #include "Modules/AdsrModule.h"
 #include "Modules/EnvelopeModule.h"
 #include "Modules/MultipassModule.h"
+#include "Modules/SamplerModule.h"
 #include "Modulation/ModulationMatrix.h"
 #include "Rack/RackSlot.h"
 #include "Rack/ConnectionGraph.h"
 #include "IR/IRLibrary.h"
 #include "Wavetable/WavetableLibrary.h"
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
 #include <iostream>
 #include <cmath>
@@ -93,6 +95,32 @@ namespace
                 data[i] = amplitude * std::sin (2.0 * juce::MathConstants<double>::pi * (double) freqHz * (double) i / sampleRate);
         }
         return buffer;
+    }
+
+    // Writes a mono sine-tone WAV to a temp file for SamplerModule's zone tests to load --
+    // SamplerModule reads real files off disk (via SamplerSampleLibrary), unlike every other
+    // module here which is driven by an in-memory test buffer.
+    juce::File writeTestWavFile (float freqHz, double durationSeconds, double fileSampleRate)
+    {
+        auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("ggrid_offline_test_sampler_" + juce::String (juce::Random::getSystemRandom().nextInt64()) + ".wav");
+
+        const int numSamples = (int) (durationSeconds * fileSampleRate);
+        juce::AudioBuffer<float> buffer (1, numSamples);
+        auto* data = buffer.getWritePointer (0);
+        for (int i = 0; i < numSamples; ++i)
+            data[i] = 0.8f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * (double) freqHz * (double) i / fileSampleRate);
+
+        juce::WavAudioFormat wavFormat;
+        std::unique_ptr<juce::FileOutputStream> outStream (file.createOutputStream());
+        std::unique_ptr<juce::AudioFormatWriter> writer (
+            wavFormat.createWriterFor (outStream.get(), fileSampleRate, 1, 16, {}, 0));
+        if (writer != nullptr)
+        {
+            outStream.release(); // writer now owns the stream
+            writer->writeFromAudioSampleBuffer (buffer, 0, numSamples);
+        }
+        return file;
     }
 
     bool isFinite (const juce::AudioBuffer<float>& buffer)
@@ -925,6 +953,240 @@ int main()
         expect (peak < ceilingLinear * 1.05f,
                 "Limiter caps output near its Ceiling (-3dB, linear " + juce::String (ceilingLinear, 4)
                     + ") even when driven hard by Gain (+24dB) -- measured peak " + juce::String (peak, 4));
+    }
+
+    // --- Sampler: a zone plays back at its recorded pitch when the played note equals Root,
+    //     correctly resampling even when the file's sample rate differs from the host's ---
+    {
+        auto wavFile = writeTestWavFile (220.0f, 1.0, 22050.0); // file recorded at half the host's rate
+
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::voices))->store (16.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::release))->store (0.05f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::output))->store (0.0f);
+
+        SamplerModule module (apvts, 0);
+        module.prepare (spec);
+        const bool loaded = module.addZoneFromFile (wavFile, 0, 127); // root defaults to 60
+        expect (loaded, "Sampler zone loads successfully from a written test WAV file");
+
+        const int numChunks = 20;
+        juce::AudioBuffer<float> fullBuffer (2, blockSize * numChunks);
+        fullBuffer.clear();
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0); // == Root
+            module.process (sub, midi, modMatrix);
+        }
+
+        const double magAt220 = goertzelMagnitude (fullBuffer, 0, 220.0, sampleRate);
+        const double magAt440 = goertzelMagnitude (fullBuffer, 0, 440.0, sampleRate);
+
+        expect (magAt220 > magAt440 * 3.0,
+                "Sampler plays a zone at its recorded pitch (220Hz) when the played note equals Root, correctly "
+                "resampling despite the file's sample rate (22050Hz) differing from the host's (magnitude at "
+                "220Hz " + juce::String (magAt220, 4) + ", at 440Hz " + juce::String (magAt440, 4) + ")");
+
+        wavFile.deleteFile();
+    }
+
+    // --- Sampler: a note outside every zone's key range produces silence ---
+    {
+        auto wavFile = writeTestWavFile (220.0f, 1.0, 44100.0);
+
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::voices))->store (16.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::release))->store (0.05f);
+
+        SamplerModule module (apvts, 0);
+        module.prepare (spec);
+        module.addZoneFromFile (wavFile, 60, 72); // covers only MIDI notes 60-72
+
+        juce::AudioBuffer<float> buffer (2, blockSize * 4);
+        buffer.clear();
+        juce::dsp::AudioBlock<float> block (buffer);
+        for (int chunk = 0; chunk < 4; ++chunk)
+        {
+            auto sub = block.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 30, (juce::uint8) 100), 0); // well outside [60, 72]
+            module.process (sub, midi, modMatrix);
+        }
+
+        expect (isFiniteAndBounded (buffer, 1.0e-6f), "Sampler stays silent for a note outside every zone's key range");
+
+        wavFile.deleteFile();
+    }
+
+    // --- Sampler: Loop actually loops -- a short zone stays audible well past its natural
+    //     length when Loop is enabled, instead of running out and going silent ---
+    {
+        auto wavFile = writeTestWavFile (220.0f, 0.05, 44100.0); // ~50ms file
+
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::voices))->store (16.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::release))->store (0.05f);
+
+        SamplerModule module (apvts, 0);
+        module.prepare (spec);
+        module.addZoneFromFile (wavFile, 0, 127);
+
+        auto sample = module.getZoneSample (0);
+        expect (sample != nullptr && sample->buffer.getNumSamples() > 0, "Sampler zone's sample is loaded and cached");
+
+        auto zone = module.getZone (0);
+        zone.loopEnabled = true;
+        zone.loopStart = 0;
+        zone.loopEnd = sample->buffer.getNumSamples();
+        module.setZone (0, zone);
+
+        const int numChunks = 20; // 20*512 samples ~= 232ms at 44.1kHz, well past the 50ms file
+        juce::AudioBuffer<float> fullBuffer (2, blockSize * numChunks);
+        fullBuffer.clear();
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            module.process (sub, midi, modMatrix);
+        }
+
+        const int tailStart = blockSize * (numChunks - 4);
+        juce::AudioBuffer<float> tailView (fullBuffer.getArrayOfWritePointers(), 1, tailStart, fullBuffer.getNumSamples() - tailStart);
+        const double tailRms = rms (tailView, 0);
+
+        expect (tailRms > 0.05,
+                "Sampler with Loop enabled keeps sounding well past its ~50ms file's natural length (tail RMS "
+                    + juce::String (tailRms, 4) + ")");
+
+        wavFile.deleteFile();
+    }
+
+    // --- Sampler: Start Mod/End Mod scrub the loop window continuously (as automation or an LFO
+    //     cable would) without clicks (large sample-to-sample jumps), dropouts (silence), or
+    //     NaN/Inf blow-ups -- exercises renderRange's crossfade-on-relocation mechanism under a
+    //     fast, repeated sweep, the stress case for it ---
+    {
+        auto wavFile = writeTestWavFile (220.0f, 0.2, 44100.0); // 200ms sine, several cycles
+
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::voices))->store (16.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::release))->store (0.05f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::startMod))->store (0.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::endMod))->store (0.0f);
+
+        SamplerModule module (apvts, 0);
+        module.prepare (spec);
+        module.addZoneFromFile (wavFile, 0, 127);
+
+        auto sample = module.getZoneSample (0);
+        expect (sample != nullptr && sample->buffer.getNumSamples() > 0, "Sampler Start Mod/End Mod test zone loaded");
+
+        auto zone = module.getZone (0);
+        zone.loopEnabled = true;
+        zone.loopStart = 0;
+        zone.loopEnd = sample->buffer.getNumSamples();
+        module.setZone (0, zone);
+
+        auto* startModParam = apvts.getRawParameterValue (samplerParamId (0, SamplerParam::startMod));
+        auto* endModParam = apvts.getRawParameterValue (samplerParamId (0, SamplerParam::endMod));
+
+        const int numChunks = 40;
+        juce::AudioBuffer<float> fullBuffer (2, blockSize * numChunks);
+        fullBuffer.clear();
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            // Sweep both knobs back and forth across their full range every few blocks -- a much
+            // faster relocation rate than a musically-useful LFO would ever drive, deliberately
+            // stressing the crossfade mechanism with frequent back-to-back relocations.
+            const float phase = (float) chunk / (float) numChunks;
+            startModParam->store (std::sin (phase * juce::MathConstants<float>::twoPi * 3.0f) * 0.6f);
+            endModParam->store (std::sin (phase * juce::MathConstants<float>::twoPi * 2.0f + 1.0f) * 0.3f);
+
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            module.process (sub, midi, modMatrix);
+        }
+
+        expect (isFiniteAndBounded (fullBuffer, 2.0f),
+                "Sampler stays finite/bounded while Start Mod/End Mod sweep the loop window rapidly");
+
+        // Click detector: a hard, uncrossfaded jump lands near the signal's peak amplitude in a
+        // single sample; a continuous (even fast-scrubbing) signal never does.
+        double maxAdjacentDelta = 0.0;
+        const auto* data = fullBuffer.getReadPointer (0);
+        for (int i = 1; i < fullBuffer.getNumSamples(); ++i)
+            maxAdjacentDelta = juce::jmax (maxAdjacentDelta, (double) std::abs (data[i] - data[i - 1]));
+
+        expect (maxAdjacentDelta < 0.3,
+                "Sampler's loop-window crossfade keeps Start Mod/End Mod scrubbing click-free (max adjacent-sample jump "
+                    + juce::String (maxAdjacentDelta, 4) + ")");
+
+        const int tailStart = blockSize * (numChunks - 8);
+        juce::AudioBuffer<float> tailView (fullBuffer.getArrayOfWritePointers(), 1, tailStart, fullBuffer.getNumSamples() - tailStart);
+        expect (rms (tailView, 0) > 0.02,
+                "Sampler keeps sounding (no dropout) while Start Mod/End Mod scrub the loop window");
+
+        wavFile.deleteFile();
+    }
+
+    // --- Sampler: Voices=1 (mono) retargets its single voice's pitch instead of triggering a
+    //     second simultaneous one, mirroring 3xOsc/WT Synth's Mono/Legato behaviour exactly ---
+    {
+        auto wavFile = writeTestWavFile (220.0f, 1.0, 44100.0);
+
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::voices))->store (1.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::attack))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::decay))->store (0.001f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::sustain))->store (100.0f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::release))->store (0.05f);
+        apvts.getRawParameterValue (samplerParamId (0, SamplerParam::glide))->store (0.0f);
+
+        SamplerModule module (apvts, 0);
+        module.prepare (spec);
+        module.addZoneFromFile (wavFile, 0, 127); // root defaults to 60 -> 220Hz
+
+        const int numChunks = 20;
+        juce::AudioBuffer<float> fullBuffer (2, blockSize * numChunks);
+        fullBuffer.clear();
+        juce::dsp::AudioBlock<float> fullBlock (fullBuffer);
+        for (int chunk = 0; chunk < numChunks; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            if (chunk == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0); // root -> 220Hz
+            if (chunk == 10)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 72, (juce::uint8) 100), 0); // +1 octave -> 440Hz, legato retarget
+            module.process (sub, midi, modMatrix);
+        }
+
+        juce::AudioBuffer<float> tailView (fullBuffer.getArrayOfWritePointers(), 1, blockSize * 15, blockSize * 5);
+        const double mag220 = goertzelMagnitude (tailView, 0, 220.0, sampleRate);
+        const double mag440 = goertzelMagnitude (tailView, 0, 440.0, sampleRate);
+
+        expect (mag440 > mag220 * 3.0,
+                "Sampler Mono (Voices=1) retargets its single voice to the newer note (440Hz dominates over "
+                "220Hz well after the retarget, magnitude at 220Hz " + juce::String (mag220, 4) + ", at 440Hz "
+                    + juce::String (mag440, 4) + ")");
+
+        wavFile.deleteFile();
     }
 
     // --- IRLibrary: factory catalog resolves and loads correctly ---

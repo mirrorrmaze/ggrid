@@ -104,6 +104,7 @@ namespace GGrid
         static const std::vector<Entry> entries = {
             { ModuleType::threeOsc,              "3xOsc",                 "Generators" },
             { ModuleType::wavetableSynth,        "WT Synth",              "Generators" },
+            { ModuleType::sampler,               "Sampler",               "Generators" },
 
             { ModuleType::filter,                "Filter",                "Filter & EQ" },
             { ModuleType::nonlinearFilter,        "Nonlinear Filter",      "Filter & EQ" },

@@ -133,6 +133,7 @@ namespace GGrid
             const auto type = slots[(size_t) i]->getActiveType();
             isSourceRole[(size_t) i] = isInputRole[(size_t) i]
                 || type == ModuleType::threeOsc
+                || type == ModuleType::sampler
                 || (type == ModuleType::wavetableSynth && ! hasIncomingAudio[(size_t) i]);
         }
 

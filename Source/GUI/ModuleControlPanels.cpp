@@ -1180,6 +1180,668 @@ namespace GGrid
         layoutKnob (knobRow, releaseLabel, releaseSlider);
     }
 
+    // -- SamplerControlsPanel::ZoneStrip --
+
+    void SamplerControlsPanel::ZoneStrip::paint (juce::Graphics& g)
+    {
+        const int barAreaHeight = getHeight() - keyReferenceHeight;
+
+        g.setColour (Palette::dimmer);
+        g.fillRect (0, 0, getWidth(), barAreaHeight);
+
+        // Piano-key reference band: alternating black/white key shading plus a "C" label at
+        // every C, so a zone's key range reads at a glance instead of being a bare unlabelled
+        // bar. MIDI 60 -> "C3", matching Ableton's own octave-numbering convention.
+        for (int note = 0; note < 128; ++note)
+        {
+            const int semitone = note % 12;
+            const bool isBlackKey = semitone == 1 || semitone == 3 || semitone == 6 || semitone == 8 || semitone == 10;
+            const int x0 = xForNote (note);
+            const int x1 = xForNote (note + 1);
+            g.setColour (isBlackKey ? Palette::bg : Palette::dim.withAlpha (0.6f));
+            g.fillRect (x0, barAreaHeight, juce::jmax (1, x1 - x0), keyReferenceHeight);
+        }
+
+        g.setColour (Palette::bright.withAlpha (0.8f));
+        g.setFont (juce::Font (juce::FontOptions (9.0f)));
+        for (int note = 0; note < 128; note += 12)
+        {
+            g.drawVerticalLine (xForNote (note), (float) barAreaHeight, (float) getHeight());
+            g.drawText ("C" + juce::String (note / 12 - 2), xForNote (note) + 2, barAreaHeight, 24, keyReferenceHeight,
+                        juce::Justification::centredLeft);
+        }
+
+        if (auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule()))
+        {
+            const int numZones = sampler->getNumZones();
+            for (int i = 0; i < numZones; ++i)
+            {
+                const auto zone = sampler->getZone (i);
+                const float x0 = (float) xForNote (zone.keyLow);
+                const float x1 = (float) xForNote (zone.keyHigh + 1);
+                juce::Rectangle<float> bar (x0, 2.0f, juce::jmax (2.0f, x1 - x0), (float) barAreaHeight - 4.0f);
+
+                g.setColour (i == selectedZoneIndex ? Palette::accent : Palette::dim);
+                g.fillRect (bar);
+                g.setColour (Palette::bg);
+                g.drawRect (bar, 1.0f);
+
+                // Grab-edge affordance -- brighter strips at each end of the SELECTED zone,
+                // matching where mouseDown's edge hit-test actually triggers a resize.
+                if (i == selectedZoneIndex)
+                {
+                    g.setColour (Palette::bright.withAlpha (0.5f));
+                    g.fillRect (juce::Rectangle<float> (x0, 2.0f, (float) edgeGrabPixels, (float) barAreaHeight - 4.0f));
+                    g.fillRect (juce::Rectangle<float> (x1 - (float) edgeGrabPixels, 2.0f, (float) edgeGrabPixels, (float) barAreaHeight - 4.0f));
+                }
+            }
+
+            if (numZones == 0)
+            {
+                g.setColour (Palette::dim);
+                g.setFont (juce::Font (juce::FontOptions (12.0f)));
+                g.drawText ("Drop audio files here", juce::Rectangle<int> (0, 0, getWidth(), barAreaHeight), juce::Justification::centred);
+            }
+        }
+
+        if (hovering)
+        {
+            g.setColour (Palette::accent.withAlpha (0.3f));
+            g.fillRect (0, 0, getWidth(), barAreaHeight);
+        }
+    }
+
+    void SamplerControlsPanel::ZoneStrip::mouseDown (const juce::MouseEvent& e)
+    {
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr)
+            return;
+
+        // Last-added first, so a click in an overlapping region picks the most recently dropped
+        // zone rather than always the first one added.
+        for (int i = sampler->getNumZones() - 1; i >= 0; --i)
+        {
+            const auto zone = sampler->getZone (i);
+            const int xLow = xForNote (zone.keyLow);
+            const int xHigh = xForNote (zone.keyHigh + 1);
+            if (e.x < xLow || e.x > xHigh)
+                continue;
+
+            if (onZoneSelected) onZoneSelected (i);
+
+            dragZoneIndex = i;
+            dragStartNote = noteForX (e.x);
+            dragStartKeyLow = zone.keyLow;
+            dragStartKeyHigh = zone.keyHigh;
+
+            if (e.x <= xLow + edgeGrabPixels)
+                dragMode = DragMode::resizeLeft;
+            else if (e.x >= xHigh - edgeGrabPixels)
+                dragMode = DragMode::resizeRight;
+            else
+                dragMode = DragMode::move;
+
+            return;
+        }
+    }
+
+    void SamplerControlsPanel::ZoneStrip::mouseDrag (const juce::MouseEvent& e)
+    {
+        if (dragMode == DragMode::none || dragZoneIndex < 0)
+            return;
+
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr || dragZoneIndex >= sampler->getNumZones())
+            return;
+
+        const int note = noteForX (e.x);
+        auto zone = sampler->getZone (dragZoneIndex);
+
+        if (dragMode == DragMode::resizeLeft)
+        {
+            zone.keyLow = juce::jlimit (0, dragStartKeyHigh, note);
+        }
+        else if (dragMode == DragMode::resizeRight)
+        {
+            zone.keyHigh = juce::jlimit (dragStartKeyLow, 127, note);
+        }
+        else if (dragMode == DragMode::move)
+        {
+            const int span = dragStartKeyHigh - dragStartKeyLow;
+            const int newLow = juce::jlimit (0, 127 - span, dragStartKeyLow + (note - dragStartNote));
+            zone.keyLow = newLow;
+            zone.keyHigh = newLow + span;
+        }
+
+        sampler->setZone (dragZoneIndex, zone);
+        repaint();
+        if (onZoneEdited) onZoneEdited();
+    }
+
+    void SamplerControlsPanel::ZoneStrip::mouseUp (const juce::MouseEvent&)
+    {
+        dragMode = DragMode::none;
+        dragZoneIndex = -1;
+    }
+
+    void SamplerControlsPanel::ZoneStrip::mouseMove (const juce::MouseEvent& e)
+    {
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr)
+        {
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            return;
+        }
+
+        for (int i = sampler->getNumZones() - 1; i >= 0; --i)
+        {
+            const auto zone = sampler->getZone (i);
+            const int xLow = xForNote (zone.keyLow);
+            const int xHigh = xForNote (zone.keyHigh + 1);
+            if (e.x < xLow || e.x > xHigh)
+                continue;
+
+            setMouseCursor (e.x <= xLow + edgeGrabPixels || e.x >= xHigh - edgeGrabPixels
+                                ? juce::MouseCursor::LeftRightResizeCursor
+                                : juce::MouseCursor::DraggingHandCursor);
+            return;
+        }
+
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+    }
+
+    bool SamplerControlsPanel::ZoneStrip::isInterestedInFileDrag (const juce::StringArray& files)
+    {
+        juce::AudioFormatManager formatManager;
+        formatManager.registerBasicFormats();
+        for (auto& f : files)
+            if (formatManager.findFormatForFileExtension (juce::File (f).getFileExtension()) != nullptr)
+                return true;
+        return false;
+    }
+
+    void SamplerControlsPanel::ZoneStrip::filesDropped (const juce::StringArray& files, int, int)
+    {
+        hovering = false;
+        repaint();
+        if (onFilesDropped)
+            onFilesDropped (files);
+    }
+
+    // -- SamplerControlsPanel::WaveformDisplay --
+
+    void SamplerControlsPanel::WaveformDisplay::paint (juce::Graphics& g)
+    {
+        g.setColour (Palette::bg);
+        g.fillRect (getLocalBounds());
+
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr || zoneIndex < 0 || zoneIndex >= sampler->getNumZones())
+        {
+            g.setColour (Palette::dim);
+            g.setFont (juce::Font (juce::FontOptions (12.0f)));
+            g.drawText ("No zone selected", getLocalBounds(), juce::Justification::centred);
+            return;
+        }
+
+        auto sample = sampler->getZoneSample (zoneIndex);
+        if (sample == nullptr || sample->buffer.getNumSamples() == 0)
+        {
+            g.setColour (Palette::dim);
+            g.setFont (juce::Font (juce::FontOptions (12.0f)));
+            g.drawText ("(sample not loaded)", getLocalBounds(), juce::Justification::centred);
+            return;
+        }
+
+        const auto& buffer = sample->buffer;
+        const int numSamples = buffer.getNumSamples();
+        const int w = getWidth();
+        const int cy = getHeight() / 2;
+        const float halfH = (float) getHeight() * 0.5f;
+
+        g.setColour (Palette::accent);
+        for (int x = 0; x < w; ++x)
+        {
+            const int startIdx = (int) (((juce::int64) x * numSamples) / w);
+            const int endIdx = juce::jmax (startIdx + 1, (int) (((juce::int64) (x + 1) * numSamples) / w));
+            float mn = 0.0f, mx = 0.0f;
+            for (int s = startIdx; s < endIdx && s < numSamples; ++s)
+            {
+                const float v = buffer.getSample (0, s);
+                mn = juce::jmin (mn, v);
+                mx = juce::jmax (mx, v);
+            }
+            g.drawVerticalLine (x, (float) cy + mn * halfH, (float) cy + mx * halfH);
+        }
+
+        const auto zone = sampler->getZone (zoneIndex);
+        const auto markerX = [&] (int s) { return (float) w * ((float) s / (float) numSamples); };
+
+        // Small triangular grab-handles at the top of each marker line signal that these are
+        // draggable, not just static position indicators.
+        const auto drawMarker = [&] (float x, juce::Colour colour)
+        {
+            g.setColour (colour);
+            g.drawVerticalLine ((int) x, 0.0f, (float) getHeight());
+            juce::Path handle;
+            handle.addTriangle (x - 4.0f, 0.0f, x + 4.0f, 0.0f, x, 6.0f);
+            g.fillPath (handle);
+        };
+
+        drawMarker (markerX (zone.startSample), juce::Colours::yellow);
+        drawMarker (markerX (zone.endSample > 0 ? zone.endSample : numSamples), juce::Colours::yellow);
+
+        if (zone.loopEnabled && zone.loopEnd > zone.loopStart)
+        {
+            drawMarker (markerX (zone.loopStart), juce::Colours::cyan);
+            drawMarker (markerX (zone.loopEnd), juce::Colours::cyan);
+        }
+    }
+
+    int SamplerControlsPanel::WaveformDisplay::sampleForX (int x, int numSamples) const
+    {
+        return juce::jlimit (0, numSamples, (int) ((float) x / (float) juce::jmax (1, getWidth()) * (float) numSamples));
+    }
+
+    int SamplerControlsPanel::WaveformDisplay::xForSample (int sample, int numSamples) const
+    {
+        return numSamples > 0 ? (int) ((float) getWidth() * ((float) sample / (float) numSamples)) : 0;
+    }
+
+    void SamplerControlsPanel::WaveformDisplay::mouseDown (const juce::MouseEvent& e)
+    {
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr || zoneIndex < 0 || zoneIndex >= sampler->getNumZones())
+            return;
+
+        auto sample = sampler->getZoneSample (zoneIndex);
+        if (sample == nullptr || sample->buffer.getNumSamples() == 0)
+            return;
+
+        const int numSamples = sample->buffer.getNumSamples();
+        const auto zone = sampler->getZone (zoneIndex);
+
+        struct Candidate { DragMode mode; int x; };
+        std::vector<Candidate> candidates = {
+            { DragMode::start, xForSample (zone.startSample, numSamples) },
+            { DragMode::end,   xForSample (zone.endSample > 0 ? zone.endSample : numSamples, numSamples) },
+        };
+        if (zone.loopEnabled)
+        {
+            candidates.push_back ({ DragMode::loopStart, xForSample (zone.loopStart, numSamples) });
+            candidates.push_back ({ DragMode::loopEnd,   xForSample (zone.loopEnd, numSamples) });
+        }
+
+        dragMode = DragMode::none;
+        for (auto& c : candidates)
+        {
+            if (std::abs (e.x - c.x) <= markerGrabPixels)
+            {
+                dragMode = c.mode;
+                break;
+            }
+        }
+    }
+
+    void SamplerControlsPanel::WaveformDisplay::mouseDrag (const juce::MouseEvent& e)
+    {
+        if (dragMode == DragMode::none)
+            return;
+
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr || zoneIndex < 0 || zoneIndex >= sampler->getNumZones())
+            return;
+
+        auto sample = sampler->getZoneSample (zoneIndex);
+        if (sample == nullptr)
+            return;
+
+        const int numSamples = sample->buffer.getNumSamples();
+        auto zone = sampler->getZone (zoneIndex);
+        const int pos = sampleForX (e.x, numSamples);
+
+        switch (dragMode)
+        {
+            case DragMode::start:     zone.startSample = juce::jlimit (0, numSamples, pos); break;
+            case DragMode::end:       zone.endSample = juce::jlimit (0, numSamples, pos); break;
+            case DragMode::loopStart: zone.loopStart = juce::jlimit (0, numSamples, pos); break;
+            case DragMode::loopEnd:   zone.loopEnd = juce::jlimit (0, numSamples, pos); break;
+            case DragMode::none: break;
+        }
+
+        sampler->setZone (zoneIndex, zone);
+        repaint();
+        if (onZoneEdited) onZoneEdited();
+    }
+
+    void SamplerControlsPanel::WaveformDisplay::mouseUp (const juce::MouseEvent&)
+    {
+        dragMode = DragMode::none;
+    }
+
+    void SamplerControlsPanel::WaveformDisplay::mouseMove (const juce::MouseEvent& e)
+    {
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlot.getCurrentModule());
+        if (sampler == nullptr || zoneIndex < 0 || zoneIndex >= sampler->getNumZones())
+        {
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            return;
+        }
+
+        auto sample = sampler->getZoneSample (zoneIndex);
+        if (sample == nullptr || sample->buffer.getNumSamples() == 0)
+        {
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            return;
+        }
+
+        const int numSamples = sample->buffer.getNumSamples();
+        const auto zone = sampler->getZone (zoneIndex);
+
+        bool nearMarker = std::abs (e.x - xForSample (zone.startSample, numSamples)) <= markerGrabPixels
+            || std::abs (e.x - xForSample (zone.endSample > 0 ? zone.endSample : numSamples, numSamples)) <= markerGrabPixels;
+        if (zone.loopEnabled)
+        {
+            nearMarker = nearMarker
+                || std::abs (e.x - xForSample (zone.loopStart, numSamples)) <= markerGrabPixels
+                || std::abs (e.x - xForSample (zone.loopEnd, numSamples)) <= markerGrabPixels;
+        }
+
+        setMouseCursor (nearMarker ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    // -- SamplerControlsPanel --
+
+    SamplerControlsPanel::SamplerControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
+        : apvtsRef (apvts), slotIndexValue (slotIndex), rackSlotRef (rackSlot),
+          zoneStrip (rackSlot), waveformDisplay (rackSlot)
+    {
+        addAndMakeVisible (zoneStrip);
+        addAndMakeVisible (waveformDisplay);
+
+        zoneStrip.onZoneSelected = [this] (int index) { selectZone (index); };
+        zoneStrip.onFilesDropped = [this] (const juce::StringArray& files)
+        {
+            auto* sampler = dynamic_cast<SamplerModule*> (rackSlotRef.getCurrentModule());
+            if (sampler == nullptr)
+                return;
+
+            juce::AudioFormatManager formatManager;
+            formatManager.registerBasicFormats();
+            juce::StringArray validFiles;
+            for (auto& f : files)
+                if (formatManager.findFormatForFileExtension (juce::File (f).getFileExtension()) != nullptr)
+                    validFiles.add (f);
+
+            if (validFiles.isEmpty())
+                return;
+
+            // Multiple files onto an empty zone list spread contiguously across the full
+            // keyboard, matching how Ableton auto-maps a multi-file drop -- a single file (or
+            // any drop onto a rack that already has zones) just gets the full range and is
+            // narrowed manually via the Key Lo/Hi knobs below.
+            const bool spreadAcrossKeyboard = sampler->getNumZones() == 0 && validFiles.size() > 1;
+            const int span = 128 / juce::jmax (1, validFiles.size());
+
+            for (int i = 0; i < validFiles.size(); ++i)
+            {
+                int keyLow = 0, keyHigh = 127;
+                if (spreadAcrossKeyboard)
+                {
+                    keyLow = i * span;
+                    keyHigh = (i == validFiles.size() - 1) ? 127 : (keyLow + span - 1);
+                }
+
+                if (sampler->addZoneFromFile (juce::File (validFiles[i]), keyLow, keyHigh))
+                    selectedZoneIndex = sampler->getNumZones() - 1;
+            }
+
+            refreshFromModule();
+            zoneStrip.repaint();
+            waveformDisplay.repaint();
+        };
+
+        // A live drag on either the strip or the waveform mutates the module's zone directly, so
+        // the knob row below needs to resync from it immediately rather than waiting on the timer.
+        zoneStrip.onZoneEdited = [this] { refreshFromModule(); waveformDisplay.repaint(); };
+        waveformDisplay.onZoneEdited = [this] { refreshFromModule(); zoneStrip.repaint(); };
+
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (keyLoSlider, keyLoLabel, "Key Lo");
+        setupRotary (keyHiSlider, keyHiLabel, "Key Hi");
+        setupRotary (velLoSlider, velLoLabel, "Vel Lo");
+        setupRotary (velHiSlider, velHiLabel, "Vel Hi");
+        keyLoSlider.setRange (0.0, 127.0, 1.0);
+        keyHiSlider.setRange (0.0, 127.0, 1.0);
+        velLoSlider.setRange (0.0, 127.0, 1.0);
+        velHiSlider.setRange (0.0, 127.0, 1.0);
+
+        setupRotary (rootSlider, rootLabel, "Root");
+        rootSlider.setRange (0.0, 127.0, 1.0);
+        setupRotary (startSlider, startLabel, "Start");
+        setupRotary (endSlider, endLabel, "End");
+
+        setupRotary (loopStartSlider, loopStartLabel, "Loop Start");
+        setupRotary (loopEndSlider, loopEndLabel, "Loop End");
+
+        addAndMakeVisible (loopEnabledButton);
+        addAndMakeVisible (removeZoneButton);
+
+        for (auto* slider : { &keyLoSlider, &keyHiSlider, &velLoSlider, &velHiSlider, &rootSlider,
+                               &startSlider, &endSlider, &loopStartSlider, &loopEndSlider })
+            slider->onValueChange = [this] { pushZoneEdit(); };
+        loopEnabledButton.onClick = [this] { pushZoneEdit(); };
+
+        removeZoneButton.onClick = [this]
+        {
+            auto* sampler = dynamic_cast<SamplerModule*> (rackSlotRef.getCurrentModule());
+            if (sampler == nullptr || selectedZoneIndex < 0)
+                return;
+            sampler->removeZone (selectedZoneIndex);
+            selectedZoneIndex = juce::jmin (selectedZoneIndex, sampler->getNumZones() - 1);
+            refreshFromModule();
+            zoneStrip.repaint();
+            waveformDisplay.repaint();
+        };
+
+        setupRotary (voicesSlider, voicesLabel, "Voices");
+        setupRotary (attackSlider, attackLabel, "Attack");
+        setupRotary (decaySlider, decayLabel, "Decay");
+        setupRotary (sustainSlider, sustainLabel, "Sustain");
+        setupRotary (releaseSlider, releaseLabel, "Release");
+        setupRotary (outputSlider, outputLabel, "Output");
+        setupRotary (glideTimeSlider, glideTimeLabel, "Glide Time");
+        addAndMakeVisible (glideButton);
+
+        setupRotary (startModSlider, startModLabel, "Start Mod");
+        setupRotary (endModSlider, endModLabel, "End Mod");
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+
+        voicesAttachment    = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::voices), voicesSlider);
+        attackAttachment    = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::attack), attackSlider);
+        decayAttachment     = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::decay), decaySlider);
+        sustainAttachment   = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::sustain), sustainSlider);
+        releaseAttachment   = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::release), releaseSlider);
+        outputAttachment    = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::output), outputSlider);
+        glideTimeAttachment = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::glideTime), glideTimeSlider);
+        glideAttachment     = std::make_unique<ButtonAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::glide), glideButton);
+        startModAttachment  = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::startMod), startModSlider);
+        endModAttachment    = std::make_unique<SliderAttachment> (apvts, samplerParamId (slotIndex, SamplerParam::endMod), endModSlider);
+
+        modTargets = {
+            { samplerParamId (slotIndex, SamplerParam::attack),    "Attack",    &attackSlider },
+            { samplerParamId (slotIndex, SamplerParam::decay),     "Decay",     &decaySlider },
+            { samplerParamId (slotIndex, SamplerParam::sustain),   "Sustain",   &sustainSlider },
+            { samplerParamId (slotIndex, SamplerParam::release),   "Release",   &releaseSlider },
+            { samplerParamId (slotIndex, SamplerParam::output),    "Output",    &outputSlider },
+            { samplerParamId (slotIndex, SamplerParam::startMod),  "Start Mod", &startModSlider },
+            { samplerParamId (slotIndex, SamplerParam::endMod),    "End Mod",   &endModSlider },
+        };
+
+        refreshFromModule();
+        startTimerHz (4);
+    }
+
+    SamplerControlsPanel::~SamplerControlsPanel() { stopTimer(); }
+
+    void SamplerControlsPanel::timerCallback()
+    {
+        refreshFromModule();
+        zoneStrip.repaint();
+        waveformDisplay.repaint();
+    }
+
+    void SamplerControlsPanel::selectZone (int zoneIndex)
+    {
+        selectedZoneIndex = zoneIndex;
+        zoneStrip.selectedZoneIndex = zoneIndex;
+        waveformDisplay.zoneIndex = zoneIndex;
+        refreshFromModule();
+        zoneStrip.repaint();
+        waveformDisplay.repaint();
+    }
+
+    void SamplerControlsPanel::refreshFromModule()
+    {
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlotRef.getCurrentModule());
+        if (sampler == nullptr)
+            return;
+
+        const int numZones = sampler->getNumZones();
+        if (selectedZoneIndex >= numZones)
+            selectedZoneIndex = numZones - 1;
+        zoneStrip.selectedZoneIndex = selectedZoneIndex;
+        waveformDisplay.zoneIndex = selectedZoneIndex;
+
+        removeZoneButton.setEnabled (selectedZoneIndex >= 0 && selectedZoneIndex < numZones);
+
+        if (selectedZoneIndex < 0 || selectedZoneIndex >= numZones)
+            return;
+
+        const auto zone = sampler->getZone (selectedZoneIndex);
+        const auto sample = sampler->getZoneSample (selectedZoneIndex);
+        const int maxSample = sample != nullptr ? juce::jmax (1, sample->buffer.getNumSamples()) : 1;
+
+        suppressZoneCallbacks = true;
+        keyLoSlider.setValue (zone.keyLow, juce::dontSendNotification);
+        keyHiSlider.setValue (zone.keyHigh, juce::dontSendNotification);
+        velLoSlider.setValue (zone.velLow, juce::dontSendNotification);
+        velHiSlider.setValue (zone.velHigh, juce::dontSendNotification);
+        rootSlider.setValue (zone.rootNote, juce::dontSendNotification);
+
+        startSlider.setRange (0.0, (double) maxSample, 1.0);
+        startSlider.setValue (zone.startSample, juce::dontSendNotification);
+        endSlider.setRange (0.0, (double) maxSample, 1.0);
+        endSlider.setValue (zone.endSample > 0 ? zone.endSample : maxSample, juce::dontSendNotification);
+
+        loopEnabledButton.setToggleState (zone.loopEnabled, juce::dontSendNotification);
+        loopStartSlider.setRange (0.0, (double) maxSample, 1.0);
+        loopStartSlider.setValue (zone.loopStart, juce::dontSendNotification);
+        loopEndSlider.setRange (0.0, (double) maxSample, 1.0);
+        loopEndSlider.setValue (zone.loopEnd > 0 ? zone.loopEnd : maxSample, juce::dontSendNotification);
+        suppressZoneCallbacks = false;
+    }
+
+    void SamplerControlsPanel::pushZoneEdit()
+    {
+        if (suppressZoneCallbacks)
+            return;
+
+        auto* sampler = dynamic_cast<SamplerModule*> (rackSlotRef.getCurrentModule());
+        if (sampler == nullptr || selectedZoneIndex < 0 || selectedZoneIndex >= sampler->getNumZones())
+            return;
+
+        auto zone = sampler->getZone (selectedZoneIndex);
+        zone.keyLow = (int) keyLoSlider.getValue();
+        zone.keyHigh = (int) keyHiSlider.getValue();
+        zone.velLow = (int) velLoSlider.getValue();
+        zone.velHigh = (int) velHiSlider.getValue();
+        zone.rootNote = (int) rootSlider.getValue();
+        zone.startSample = (int) startSlider.getValue();
+        zone.endSample = (int) endSlider.getValue();
+        zone.loopEnabled = loopEnabledButton.getToggleState();
+        zone.loopStart = (int) loopStartSlider.getValue();
+        zone.loopEnd = (int) loopEndSlider.getValue();
+
+        // Keep low<=high sane rather than rejecting the edit outright -- matches how a knob-based
+        // range editor (no drag-resize handles to physically stop you) needs to self-correct.
+        if (zone.keyLow > zone.keyHigh) std::swap (zone.keyLow, zone.keyHigh);
+        if (zone.velLow > zone.velHigh) std::swap (zone.velLow, zone.velHigh);
+
+        sampler->setZone (selectedZoneIndex, zone);
+        zoneStrip.repaint();
+        waveformDisplay.repaint();
+    }
+
+    void SamplerControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+
+        zoneStrip.setBounds (area.removeFromTop (54));
+        area.removeFromTop (6);
+        waveformDisplay.setBounds (area.removeFromTop (60));
+        area.removeFromTop (6);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        auto layoutButtonCell = [&] (juce::Rectangle<int> col, juce::Button& button)
+        {
+            auto cell = col.reduced (4);
+            cell.removeFromTop ((cell.getHeight() - 24) / 2);
+            button.setBounds (cell.removeFromTop (24));
+        };
+
+        // Wide default width (see getPreferredWidth()) lets the zone's full parameter set live on
+        // one row instead of the stacked narrow-column layout this used before.
+        auto zoneRow = area.removeFromTop (106);
+        const int zoneRowWidth = zoneRow.getWidth() / 7;
+        layoutKnob (zoneRow.removeFromLeft (zoneRowWidth), keyLoLabel, keyLoSlider);
+        layoutKnob (zoneRow.removeFromLeft (zoneRowWidth), keyHiLabel, keyHiSlider);
+        layoutKnob (zoneRow.removeFromLeft (zoneRowWidth), velLoLabel, velLoSlider);
+        layoutKnob (zoneRow.removeFromLeft (zoneRowWidth), velHiLabel, velHiSlider);
+        layoutKnob (zoneRow.removeFromLeft (zoneRowWidth), rootLabel, rootSlider);
+        layoutKnob (zoneRow.removeFromLeft (zoneRowWidth), startLabel, startSlider);
+        layoutKnob (zoneRow, endLabel, endSlider);
+
+        area.removeFromTop (6);
+        auto loopRow = area.removeFromTop (106);
+        const int loopRowWidth = loopRow.getWidth() / 4;
+        layoutKnob (loopRow.removeFromLeft (loopRowWidth), loopStartLabel, loopStartSlider);
+        layoutKnob (loopRow.removeFromLeft (loopRowWidth), loopEndLabel, loopEndSlider);
+        layoutButtonCell (loopRow.removeFromLeft (loopRowWidth), loopEnabledButton);
+        layoutButtonCell (loopRow, removeZoneButton);
+
+        area.removeFromTop (10);
+        auto globalRow = area.removeFromTop (106);
+        const int globalRowWidth = globalRow.getWidth() / 10;
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), voicesLabel, voicesSlider);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), attackLabel, attackSlider);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), decayLabel, decaySlider);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), sustainLabel, sustainSlider);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), releaseLabel, releaseSlider);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), outputLabel, outputSlider);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), glideTimeLabel, glideTimeSlider);
+        layoutButtonCell (globalRow.removeFromLeft (globalRowWidth), glideButton);
+        layoutKnob (globalRow.removeFromLeft (globalRowWidth), startModLabel, startModSlider);
+        layoutKnob (globalRow, endModLabel, endModSlider);
+    }
+
     ConvolutionControlsPanel::ConvolutionControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex, RackSlot& rackSlot)
         : waveform (rackSlot)
     {

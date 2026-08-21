@@ -92,6 +92,11 @@ namespace GGrid
         bool isMultipassType() const;
         bool hasFourOutputBuses() const;
 
+        // True for Sampler nodes -- its zone-strip/waveform/knob layout needs far more horizontal
+        // room than a normal module (see getPreferredWidth()/getMinimumWidth()), the same way
+        // WT Synth already gets its own width/height floor.
+        bool isSamplerType() const;
+
         // No input ports at all: Input (a source of the raw dry signal) and ThreeOsc (a source of
         // its own MIDI-generated audio) alike -- see isInputType()/isThreeOscType(). WT Synth
         // keeps its input ports because incoming audio acts as external FM. Used to hide
@@ -232,6 +237,7 @@ namespace GGrid
         std::unique_ptr<DelayControlsPanel> delayPanel;
         std::unique_ptr<CompressorControlsPanel> compressorPanel;
         std::unique_ptr<LimiterControlsPanel> limiterPanel;
+        std::unique_ptr<SamplerControlsPanel> samplerPanel;
         std::unique_ptr<ConvolutionControlsPanel> convolutionPanel;
         std::unique_ptr<UtilityControlsPanel> utilityPanel;
         std::unique_ptr<RingModControlsPanel> ringModPanel;

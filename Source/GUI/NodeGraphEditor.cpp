@@ -477,12 +477,12 @@ namespace GGrid
             {
                 const int outputSlot = findFirstSlotOfType (ModuleType::output);
 
-                if (type == ModuleType::threeOsc || type == ModuleType::wavetableSynth)
+                if (type == ModuleType::threeOsc || type == ModuleType::wavetableSynth || type == ModuleType::sampler)
                 {
-                    // ThreeOsc is itself a source (like Input, see ModuleType::threeOsc's class
-                    // comment) -- there's no "from Input" leg to wire (it has no input port at
-                    // all), just connect it straight to the first Output so it's audible the
-                    // instant it's added.
+                    // ThreeOsc/Sampler are themselves sources (like Input, see
+                    // ModuleType::threeOsc's class comment) -- there's no "from Input" leg to
+                    // wire (no input port at all), just connect straight to the first Output so
+                    // it's audible the instant it's added.
                     if (outputSlot >= 0) processor.addConnection (i, outputSlot);
                 }
                 else
@@ -531,11 +531,11 @@ namespace GGrid
         if (isModulationSourceType (newType))
             processor.removeAllConnectionsForSlot (slotIndex);
 
-        // Input/ThreeOsc have no input ports (only their outgoing edges are still valid); Output
-        // has no output ports (only its incoming edges are still valid) -- prune whichever side
-        // just became invalid for the new type. Iterated backward since removeConnection shifts
-        // later entries down.
-        if (newType == ModuleType::input || newType == ModuleType::threeOsc)
+        // Input/ThreeOsc/Sampler have no input ports (only their outgoing edges are still
+        // valid); Output has no output ports (only its incoming edges are still valid) -- prune
+        // whichever side just became invalid for the new type. Iterated backward since
+        // removeConnection shifts later entries down.
+        if (newType == ModuleType::input || newType == ModuleType::threeOsc || newType == ModuleType::sampler)
         {
             for (int c = processor.numConnections - 1; c >= 0; --c)
                 if (processor.connections[(size_t) c].to == slotIndex)

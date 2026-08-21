@@ -45,20 +45,22 @@ namespace GGrid
         spectralClipper = 25,
         compressor = 26,
         limiter = 27,
+        sampler = 28,
     };
 
-    // Retired -- Dynamics (index 4, a combined Compressor/Limiter-mode module) was replaced by
-    // separate Compressor and Limiter module types. The enum value and its "Dynamics" entry in
-    // getModuleTypeChoices() below stay put forever (append-only, see ModuleType's own values --
-    // removing or renumbering either would corrupt any saved project whose slot indices/choice
-    // parameters point at what's now a different type); this just keeps it out of the UI so
-    // nothing new can be created as one. Any slot loaded from an old save that was Dynamics-typed
-    // shows as an empty/unselected type box -- RackSlot::createModuleForType has no case for it,
-    // matching how ModuleType::input/output/none already have none (no RackModule to construct).
-    inline bool isRetiredModuleType (ModuleType type)
-    {
-        return type == ModuleType::dynamics;
-    }
+    // Dynamics (index 4, a combined Compressor/Limiter-mode module) is retired, replaced by
+    // separate Compressor and Limiter module types -- but the enum value and its "Dynamics"
+    // entry in getModuleTypeChoices() below stay put forever (append-only, see ModuleType's own
+    // values -- removing or renumbering either would corrupt any saved project whose slot
+    // indices/choice parameters point at what's now a different type). It's kept out of
+    // AddModuleSearchPopup's hand-built entry list (so nothing new gets created as one), but
+    // NodeComponent's own per-node type dropdown still lists it -- that dropdown is populated by
+    // iterating this exact array 1:1 into a JUCE ComboBox, and ComboBoxAttachment syncs by ITEM
+    // POSITION, not by id, so skipping any single entry there shifts every later item's position
+    // and desyncs the dropdown's displayed type from every slot after the gap. Selecting Dynamics
+    // there is harmless either way -- RackSlot::createModuleForType has no case for it, so the
+    // slot just ends up with no module, matching ModuleType::none/input/output's own "no
+    // RackModule to construct" handling.
 
     // Modulation SOURCE types -- LFO, Envelope, and ADSR alike have no audio ports at all and
     // aren't part of the audio ConnectionGraph (see GGridAudioProcessor::processBlock's active[]
@@ -76,7 +78,7 @@ namespace GGrid
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
                  "Envelope", "ADSR", "Multipass", "LFO Table", "WT Synth", "Nonlinear Filter", "Mackity", "Shimmer Reverb",
-                 "Spectral Clipper", "Compressor", "Limiter" };
+                 "Spectral Clipper", "Compressor", "Limiter", "Sampler" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -608,6 +610,48 @@ namespace GGrid
         static const juce::String fine     = "fine";   // cents
         static const juce::String pan      = "pan";
         static const juce::String level    = "level";
+    }
+
+    // A multi-sample instrument: drag-and-drop audio files onto the module to create zones, each
+    // covering a key/velocity range -- see SamplerModule. Like ThreeOsc/WT Synth, a Sampler slot
+    // is a graph SOURCE, not a signal processor. Phase 1 scope only: no filter section, pitch
+    // envelope, FM oscillator, LFOs, or MIDI-learn tab -- GGrid's existing Filter/Nonlinear
+    // Filter modules and its LFO/Envelope/ADSR modulation-cable system already cover that ground
+    // generically for every module, so Sampler doesn't need its own copies (see SamplerModule's
+    // own class comment for the full reasoning).
+    //
+    // Zones themselves (an arbitrary-count list, each holding a file path plus several numeric
+    // fields) are NOT flat APVTS parameters -- the same reason EnvelopeModule's breakpoints
+    // aren't (see EnvelopeParam's own comment): a variable-length list can't be represented as a
+    // fixed set of automatable scalars. They're serialized instead via
+    // RackModule::writeExtraState/readExtraState. kMaxSamplerZones is just the fixed-capacity
+    // array size that lives in, not a parameter count.
+    constexpr int kMaxSamplerZones = 32;
+    constexpr int kMaxSamplerVoices = 16;
+
+    inline juce::String samplerParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_sampler_" + paramName;
+    }
+
+    namespace SamplerParam
+    {
+        static const juce::String voices    = "voices";
+        static const juce::String glide     = "glide";
+        static const juce::String glideTime = "glideTime";
+        static const juce::String attack    = "attack";
+        static const juce::String decay     = "decay";
+        static const juce::String sustain   = "sustain";
+        static const juce::String release   = "release";
+        static const juce::String output    = "output";
+
+        // Live scrub depth for the loop window (-1..1, fraction of a voice's own sample length,
+        // default 0), added on top of each zone's Loop Start/Loop End every time a held/looping
+        // voice wraps -- patch an LFO into either knob for granular-style position scrubbing. Only
+        // affects playback while Loop is on (see SamplerModule::renderRange); a one-shot/non-loop
+        // note ignores these since there's no ongoing wrap to relocate.
+        static const juce::String startMod  = "startMod";
+        static const juce::String endMod    = "endMod";
     }
 
     // A graph-first wavetable oscillator. The user-facing module presents one clean carrier

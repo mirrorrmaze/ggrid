@@ -385,6 +385,66 @@ namespace GGrid
             skewedRange (1.0f, 1000.0f, 50.0f), 50.0f, AudioParameterFloatAttributes().withLabel ("ms")));
     }
 
+    static void addSamplerParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterInt> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::voices), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Voices",
+            1, kMaxSamplerVoices, 16));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::glide), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Glide",
+            false));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::glideTime), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Glide Time",
+            skewedRange (1.0f, 2000.0f, 50.0f), 50.0f, AudioParameterFloatAttributes().withLabel ("ms")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::attack), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Attack",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.005f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::decay), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Decay",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.1f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::sustain), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Sustain",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::release), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Release",
+            skewedRange (0.001f, 5.0f, 0.3f), 0.2f,
+            AudioParameterFloatAttributes().withLabel ("s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::startMod), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler Start Mod",
+            NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { samplerParamId (slotIndex, SamplerParam::endMod), 1 },
+            "Slot " + String (slotIndex + 1) + " Sampler End Mod",
+            NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
+    }
+
     static void addConvolutionParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
     {
         using namespace juce;
@@ -1192,6 +1252,7 @@ namespace GGrid
             addDelayParams (layout, slot);
             addCompressorParams (layout, slot);
             addLimiterParams (layout, slot);
+            addSamplerParams (layout, slot);
             addConvolutionParams (layout, slot);
             addUtilityParams (layout, slot);
             addRingModParams (layout, slot);

@@ -56,6 +56,15 @@ knob with an LFO/Envelope/ADSR cable.
   Master Pitch, Bend Range, Mono/Legato + Glide, plus Unison/Spread algorithms: Hard, Smooth,
   Synthetic, Freq Stack, Pitch Stack, Shepard, Pentatonic Major/Minor, Octaves, Fifths, Minor,
   Major, Sus2/Sus4, Dim, Harmonics, and 1x-8x multipliers
+- Sampler -- multi-sample instrument, Phase 1 of an Ableton-Sampler-referenced build: drag and
+  drop audio files onto the module to create zones (each covering a key/velocity range, draggable
+  directly on the strip's piano-key-referenced timeline), a waveform view of the selected zone with
+  draggable Start/End/Loop markers, Root/Start/End/Loop per zone, Voices/Glide/amp envelope/Output
+  globally. Start Mod/End Mod scrub a held/looping voice's loop window live -- patch an LFO into
+  either for granular-style position scanning, crossfaded on every relocation so it stays free of
+  clicks/dropouts. No filter section, pitch envelope, FM oscillator, or LFOs of its own by design --
+  chain GGrid's own Filter/Nonlinear Filter modules after it, and patch an LFO/Envelope/ADSR
+  module's cable into its knobs, the same way every other module works.
 
 **I/O**
 - Input / Output -- any number of each; nothing reaches the speakers unless wired all the way
