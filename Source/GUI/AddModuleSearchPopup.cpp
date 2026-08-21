@@ -118,6 +118,7 @@ namespace GGrid
             { ModuleType::spectralClipper,       "Spectral Clipper",      "Distortion" },
 
             { ModuleType::delay,                 "Delay",                 "Time & Space" },
+            { ModuleType::granular,              "Granular",              "Time & Space" },
             { ModuleType::shimmerReverb,         "Shimmer Reverb",        "Time & Space" },
             { ModuleType::convolution,           "Convolution",           "Time & Space" },
             { ModuleType::multibandConvolution,  "Multiband Convolution", "Time & Space" },

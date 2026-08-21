@@ -237,6 +237,7 @@ namespace GGrid
         std::unique_ptr<DelayControlsPanel> delayPanel;
         std::unique_ptr<CompressorControlsPanel> compressorPanel;
         std::unique_ptr<LimiterControlsPanel> limiterPanel;
+        std::unique_ptr<GranularControlsPanel> granularPanel;
         std::unique_ptr<SamplerControlsPanel> samplerPanel;
         std::unique_ptr<ConvolutionControlsPanel> convolutionPanel;
         std::unique_ptr<UtilityControlsPanel> utilityPanel;

@@ -160,6 +160,7 @@ namespace GGrid
         delayPanel       = std::make_unique<DelayControlsPanel> (apvtsIn, slotIndex);
         compressorPanel  = std::make_unique<CompressorControlsPanel> (apvtsIn, slotIndex);
         limiterPanel     = std::make_unique<LimiterControlsPanel> (apvtsIn, slotIndex);
+        granularPanel    = std::make_unique<GranularControlsPanel> (apvtsIn, slotIndex);
         samplerPanel     = std::make_unique<SamplerControlsPanel> (apvtsIn, slotIndex, rackSlot);
         convolutionPanel = std::make_unique<ConvolutionControlsPanel> (apvtsIn, slotIndex, rackSlot);
         utilityPanel     = std::make_unique<UtilityControlsPanel> (apvtsIn, slotIndex);
@@ -194,6 +195,7 @@ namespace GGrid
         delayPanel->setInterceptsMouseClicks (false, true);
         compressorPanel->setInterceptsMouseClicks (false, true);
         limiterPanel->setInterceptsMouseClicks (false, true);
+        granularPanel->setInterceptsMouseClicks (false, true);
         samplerPanel->setInterceptsMouseClicks (false, true);
         convolutionPanel->setInterceptsMouseClicks (false, true);
         utilityPanel->setInterceptsMouseClicks (false, true);
@@ -220,6 +222,7 @@ namespace GGrid
         letDirectLabelsPassThrough (*delayPanel);
         letDirectLabelsPassThrough (*compressorPanel);
         letDirectLabelsPassThrough (*limiterPanel);
+        letDirectLabelsPassThrough (*granularPanel);
         letDirectLabelsPassThrough (*samplerPanel);
         letDirectLabelsPassThrough (*convolutionPanel);
         letDirectLabelsPassThrough (*utilityPanel);
@@ -244,6 +247,7 @@ namespace GGrid
         addAndMakeVisible (*delayPanel);
         addAndMakeVisible (*compressorPanel);
         addAndMakeVisible (*limiterPanel);
+        addAndMakeVisible (*granularPanel);
         addAndMakeVisible (*samplerPanel);
         addAndMakeVisible (*convolutionPanel);
         addAndMakeVisible (*utilityPanel);
@@ -317,6 +321,7 @@ namespace GGrid
             case ModuleType::compressor:              return slotPrefix + "compressor_";
             case ModuleType::limiter:                 return slotPrefix + "limiter_";
             case ModuleType::sampler:                 return slotPrefix + "sampler_";
+            case ModuleType::granular:                return slotPrefix + "granular_";
             case ModuleType::none:
             case ModuleType::input:
             case ModuleType::output:
@@ -359,6 +364,7 @@ namespace GGrid
         delayPanel->setVisible (showPanel && type == ModuleType::delay);
         compressorPanel->setVisible (showPanel && type == ModuleType::compressor);
         limiterPanel->setVisible (showPanel && type == ModuleType::limiter);
+        granularPanel->setVisible (showPanel && type == ModuleType::granular);
         samplerPanel->setVisible (showPanel && type == ModuleType::sampler);
         convolutionPanel->setVisible (showPanel && type == ModuleType::convolution);
         utilityPanel->setVisible (showPanel && type == ModuleType::utility);
@@ -409,6 +415,7 @@ namespace GGrid
             case ModuleType::delay:       contentHeight = 248; break; // knobRow(106) + gap(6) + filterRow(106) + gap(6) + bottomRow(24)
             case ModuleType::compressor:  contentHeight = 268; break; // topRow(106) + gap(6) + bottomRow(106) + gap(6) + detectionRow(44)
             case ModuleType::limiter:     contentHeight = 106; break; // knobRow(106), no bottom row
+            case ModuleType::granular:    contentHeight = 306; break; // preview(74)+gap+2 knob rows(106 each)+gap+freeze row(24)
             case ModuleType::sampler:
                 contentHeight = 460; break; // zoneStrip(54)+gap+waveform(60)+gap+zoneRow(7-col,106)+gap+loopRow(4-col,106)+gap(10)+globalRow(8-col,106)
             case ModuleType::convolution: contentHeight = 324; break; // irRow(24)+gap+waveform(70)+gap+2 knob rows(106 each)
@@ -560,6 +567,7 @@ namespace GGrid
             case ModuleType::delay:       return delayPanel->getModTargetCount();
             case ModuleType::compressor:  return compressorPanel->getModTargetCount();
             case ModuleType::limiter:     return limiterPanel->getModTargetCount();
+            case ModuleType::granular:    return granularPanel->getModTargetCount();
             case ModuleType::sampler:     return samplerPanel->getModTargetCount();
             case ModuleType::convolution: return convolutionPanel->getModTargetCount();
             case ModuleType::utility:     return utilityPanel->getModTargetCount();
@@ -589,6 +597,7 @@ namespace GGrid
             case ModuleType::delay:       return delayPanel->getModTarget (index).paramId;
             case ModuleType::compressor:  return compressorPanel->getModTarget (index).paramId;
             case ModuleType::limiter:     return limiterPanel->getModTarget (index).paramId;
+            case ModuleType::granular:    return granularPanel->getModTarget (index).paramId;
             case ModuleType::sampler:     return samplerPanel->getModTarget (index).paramId;
             case ModuleType::convolution: return convolutionPanel->getModTarget (index).paramId;
             case ModuleType::utility:     return utilityPanel->getModTarget (index).paramId;
@@ -619,6 +628,7 @@ namespace GGrid
             case ModuleType::delay:       slider = delayPanel->getModTarget (index).slider; break;
             case ModuleType::compressor:  slider = compressorPanel->getModTarget (index).slider; break;
             case ModuleType::limiter:     slider = limiterPanel->getModTarget (index).slider; break;
+            case ModuleType::granular:    slider = granularPanel->getModTarget (index).slider; break;
             case ModuleType::sampler:     slider = samplerPanel->getModTarget (index).slider; break;
             case ModuleType::convolution: slider = convolutionPanel->getModTarget (index).slider; break;
             case ModuleType::utility:     slider = utilityPanel->getModTarget (index).slider; break;
@@ -783,6 +793,7 @@ namespace GGrid
         delayPanel->setBounds (contentArea);
         compressorPanel->setBounds (contentArea);
         limiterPanel->setBounds (contentArea);
+        granularPanel->setBounds (contentArea);
         samplerPanel->setBounds (contentArea);
         convolutionPanel->setBounds (contentArea);
         utilityPanel->setBounds (contentArea);

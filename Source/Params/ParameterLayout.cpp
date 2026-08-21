@@ -445,6 +445,70 @@ namespace GGrid
             NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
     }
 
+    static void addGranularParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
+    {
+        using namespace juce;
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::size), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Size",
+            skewedRange (5.0f, 500.0f, 80.0f), 80.0f,
+            AudioParameterFloatAttributes().withLabel ("ms")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::density), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Density",
+            NormalisableRange<float> (1.0f, 120.0f, 0.1f), 24.0f,
+            AudioParameterFloatAttributes().withLabel ("g/s")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::position), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Position",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 28.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::jitter), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Jitter",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 20.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::pitch), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Pitch",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("st")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::spread), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Spread",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 45.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::feedback), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Feedback",
+            NormalisableRange<float> (0.0f, 95.0f, 0.1f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterBool> (
+            ParameterID { granularParamId (slotIndex, GranularParam::freeze), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Freeze",
+            false));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::mix), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Mix",
+            NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
+            AudioParameterFloatAttributes().withLabel ("%")));
+
+        layout.add (std::make_unique<AudioParameterFloat> (
+            ParameterID { granularParamId (slotIndex, GranularParam::output), 1 },
+            "Slot " + String (slotIndex + 1) + " Granular Output",
+            NormalisableRange<float> (-24.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+    }
+
     static void addConvolutionParams (juce::AudioProcessorValueTreeState::ParameterLayout& layout, int slotIndex)
     {
         using namespace juce;
@@ -1253,6 +1317,7 @@ namespace GGrid
             addCompressorParams (layout, slot);
             addLimiterParams (layout, slot);
             addSamplerParams (layout, slot);
+            addGranularParams (layout, slot);
             addConvolutionParams (layout, slot);
             addUtilityParams (layout, slot);
             addRingModParams (layout, slot);

@@ -8,6 +8,7 @@
 #include "Modules/DelayModule.h"
 #include "Modules/CompressorModule.h"
 #include "Modules/LimiterModule.h"
+#include "Modules/GranularModule.h"
 #include "Modules/ConvolutionModule.h"
 #include "Modules/MultibandConvolutionModule.h"
 #include "Modules/UtilityModule.h"
@@ -953,6 +954,42 @@ int main()
         expect (peak < ceilingLinear * 1.05f,
                 "Limiter caps output near its Ceiling (-3dB, linear " + juce::String (ceilingLinear, 4)
                     + ") even when driven hard by Gain (+24dB) -- measured peak " + juce::String (peak, 4));
+    }
+
+    // --- Granular: wet grains stay bounded and audibly differ from the dry input ---
+    {
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::size))->store (45.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::density))->store (80.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::position))->store (8.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::jitter))->store (35.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::pitch))->store (7.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::spread))->store (80.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::feedback))->store (25.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::freeze))->store (0.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::mix))->store (100.0f);
+        apvts.getRawParameterValue (granularParamId (0, GranularParam::output))->store (0.0f);
+
+        GranularModule module (apvts, 0);
+        module.prepare (spec);
+
+        auto buffer = makeTestSignal (blockSize * 20, 0.35f, 330.0f, sampleRate);
+        auto dry = buffer;
+        juce::dsp::AudioBlock<float> fullBlock (buffer);
+        for (int chunk = 0; chunk < 20; ++chunk)
+        {
+            auto sub = fullBlock.getSubBlock ((size_t) (chunk * blockSize), (size_t) blockSize);
+            juce::MidiBuffer midi;
+            module.process (sub, midi, modMatrix);
+        }
+
+        float diff = 0.0f;
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = blockSize * 8; i < buffer.getNumSamples(); ++i)
+                diff += std::abs (buffer.getSample (ch, i) - dry.getSample (ch, i));
+
+        expect (isFiniteAndBounded (buffer, 1.2f) && diff > 20.0f,
+                "Granular stays finite/bounded and produces a clearly different wet grain stream (absolute diff "
+                    + juce::String (diff, 3) + ")");
     }
 
     // --- Sampler: a zone plays back at its recorded pitch when the played note equals Root,

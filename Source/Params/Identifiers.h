@@ -46,6 +46,7 @@ namespace GGrid
         compressor = 26,
         limiter = 27,
         sampler = 28,
+        granular = 29,
     };
 
     // Dynamics (index 4, a combined Compressor/Limiter-mode module) is retired, replaced by
@@ -78,7 +79,7 @@ namespace GGrid
         return { "None", "Waveshaper", "Filter", "Delay", "Dynamics", "Convolution", "Utility", "Ring Mod", "LFO",
                  "Lossy", "EQ 8", "Chorus/Flanger", "EQ 3", "Input", "Output", "Multiband Convolution", "3xOsc",
                  "Envelope", "ADSR", "Multipass", "LFO Table", "WT Synth", "Nonlinear Filter", "Mackity", "Shimmer Reverb",
-                 "Spectral Clipper", "Compressor", "Limiter", "Sampler" };
+                 "Spectral Clipper", "Compressor", "Limiter", "Sampler", "Granular" };
     }
 
     inline juce::String slotTypeParamId (int slotIndex)   { return "slot" + juce::String (slotIndex) + "_type"; }
@@ -652,6 +653,25 @@ namespace GGrid
         // note ignores these since there's no ongoing wrap to relocate.
         static const juce::String startMod  = "startMod";
         static const juce::String endMod    = "endMod";
+    }
+
+    inline juce::String granularParamId (int slotIndex, const juce::String& paramName)
+    {
+        return "slot" + juce::String (slotIndex) + "_granular_" + paramName;
+    }
+
+    namespace GranularParam
+    {
+        static const juce::String size     = "size";
+        static const juce::String density  = "density";
+        static const juce::String position = "position";
+        static const juce::String jitter   = "jitter";
+        static const juce::String pitch    = "pitch";
+        static const juce::String spread   = "spread";
+        static const juce::String feedback = "feedback";
+        static const juce::String freeze   = "freeze";
+        static const juce::String mix      = "mix";
+        static const juce::String output   = "output";
     }
 
     // A graph-first wavetable oscillator. The user-facing module presents one clean carrier

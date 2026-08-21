@@ -310,6 +310,49 @@ namespace GGrid
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LimiterControlsPanel)
     };
 
+    class GranularControlsPanel : public juce::Component, private juce::Timer
+    {
+    public:
+        GranularControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex);
+        ~GranularControlsPanel() override;
+
+        void paint (juce::Graphics&) override;
+        void resized() override;
+
+        int getModTargetCount() const { return (int) modTargets.size(); }
+        const ModTarget& getModTarget (int index) const { return modTargets[(size_t) index]; }
+
+    private:
+        void timerCallback() override { repaint (previewArea); }
+
+        std::atomic<float>* sizeParam = nullptr;
+        std::atomic<float>* densityParam = nullptr;
+        std::atomic<float>* positionParam = nullptr;
+        std::atomic<float>* jitterParam = nullptr;
+        std::atomic<float>* pitchParam = nullptr;
+        std::atomic<float>* spreadParam = nullptr;
+        std::atomic<float>* freezeParam = nullptr;
+
+        juce::Rectangle<int> previewArea;
+        float animationPhase = 0.0f;
+
+        juce::Label sizeLabel { {}, "Size" }, densityLabel { {}, "Density" }, positionLabel { {}, "Position" },
+                    jitterLabel { {}, "Jitter" }, pitchLabel { {}, "Pitch" }, spreadLabel { {}, "Spread" },
+                    feedbackLabel { {}, "Feedback" }, mixLabel { {}, "Mix" }, outputLabel { {}, "Output" };
+        juce::Slider sizeSlider, densitySlider, positionSlider, jitterSlider, pitchSlider, spreadSlider,
+                     feedbackSlider, mixSlider, outputSlider;
+        juce::ToggleButton freezeButton { "Freeze" };
+
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>
+            sizeAttachment, densityAttachment, positionAttachment, jitterAttachment, pitchAttachment,
+            spreadAttachment, feedbackAttachment, mixAttachment, outputAttachment;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> freezeAttachment;
+
+        std::vector<ModTarget> modTargets;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GranularControlsPanel)
+    };
+
     // Sampler module controls: drag-and-drop a zone strip (click a zone to select it for
     // editing, drop audio files to create new ones), a waveform display of the selected zone
     // with Start/End/Loop markers, a knob row for the selected zone's key/velocity range, root/

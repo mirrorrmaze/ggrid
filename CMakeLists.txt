@@ -44,6 +44,7 @@ target_sources(GGrid
         Source/Modules/DelayModule.cpp
         Source/Modules/CompressorModule.cpp
         Source/Modules/LimiterModule.cpp
+        Source/Modules/GranularModule.cpp
         Source/Modules/ConvolutionModule.cpp
         Source/Modules/UtilityModule.cpp
         Source/Modules/RingModModule.cpp
@@ -115,6 +116,7 @@ add_executable(OfflineDspTest
     Source/Modules/DelayModule.cpp
     Source/Modules/CompressorModule.cpp
     Source/Modules/LimiterModule.cpp
+    Source/Modules/GranularModule.cpp
     Source/Modules/ConvolutionModule.cpp
     Source/Modules/UtilityModule.cpp
     Source/Modules/RingModModule.cpp

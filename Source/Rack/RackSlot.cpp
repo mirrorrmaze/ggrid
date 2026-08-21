@@ -7,6 +7,7 @@
 #include "../Modules/DelayModule.h"
 #include "../Modules/CompressorModule.h"
 #include "../Modules/LimiterModule.h"
+#include "../Modules/GranularModule.h"
 #include "../Modules/SamplerModule.h"
 #include "../Modules/ConvolutionModule.h"
 #include "../Modules/UtilityModule.h"
@@ -61,6 +62,9 @@ namespace GGrid
 
             case ModuleType::limiter:
                 return std::make_unique<LimiterModule> (apvts, slotIndex);
+
+            case ModuleType::granular:
+                return std::make_unique<GranularModule> (apvts, slotIndex);
 
             // Sampler is a graph SOURCE like ThreeOsc/WT Synth (see ModuleType::sampler's own
             // comment) -- it generates audio from MIDI notes rather than processing whatever

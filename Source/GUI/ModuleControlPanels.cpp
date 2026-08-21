@@ -1180,6 +1180,158 @@ namespace GGrid
         layoutKnob (knobRow, releaseLabel, releaseSlider);
     }
 
+    GranularControlsPanel::GranularControlsPanel (juce::AudioProcessorValueTreeState& apvts, int slotIndex)
+    {
+        auto setupRotary = [this] (juce::Slider& s, juce::Label& label, const juce::String& text)
+        {
+            s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 58, 16);
+            label.setText (text, juce::dontSendNotification);
+            label.setJustificationType (juce::Justification::centred);
+            addAndMakeVisible (s);
+            addAndMakeVisible (label);
+        };
+
+        setupRotary (sizeSlider, sizeLabel, "Size");
+        setupRotary (densitySlider, densityLabel, "Density");
+        setupRotary (positionSlider, positionLabel, "Position");
+        setupRotary (jitterSlider, jitterLabel, "Jitter");
+        setupRotary (pitchSlider, pitchLabel, "Pitch");
+        setupRotary (spreadSlider, spreadLabel, "Spread");
+        setupRotary (feedbackSlider, feedbackLabel, "Feedback");
+        setupRotary (mixSlider, mixLabel, "Mix");
+        setupRotary (outputSlider, outputLabel, "Output");
+
+        addAndMakeVisible (freezeButton);
+
+        using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+        using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+
+        sizeAttachment     = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::size), sizeSlider);
+        densityAttachment  = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::density), densitySlider);
+        positionAttachment = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::position), positionSlider);
+        jitterAttachment   = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::jitter), jitterSlider);
+        pitchAttachment    = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::pitch), pitchSlider);
+        spreadAttachment   = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::spread), spreadSlider);
+        feedbackAttachment = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::feedback), feedbackSlider);
+        mixAttachment      = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::mix), mixSlider);
+        outputAttachment   = std::make_unique<SliderAttachment> (apvts, granularParamId (slotIndex, GranularParam::output), outputSlider);
+        freezeAttachment   = std::make_unique<ButtonAttachment> (apvts, granularParamId (slotIndex, GranularParam::freeze), freezeButton);
+
+        sizeParam     = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::size));
+        densityParam  = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::density));
+        positionParam = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::position));
+        jitterParam   = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::jitter));
+        pitchParam    = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::pitch));
+        spreadParam   = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::spread));
+        freezeParam   = apvts.getRawParameterValue (granularParamId (slotIndex, GranularParam::freeze));
+
+        modTargets = {
+            { granularParamId (slotIndex, GranularParam::size),     "Size",     &sizeSlider },
+            { granularParamId (slotIndex, GranularParam::density),  "Density",  &densitySlider },
+            { granularParamId (slotIndex, GranularParam::position), "Position", &positionSlider },
+            { granularParamId (slotIndex, GranularParam::jitter),   "Jitter",   &jitterSlider },
+            { granularParamId (slotIndex, GranularParam::pitch),    "Pitch",    &pitchSlider },
+            { granularParamId (slotIndex, GranularParam::spread),   "Spread",   &spreadSlider },
+            { granularParamId (slotIndex, GranularParam::feedback), "Feedback", &feedbackSlider },
+            { granularParamId (slotIndex, GranularParam::mix),      "Mix",      &mixSlider },
+            { granularParamId (slotIndex, GranularParam::output),   "Output",   &outputSlider },
+        };
+
+        startTimerHz (24);
+    }
+
+    GranularControlsPanel::~GranularControlsPanel()
+    {
+        stopTimer();
+    }
+
+    void GranularControlsPanel::paint (juce::Graphics& g)
+    {
+        if (previewArea.isEmpty())
+            return;
+
+        animationPhase += 0.017f;
+        if (animationPhase >= 1.0f)
+            animationPhase -= 1.0f;
+
+        auto area = previewArea.toFloat();
+        g.setColour (Palette::dimmer);
+        g.fillRoundedRectangle (area, 4.0f);
+        g.setColour (Palette::dim.withAlpha (0.6f));
+        g.drawRoundedRectangle (area, 4.0f, 1.0f);
+
+        auto inner = area.reduced (10.0f, 8.0f);
+        const float position01 = positionParam != nullptr ? positionParam->load() / 100.0f : 0.28f;
+        const float jitter01 = jitterParam != nullptr ? jitterParam->load() / 100.0f : 0.2f;
+        const float spread01 = spreadParam != nullptr ? spreadParam->load() / 100.0f : 0.45f;
+        const float size01 = sizeParam != nullptr ? juce::jmap (sizeParam->load(), 5.0f, 500.0f, 0.05f, 0.34f) : 0.14f;
+        const float density01 = densityParam != nullptr ? densityParam->load() / 120.0f : 0.2f;
+        const float pitch = pitchParam != nullptr ? pitchParam->load() : 0.0f;
+        const bool frozen = freezeParam != nullptr && freezeParam->load() >= 0.5f;
+
+        g.setColour (Palette::bg.withAlpha (0.55f));
+        for (int i = 1; i < 4; ++i)
+        {
+            const float y = inner.getY() + inner.getHeight() * (float) i / 4.0f;
+            g.drawHorizontalLine (juce::roundToInt (y), inner.getX(), inner.getRight());
+        }
+
+        const float playX = inner.getX() + inner.getWidth() * juce::jlimit (0.0f, 1.0f, position01);
+        g.setColour ((frozen ? Palette::bright : Palette::accent).withAlpha (0.85f));
+        g.drawLine (playX, inner.getY(), playX, inner.getBottom(), 1.4f);
+
+        const int grainCount = juce::jlimit (6, 26, 6 + (int) (density01 * 20.0f));
+        for (int i = 0; i < grainCount; ++i)
+        {
+            const float n = (float) i / (float) juce::jmax (1, grainCount - 1);
+            const float wobble = std::sin ((n + animationPhase) * juce::MathConstants<float>::twoPi * 2.0f);
+            const float x01 = juce::jlimit (0.0f, 1.0f, position01 + (n - 0.5f) * jitter01 * 0.7f + wobble * 0.025f);
+            const float y01 = 0.5f + std::sin ((n * 3.1f + animationPhase) * juce::MathConstants<float>::twoPi) * spread01 * 0.38f;
+            const float w = inner.getWidth() * size01 * (0.65f + 0.35f * std::sin (n * 9.0f + pitch * 0.1f));
+            const auto grain = juce::Rectangle<float> (inner.getX() + x01 * inner.getWidth() - w * 0.5f,
+                                                       inner.getY() + y01 * inner.getHeight() - 3.0f,
+                                                       w, 6.0f);
+            g.setColour (Palette::bright.withAlpha (frozen ? 0.52f : 0.34f));
+            g.fillRoundedRectangle (grain, 3.0f);
+            g.setColour (Palette::accent.withAlpha (0.55f));
+            g.drawRoundedRectangle (grain, 3.0f, 0.8f);
+        }
+    }
+
+    void GranularControlsPanel::resized()
+    {
+        auto area = getLocalBounds().reduced (4);
+        previewArea = area.removeFromTop (74);
+        area.removeFromTop (8);
+
+        auto layoutKnob = [&] (juce::Rectangle<int> col, juce::Label& label, juce::Slider& slider)
+        {
+            label.setBounds (col.removeFromTop (16));
+            col.removeFromTop (16);
+            slider.setBounds (col);
+        };
+
+        auto topRow = area.removeFromTop (106);
+        const int topWidth = topRow.getWidth() / 5;
+        layoutKnob (topRow.removeFromLeft (topWidth), sizeLabel, sizeSlider);
+        layoutKnob (topRow.removeFromLeft (topWidth), densityLabel, densitySlider);
+        layoutKnob (topRow.removeFromLeft (topWidth), positionLabel, positionSlider);
+        layoutKnob (topRow.removeFromLeft (topWidth), jitterLabel, jitterSlider);
+        layoutKnob (topRow, pitchLabel, pitchSlider);
+
+        area.removeFromTop (6);
+        auto bottomRow = area.removeFromTop (106);
+        const int bottomWidth = bottomRow.getWidth() / 4;
+        layoutKnob (bottomRow.removeFromLeft (bottomWidth), spreadLabel, spreadSlider);
+        layoutKnob (bottomRow.removeFromLeft (bottomWidth), feedbackLabel, feedbackSlider);
+        layoutKnob (bottomRow.removeFromLeft (bottomWidth), mixLabel, mixSlider);
+        layoutKnob (bottomRow, outputLabel, outputSlider);
+
+        area.removeFromTop (6);
+        freezeButton.setBounds (area.removeFromTop (24).removeFromLeft (90));
+    }
+
     // -- SamplerControlsPanel::ZoneStrip --
 
     void SamplerControlsPanel::ZoneStrip::paint (juce::Graphics& g)
