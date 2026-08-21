@@ -213,17 +213,17 @@ namespace GGrid
 
     void GGridAudioProcessorEditor::resized()
     {
-        // Slim header row: File/Edit menus on the right, live output scope filling the rest of
-        // the space to their left.
+        // Slim header row: File/Edit menus in the top-left corner (where the Rack/Mod Matrix tab
+        // buttons used to live), live output scope filling the rest of the space to their right.
         constexpr int menuButtonHeight = 24;
         const int menuButtonTop = margin + (headerHeight - menuButtonHeight) / 2;
 
         constexpr int menuButtonWidth = 40, menuButtonGap = 2;
-        editMenuButton.setBounds (getWidth() - margin - menuButtonWidth, menuButtonTop, menuButtonWidth, menuButtonHeight);
-        fileMenuButton.setBounds (editMenuButton.getX() - menuButtonGap - menuButtonWidth, menuButtonTop, menuButtonWidth, menuButtonHeight);
+        fileMenuButton.setBounds (margin, menuButtonTop, menuButtonWidth, menuButtonHeight);
+        editMenuButton.setBounds (fileMenuButton.getRight() + menuButtonGap, menuButtonTop, menuButtonWidth, menuButtonHeight);
 
-        const int scopeLeft = margin;
-        const int scopeRight = fileMenuButton.getX() - gap;
+        const int scopeLeft = editMenuButton.getRight() + gap;
+        const int scopeRight = getWidth() - margin;
         processorRef.outputScope.setBounds (scopeLeft, margin, scopeRight - scopeLeft, headerHeight);
 
         const int contentTop = margin + headerHeight + margin;
